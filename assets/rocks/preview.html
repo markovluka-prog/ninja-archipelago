@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Скалы и рельеф — превью моделей</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#bfe3f2;font:13px/1.3 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2a2723}
+  #gl{position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:0}
+  #bar{position:relative;z-index:2;padding:8px 12px;background:rgba(255,255,255,.85);display:flex;gap:10px;align-items:center}
+  #bar button{font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer}
+  #grid{position:relative;z-index:1;display:grid;gap:6px;padding:6px}
+  .cell{position:relative;height:300px;border:1px solid rgba(0,0,0,.12);border-radius:6px;cursor:grab;touch-action:none}
+  .cell .lb{position:absolute;left:6px;bottom:4px;right:6px;padding:3px 7px;border-radius:6px;background:rgba(255,255,255,.82);pointer-events:none;font-size:12px}
+  .cell .lb b{font-weight:600}.cell .lb small{color:#6b655c}
+  body.nohud #bar,body.nohud .lb{display:none}
+  body.nohud .cell{border:0}
+  body.single .cell{height:calc(100vh - 12px)}
+</style>
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="bar"><b>Группа rocks</b> <span id="info"></span> <button id="shuf">Перемешать seed</button><span>колесо мыши — зум в одиночном режиме (?only=id), перетаскивание — вращение</span></div>
+<div id="grid"></div>
+<pre id="stats" style="display:none"></pre>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+let MODELS, measure;
+try { ({MODELS, measure} = await import('./models.js')); }
+catch (e){ document.getElementById('info').innerHTML = '<b style="color:#a8412e">Не удалось загрузить models.js по file:// (Chrome блокирует ES-модули). Откройте через сервер: python3 -m http.server в папке проекта, либо в Firefox/Safari.</b>'; throw e; }
+
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('nohud');
+const only = Q.get('only') ? Q.get('only').split(',') : null;
+const from = +(Q.get('from') || 0), to = +(Q.get('to') || 999);
+if (only && only.length === 1) document.body.classList.add('single');
+let seed = +(Q.get('seed') || 0);
+const cols = +(Q.get('cols') || (only && only.length === 1 ? 1 : 4));
+const rotDeg = +(Q.get('rot') || 35);
+const grid = document.getElementById('grid'); grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+if (Q.get('h')) document.documentElement.style.setProperty('--h', Q.get('h'));
+
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+let cells = [];
+function build(){
+  cells.forEach(c => { c.controls.dispose(); c.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); }); });
+  cells = []; grid.innerHTML = ''; const stats = [];
+  let list = only ? MODELS.filter(m => only.includes(m.id)) : MODELS.slice(from, to);
+  for (const m of list){
+    const el = document.createElement('div'); el.className = 'cell';
+    if (Q.get('h')) el.style.height = Q.get('h') + 'px';
+    const lb = document.createElement('div'); lb.className = 'lb'; el.appendChild(lb); grid.appendChild(el);
+    try {
+      const model = m.make(THREE, seed), s = measure(model);
+      stats.push({id:m.id, name:m.name, w:+s.w.toFixed(1), h:+s.h.toFixed(1), d:+s.d.toFixed(1), minY:+s.minY.toFixed(3), tris:s.tris});
+      lb.innerHTML = `<b>${m.id}</b> — ${m.name}<br><small>${s.w.toFixed(1)}×${s.h.toFixed(1)}×${s.d.toFixed(1)} · ${s.tris} тр.</small>`;
+      const scene = new THREE.Scene(); scene.background = new THREE.Color(0xbfe3f2);
+      const mx = Math.max(s.w, s.h, s.d);
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(mx*1.6, 40), new THREE.MeshStandardMaterial({color:0xd6c690, roughness:1}));
+      ground.rotation.x = -Math.PI/2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
+      scene.add(model);
+      scene.add(new THREE.HemisphereLight(0xdff2ff, 0x6a7a55, 0.95));
+      const sun = new THREE.DirectionalLight(0xfff1d6, 2.4); sun.position.set(mx*.8, mx*1.4, mx*.9); sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024); const k = mx*1.1;
+      Object.assign(sun.shadow.camera, {left:-k, right:k, top:k, bottom:-k, near:mx*.2, far:mx*4});
+      sun.shadow.bias = -0.0008; sun.shadow.normalBias = mx*.004; scene.add(sun);
+      const cam = new THREE.PerspectiveCamera(40, 1, mx*.05, mx*30);
+      const a = rotDeg*Math.PI/180, dist = mx*(s.w/s.h > 3 ? 1.9 : 2.4);
+      const target = new THREE.Vector3(0, s.h*.42, 0);
+      cam.position.set(Math.sin(a)*dist, s.h*.42 + dist*.45, Math.cos(a)*dist);
+      const controls = new OrbitControls(cam, el); controls.target.copy(target); controls.enableDamping = true;
+      controls.enableZoom = !!(only && only.length === 1); controls.maxPolarAngle = Math.PI*.49; controls.update();
+      const anim = []; model.traverse(o => { if (o.userData.animate) anim.push(o.userData.animate); });
+      cells.push({el, scene, cam, controls, anim});
+    } catch (e){ console.error('MODELERR ' + m.id + ' ' + e.message + ' ' + e.stack); lb.textContent = m.id + ' ОШИБКА: ' + e.message; }
+  }
+  document.getElementById('info').textContent = `моделей: ${cells.length}, seed ${seed}`;
+  document.getElementById('stats').textContent = JSON.stringify(stats);
+  document.title = 'rocks ready ' + stats.length;
+}
+build();
+document.getElementById('shuf').onclick = () => { seed = Math.floor(Math.random()*1000); build(); };
+
+const clock = new THREE.Clock();
+function frame(){
+  requestAnimationFrame(frame);
+  const w = innerWidth, h = innerHeight, t = clock.getElapsedTime();
+  if (canvas.width !== Math.floor(w*renderer.getPixelRatio())) renderer.setSize(w, h, false);
+  renderer.setScissorTest(false); renderer.setClearColor(0xbfe3f2); renderer.clear();
+  renderer.setScissorTest(true);
+  for (const c of cells){
+    const r = c.el.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > h || r.width < 2) continue;
+    c.anim.forEach(f => f(t)); c.controls.update();
+    c.cam.aspect = r.width/r.height; c.cam.updateProjectionMatrix();
+    renderer.setViewport(r.left, h - r.bottom, r.width, r.height); renderer.setScissor(r.left, h - r.bottom, r.width, r.height);
+    renderer.render(c.scene, c.cam);
+  }
+}
+frame();
+</script>
+</body>
+</html>

@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Зантио, королевский шпагоносец — 3D</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--ink:#2a2723;--mute:#7a746b;--card:rgba(255,255,255,.82);--accent:#1f4aa8}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+  body{background:radial-gradient(ellipse at 50% 38%,#f6f4ef 0%,#e4e1d9 55%,#c9c5bb 100%)}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  .hud{position:fixed;left:16px;top:16px;width:236px;padding:14px;border-radius:14px;background:var(--card);
+       backdrop-filter:blur(10px);box-shadow:0 6px 24px rgba(0,0,0,.12)}
+  .hud h1{font-size:15px;margin:0 0 2px}
+  .hud small{color:var(--mute)}
+  .clips{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 0}
+  button{font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:7px 8px;cursor:pointer;color:var(--ink)}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  label{display:flex;justify-content:space-between;align-items:center;margin:8px 0 2px;font-size:12px;color:var(--mute)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .row button{flex:1;white-space:nowrap}
+  .chk{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;color:var(--ink)}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;color:var(--mute);pointer-events:none}
+  body.nohud .hud{display:none}
+</style>
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="loading">Собираю Зантио…</div>
+<div class="hud" id="hud">
+  <h1>Зантио, королевский шпагоносец</h1>
+  <small>3D по фото фигурки · перетащи мышью, колесо — зум</small>
+  <div class="clips" id="clips"></div>
+  <div class="row"><button id="play">⏸ Пауза</button><button id="reset">Сброс</button></div>
+  <label>Скорость <span id="vSpeed">1.0×</span></label><input id="speed" type="range" min="0.1" max="2" step="0.05" value="1">
+  <label>Ветер на волосы и табард <span id="vWind">0.6</span></label><input id="wind" type="range" min="0" max="3" step="0.05" value="0.6">
+  <label>Жёсткость <span id="vStiff">0.6</span></label><input id="stiff" type="range" min="0.1" max="1" step="0.05" value="0.6">
+  <div class="chk"><input id="rot" type="checkbox"><label style="margin:0;color:inherit">Авто-вращение камеры</label></div>
+  <div class="chk"><input id="sword" type="checkbox" checked><label style="margin:0;color:inherit">Шпага</label>
+                   <input id="hat" type="checkbox" checked style="margin-left:10px"><label style="margin:0;color:inherit">Шляпа</label></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('nohud');
+
+/* ───────────── renderer / scene ───────────── */
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth/innerHeight, 0.1, 200);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.target.set(0, 4.4, 0);
+controls.minDistance = 6; controls.maxDistance = 40; controls.maxPolarAngle = Math.PI * 0.52;
+controls.autoRotateSpeed = 1.6;
+const CAMS = {
+  three:[8.5, 6.6, 18], front:[0, 4.8, 20], side:[20, 4.8, 0], back:[0, 5.5, -20], top:[0.1, 22, 7], close:[3, 7, 10]
+};
+function setCam(n){ const c = CAMS[n] || CAMS.three; camera.position.set(...c); controls.target.set(0, n==='close'?6.4:4.4, 0); controls.update(); }
+setCam(Q.get('cam') || 'three');
+
+const key = new THREE.DirectionalLight(0xfff4e6, 2.3);
+key.position.set(6, 12, 8); key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+Object.assign(key.shadow.camera, {left:-9, right:9, top:10, bottom:-6, near:1, far:40});
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xbcd0ff, 1.0); rim.position.set(-8, 6, -9); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc8ba, 0.35));
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({opacity:0.22}));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+
+/* ───────────── helpers ───────────── */
+const rb = (w,h,d,r=0.12,seg=4) => new RoundedBoxGeometry(w,h,d,seg,Math.min(r, w/2-1e-3, h/2-1e-3, d/2-1e-3));
+function mesh(parent, geo, mat, x=0,y=0,z=0, name){
+  const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z);
+  m.castShadow = true; m.receiveShadow = true; if (name) m.name = name; parent.add(m); return m;
+}
+function joint(parent, name, x=0,y=0,z=0){ const g = new THREE.Group(); g.name = name; g.position.set(x,y,z); parent.add(g); return g; }
+function canvasTex(w, h, draw){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+const plastic = (color, o={}) => new THREE.MeshPhysicalMaterial({color, roughness:0.38, clearcoat:0.6, clearcoatRoughness:0.28, ...o});
+const goldMetal = (color, o={}) => new THREE.MeshPhysicalMaterial({color, metalness:0.6, roughness:0.34, clearcoat:0.45, clearcoatRoughness:0.28, ...o});
+const M = {
+  skin: plastic(0xf0b9a0, {roughness:0.45}),
+  hair: plastic(0x6b3a22, {roughness:0.5, side:THREE.DoubleSide}),
+  sleeve: goldMetal(0xc9a041, {metalness:0.45}),          // золотые рукава (бронзово-золотой металлик)
+  boot: goldMetal(0xbc9232, {metalness:0.45}),
+  boot2: goldMetal(0xd4ab48, {metalness:0.45}),
+  blade: goldMetal(0xd8aa3c, {roughness:0.28}),
+  bladeDS: goldMetal(0xd8aa3c, {roughness:0.28, side:THREE.DoubleSide}),
+  red: plastic(0xc3151b), blue: plastic(0x1f3f9e), white: plastic(0xf3efe6),
+  hat: plastic(0x8a806c, {roughness:0.5, side:THREE.DoubleSide, emissive:0x4a4234}),
+  buckle: goldMetal(0xd8aa3c),
+};
+
+/* ───────────── textures (drawn on canvas) ───────────── */
+function gold(g){ const gr = g.createLinearGradient(0,0,0,1); return '#e0b04a'; }
+function drawLion(g, cx, cy, s){
+  g.save(); g.translate(cx, cy); g.scale(s, s);
+  g.fillStyle = '#e0b04a'; g.beginPath();
+  const N = 16;
+  for (let i = 0; i < N*2; i++){ const a = i/(N*2)*Math.PI*2 - Math.PI/2, r = i%2 ? 0.8 : 1.0; g.lineTo(Math.cos(a)*r*0.95, Math.sin(a)*r + 0.12); }
+  g.closePath(); g.fill();
+  g.fillStyle = '#c3151b'; g.beginPath(); g.ellipse(0, 0.14, 0.5, 0.56, 0, 0, 7); g.fill();
+  g.fillStyle = '#e0b04a'; g.beginPath(); g.ellipse(0, 0.2, 0.42, 0.48, 0, 0, 7); g.fill();
+  g.fillStyle = '#c3151b';
+  for (const sx of [-1,1]){ g.beginPath(); g.moveTo(sx*0.08,-0.02); g.lineTo(sx*0.34,-0.12); g.lineTo(sx*0.28,0.05); g.closePath(); g.fill(); }
+  g.beginPath(); g.moveTo(-0.12,0.22); g.lineTo(0.12,0.22); g.lineTo(0,0.34); g.closePath(); g.fill();
+  g.beginPath(); g.ellipse(0, 0.5, 0.2, 0.12, 0, 0, Math.PI); g.fill();
+  g.restore();
+}
+function drawCrown(g, cx, cy, s, col){
+  g.save(); g.translate(cx, cy); g.scale(s, s); g.fillStyle = col;
+  g.beginPath(); g.moveTo(-0.8,0.5); g.lineTo(-0.9,-0.3); g.lineTo(-0.45,0.1); g.lineTo(0,-0.55); g.lineTo(0.45,0.1); g.lineTo(0.9,-0.3); g.lineTo(0.8,0.5); g.closePath(); g.fill();
+  g.fillRect(-0.85,0.55,1.7,0.22);
+  for (const [x,y] of [[-0.9,-0.36],[0,-0.62],[0.9,-0.36]]){ g.beginPath(); g.arc(x,y,0.12,0,7); g.fill(); }
+  g.fillRect(-0.04,-1.0,0.08,0.4); g.fillRect(-0.18,-0.88,0.36,0.08);
+  g.restore();
+}
+function drawFleur(g, cx, cy, s, col){
+  g.save(); g.translate(cx, cy); g.scale(s, s); g.fillStyle = col;
+  g.beginPath(); g.moveTo(0,-1); g.bezierCurveTo(0.42,-0.6,0.32,0.05,0,0.25); g.bezierCurveTo(-0.32,0.05,-0.42,-0.6,0,-1); g.fill();
+  for (const sx of [-1,1]){
+    g.beginPath(); g.moveTo(sx*0.12,0.2); g.bezierCurveTo(sx*0.2,-0.4,sx*0.95,-0.5,sx*0.95,0.0);
+    g.bezierCurveTo(sx*0.95,0.35,sx*0.5,0.35,sx*0.3,0.2); g.bezierCurveTo(sx*0.55,0.12,sx*0.65,-0.05,sx*0.45,-0.12);
+    g.bezierCurveTo(sx*0.3,-0.1,sx*0.3,0.1,sx*0.12,0.2); g.fill();
+  }
+  g.fillRect(-0.55,0.28,1.1,0.14);
+  g.beginPath(); g.moveTo(-0.22,0.42); g.lineTo(0.22,0.42); g.lineTo(0,0.95); g.fill();
+  g.restore();
+}
+function drawSwordEmblem(g, cx, cy, s, col){
+  g.save(); g.translate(cx, cy); g.rotate(0.35); g.scale(s, s); g.fillStyle = col;
+  g.beginPath(); g.moveTo(0,-1); g.lineTo(0.09,-0.3); g.lineTo(0.09,0.35); g.lineTo(-0.09,0.35); g.lineTo(-0.09,-0.3); g.closePath(); g.fill();
+  g.fillRect(-0.32,0.35,0.64,0.1); g.fillRect(-0.05,0.45,0.1,0.35);
+  g.beginPath(); g.arc(0,0.85,0.1,0,7); g.fill();
+  g.restore();
+}
+const TW = 512, TH = 560;
+const tabardFront = canvasTex(TW, TH, (g, w, h) => {
+  g.fillStyle = '#1f3f9e'; g.fillRect(0,0,w,h);
+  // поля геральдики: x 36..476, y 70..520
+  const x0 = 36, x1 = w-36, y0 = 78, y1 = h-34, mx = (x0+x1)/2, my = (y0+y1)/2;
+  g.fillStyle = '#c3151b'; g.fillRect(x0, y0, mx-x0, my-y0); g.fillRect(mx, my, x1-mx, y1-my);
+  g.strokeStyle = '#e0b04a'; g.lineWidth = 7;
+  g.strokeRect(x0, y0, x1-x0, y1-y0);
+  g.beginPath(); g.moveTo(mx, y0); g.lineTo(mx, y1); g.moveTo(x0, my); g.lineTo(x1, my); g.stroke();
+  g.fillStyle = '#e0b04a'; g.beginPath(); g.moveTo(mx,my-24); g.lineTo(mx+24,my); g.lineTo(mx,my+24); g.lineTo(mx-24,my); g.closePath(); g.fill();
+  g.fillStyle = '#1f3f9e'; g.beginPath(); g.moveTo(mx,my-12); g.lineTo(mx+12,my); g.lineTo(mx,my+12); g.lineTo(mx-12,my); g.closePath(); g.fill();
+  const qw = (x1-x0)/2, qh = (y1-y0)/2;
+  drawLion(g, x0+qw/2, y0+qh*0.62, 58);
+  drawCrown(g, x0+qw/2, y0+qh*0.2, 17, '#e0b04a');
+  drawCrown(g, mx+qw/2, y0+qh*0.55, 42, '#e0b04a');
+  drawSwordEmblem(g, x0+qw/2, my+qh*0.5, 62, '#e0b04a');
+  drawFleur(g, mx+qw/2, my+qh*0.5, 55, '#e0b04a');
+});
+const R_HEAD = 1.0, H_HEAD = 1.9;
+const faceTex = canvasTex(2048, 512, (g, W, H) => {
+  g.fillStyle = '#f0b9a0'; g.fillRect(0,0,W,H);
+  const px = x => W/2 + Math.asin(Math.max(-1, Math.min(1, x/R_HEAD)))/(2*Math.PI)*W;
+  const py = y => (1 - y/H_HEAD)*H;
+  // глаза: круглые коричневые диски без зрачков
+  for (const sx of [-1,1]){
+    g.fillStyle = '#4a2014'; g.beginPath(); g.ellipse(px(sx*0.42), py(0.98), 39, 38, 0, 0, 7); g.fill();
+    g.fillStyle = '#6e3a28'; g.beginPath(); g.ellipse(px(sx*0.42), py(0.98), 31, 30, 0, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.arc(px(sx*0.42)+11, py(0.98)-11, 6, 0, 7); g.fill();
+  }
+  g.fillStyle = '#0f0d0d';
+  // усы
+  g.beginPath(); g.moveTo(px(0), py(0.78));
+  g.bezierCurveTo(px(0.2), py(0.82), px(0.38), py(0.72), px(0.34), py(0.6));
+  g.bezierCurveTo(px(0.26), py(0.66), px(0.12), py(0.66), px(0), py(0.68));
+  g.bezierCurveTo(px(-0.12), py(0.66), px(-0.26), py(0.66), px(-0.34), py(0.6));
+  g.bezierCurveTo(px(-0.38), py(0.72), px(-0.2), py(0.82), px(0), py(0.78)); g.fill();
+  // открытый рот
+  g.fillStyle = '#2b0d0a'; g.beginPath(); g.ellipse(px(0), py(0.56), 38, 26, 0, 0, 7); g.fill();
+  // бородка-эспаньолка
+  g.fillStyle = '#0f0d0d'; g.beginPath(); g.moveTo(px(-0.17), py(0.5));
+  g.bezierCurveTo(px(-0.16), py(0.36), px(-0.06), py(0.28), px(0), py(0.27));
+  g.bezierCurveTo(px(0.06), py(0.28), px(0.16), py(0.36), px(0.17), py(0.5));
+  g.bezierCurveTo(px(0.1), py(0.46), px(-0.1), py(0.46), px(-0.17), py(0.5)); g.fill();
+}); faceTex.wrapS = THREE.RepeatWrapping;
+
+/* ───────────── figure ───────────── */
+const figure = new THREE.Group(); figure.name = 'Figure'; scene.add(figure);
+const root = joint(figure, 'Root');
+const torso = joint(root, 'Torso', 0, 3.0, 0);
+
+// торс: синий табард, красный пояс, белые штаны
+mesh(torso, rb(2.5,1.62,1.2,0.22), M.blue, 0, 1.45, 0, 'Tabard');
+mesh(torso, rb(2.3,0.62,1.2,0.16), M.red, 0, 0.35, 0, 'Belt');
+mesh(torso, rb(2.15,0.5,1.12,0.14), M.white, 0, -0.02, 0, 'Pelvis');
+{
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.5), new THREE.MeshPhysicalMaterial({
+    map:tabardFront, roughness:0.4, clearcoat:0.5, polygonOffset:true, polygonOffsetFactor:-2}));
+  p.position.set(0, 1.42, 0.606); p.receiveShadow = true; p.name = 'TabardFront'; torso.add(p);
+  // пряжка пояса — золотой завиток
+  const bk = mesh(torso, rb(0.62,0.4,0.08,0.05,2), M.buckle, 0, 0.36, 0.62, 'Buckle');
+  const bh = mesh(bk, rb(0.28,0.14,0.04,0.03,2), M.red, 0, 0, 0.03);
+}
+mesh(torso, new THREE.CylinderGeometry(0.44,0.5,0.42,32), M.skin, 0, 2.38, 0, 'Neck');
+
+// голова
+const head = joint(torso, 'Head', 0, 2.5, 0);
+{
+  const prof = new THREE.SplineCurve([[0,0],[0.55,0.02],[0.86,0.18],[0.985,0.55],[1.0,0.95],[0.99,1.3],[0.9,1.62],[0.65,1.82],[0.3,1.895],[0,1.9]].map(p => new THREE.Vector2(...p))).getPoints(48);
+  const geo = new THREE.LatheGeometry(prof, 56);
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, Math.atan2(pos.getX(i), pos.getZ(i))/(2*Math.PI) + 0.5, pos.getY(i)/H_HEAD);
+  mesh(head, geo, new THREE.MeshPhysicalMaterial({map:faceTex, roughness:0.42, clearcoat:0.5, clearcoatRoughness:0.3}), 0, 0, 0, 'HeadShell');
+}
+// волосы до плеч (каштановые): верхняя часть статична, пряди внизу — на пружинах
+const D = THREE.MathUtils.degToRad;
+const HAIR_TOP = 0.55;
+{
+  const dome = mesh(head, new THREE.SphereGeometry(1.07, 40, 20, 0, Math.PI*2, 0, Math.PI/2), M.hair, 0, 1.2, 0, 'HairDome'); dome.scale.y = 0.72;
+  const hh = 1.45 - HAIR_TOP;
+  mesh(head, new THREE.CylinderGeometry(1.07, 1.08, hh, 48, 1, true, D(62), D(236)), M.hair, 0, HAIR_TOP + hh/2, 0, 'HairSides');
+}
+function hairPiece(name, a0, a1){
+  const j = joint(head, name, 0, HAIR_TOP, 0);
+  const h = 0.72, g = new THREE.CylinderGeometry(1.08, 1.13, h, 24, 3, true, D(a0), D(a1-a0));
+  mesh(j, g, M.hair, 0, -h/2, 0, name + 'Mesh');
+  return j;
+}
+const hairB = hairPiece('HairB', 118, 242), hairL = hairPiece('HairL', 62, 118), hairR = hairPiece('HairR', 242, 298);
+
+// треуголка
+const hat = joint(head, 'Hat'); hat.rotation.x = -0.1;
+{
+  const Rb = 1.7, amp = 0.25, nR = 10, nA = 72, y0 = 1.36;
+  const Rth = th => Rb*(1 + amp*Math.cos(3*(th - Math.PI)));
+  const rise = (th, u) => (0.32*(0.5 - 0.5*Math.cos(3*(th - Math.PI))) + 0.04)*Math.pow(u, 2.4);
+  const pos = [], idx = [], rows = nR + 1, cols = nA;
+  const addLayer = dy => { for (let i = 0; i <= nR; i++) for (let j = 0; j < nA; j++){
+    const th = j/nA*Math.PI*2, u = 0.55 + 0.45*i/nR, r = u*Rth(th);   // внутреннее кольцо спрятано под тульёй
+    pos.push(Math.sin(th)*r, y0 + rise(th, u) + dy, Math.cos(th)*r); } };
+  addLayer(0); addLayer(-0.09);
+  const L = rows*cols;
+  for (let layer = 0; layer < 2; layer++) for (let i = 0; i < nR; i++) for (let j = 0; j < nA; j++){
+    const a = layer*L + i*cols + j, b = layer*L + i*cols + (j+1)%cols, c = a + cols, d = b + cols;
+    idx.push(a,c,b, b,c,d);
+  }
+  for (let j = 0; j < nA; j++){ const a = nR*cols + j, b = nR*cols + (j+1)%cols, c = L + a - 0, d = L + b - 0; idx.push(a,b,c, b,d,c); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  mesh(hat, g, M.hat, 0, 0, 0, 'Brim');
+  const crown = mesh(hat, new THREE.CylinderGeometry(1.08, 1.14, 0.62, 48), M.hat, 0, y0 + 0.28, 0, 'HatCrown');
+  const top = mesh(hat, new THREE.SphereGeometry(1.08, 40, 12, 0, Math.PI*2, 0, Math.PI/2), M.hat, 0, y0 + 0.59, 0, 'HatTop'); top.scale.y = 0.22;
+}
+
+// руки: золотые рукава (жёсткие), кисти кожи — C-захват
+function handGeo(){
+  const R = 0.32, r = 0.155, gap = 0.75, s = new THREE.Shape();
+  const a0 = -Math.PI/2 + gap/2, a1 = -Math.PI/2 + Math.PI*2 - gap/2;
+  s.absarc(0,0,R,a0,a1,false); s.absarc(0,0,r,a1,a0,true); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, {depth:0.5, bevelEnabled:true, bevelSize:0.035, bevelThickness:0.035, bevelSegments:2, curveSegments:28});
+  g.translate(0,0,-0.25); return g;
+}
+function buildArm(side){
+  const L = side > 0, sh = joint(torso, L ? 'ShoulderL' : 'ShoulderR', side*1.62, 2.0, 0);
+  mesh(sh, new THREE.SphereGeometry(0.4, 24, 16), M.sleeve, 0, 0, 0, 'Shoulder');
+  mesh(sh, new THREE.CylinderGeometry(0.4, 0.37, 1.1, 28), M.sleeve, 0, -0.55, 0, 'UpperSleeve');
+  mesh(sh, new THREE.CylinderGeometry(0.37, 0.34, 0.75, 28), M.sleeve, 0, -1.2, 0, 'LowerSleeve');
+  const cuff = mesh(sh, new THREE.TorusGeometry(0.35, 0.05, 8, 28), M.boot2, 0, -1.56, 0); cuff.rotation.x = Math.PI/2;
+  const wrist = joint(sh, L ? 'WristL' : 'WristR', 0, -1.85, 0);
+  mesh(wrist, handGeo(), M.skin, 0, 0, 0, 'Hand');
+  return wrist;
+}
+const wristL = buildArm(+1), wristR = buildArm(-1);
+
+// ноги: белые штаны, высокие золотые сапоги с отворотом
+function buildLeg(side){
+  const hip = joint(root, side > 0 ? 'HipL' : 'HipR', side*0.52, 3.0, 0);
+  mesh(hip, rb(1.0,1.5,1.08,0.2), M.white, 0, -0.75, 0, 'Thigh');
+  mesh(hip, rb(0.96,1.45,1.02,0.2), M.boot, 0, -2.2, 0, 'Boot');
+  mesh(hip, rb(1.12,0.4,1.2,0.14), M.boot2, 0, -1.5, 0, 'BootCuff');
+  mesh(hip, rb(0.96,0.42,1.5,0.18), M.boot, 0, -2.79, 0.24, 'Foot');
+  return hip;
+}
+buildLeg(+1); buildLeg(-1);
+
+// клапаны табарда (синие, на пружинах): задний и два боковых
+function flap(name, w, d, x, z){
+  const j = joint(torso, name, x, 0.66, z);
+  mesh(j, rb(w, 1.15, d, Math.min(0.05, w/2-0.001, d/2-0.001), 2), M.blue, 0, -0.5, 0, name + 'Mesh');
+  return j;
+}
+const flapB = flap('FlapB', 2.3, 0.1, 0, -0.56), flapL = flap('FlapL', 0.12, 0.8, 1.17, 0), flapR = flap('FlapR', 0.12, 0.8, -1.17, 0);
+
+// шпага (в левой руке по фото): золотая рапира — чашка, дужка, поперечина, навершие, длинный клинок
+const sword = joint(wristL, 'Sword');
+{
+  const grip = mesh(sword, new THREE.CylinderGeometry(0.085,0.085,1.0,16), M.blade, 0, 0, 0.02, 'Grip'); grip.rotation.x = Math.PI/2;
+  for (const z of [-0.25, 0, 0.25]) { const r = mesh(sword, new THREE.TorusGeometry(0.09,0.03,6,14), M.blade, 0, 0, z); }
+  mesh(sword, new THREE.SphereGeometry(0.17,16,12), M.blade, 0, 0, -0.55, 'Pommel');
+  const cup = mesh(sword, new THREE.SphereGeometry(0.34, 24, 12, 0, Math.PI*2, Math.PI/2, Math.PI/2), M.bladeDS, 0, 0, 0.5, 'Cup'); cup.rotation.x = -Math.PI/2; cup.scale.set(1,1,0.9);
+  mesh(sword, rb(1.2,0.09,0.09,0.03,2), M.blade, 0, 0, 0.55, 'Crossguard');
+  for (const sx of [-1,1]) mesh(sword, new THREE.SphereGeometry(0.075,10,8), M.blade, sx*0.62, 0, 0.55);
+  const bow = mesh(sword, new THREE.TorusGeometry(0.46, 0.045, 8, 24, Math.PI), M.blade, 0.0, 0, 0.02, 'KnuckleBow');
+  bow.rotation.set(0, Math.PI/2, Math.PI/2); bow.rotation.order = 'YXZ'; bow.position.set(0.47, 0, 0);
+  // клинок: тонкий, сужается, лёгкий изгиб на конце
+  const BL = 3.9, seg = 24, pos = [], idx = [];
+  for (let i = 0; i <= seg; i++){
+    const u = i/seg, z = 0.58 + u*BL, w = 0.11*(1-u) + 0.025*u, bend = 0.12*Math.pow(u, 4);
+    pos.push(-w, bend, z,  w, bend, z,  0, bend + 0.03, z); // три точки сечения
+  }
+  for (let i = 0; i < seg; i++){ const a = i*3, b = a + 3;
+    idx.push(a,a+2,b, a+2,b+2,b,  a+1,b+1,a+2, a+2,b+1,b+2, a,b,a+1, a+1,b,b+1); }
+  const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); bg.setIndex(idx); bg.computeVertexNormals();
+  mesh(sword, bg, M.bladeDS, 0, 0, 0, 'Blade');
+}
+
+/* ───────────── вторичное движение: пружины (волосы, клапаны табарда) ───────────── */
+const sim = {wind:0.6, stiff:0.6, t:0};
+const springs = [];
+function addSpring(j, kind){ springs.push({j, kind, rx:0, rz:0, vx:0, vz:0, prev:new THREE.Vector3(), vel:new THREE.Vector3(), init:false, ph:Math.random()*6.28}); }
+addSpring(hairB, 'back'); addSpring(hairL, 'L'); addSpring(hairR, 'R');
+addSpring(flapB, 'back'); addSpring(flapL, 'L'); addSpring(flapR, 'R');
+const _p = new THREE.Vector3(), _a = new THREE.Vector3(), _g = new THREE.Vector3(), _q = new THREE.Quaternion();
+function springStep(h){
+  sim.t += h;
+  for (const s of springs){
+    s.j.getWorldPosition(_p);
+    if (!s.init){ s.prev.copy(_p); s.vel.set(0,0,0); s.init = true; }
+    const v = _a.copy(_p).sub(s.prev).divideScalar(h); s.prev.copy(_p);
+    const acc = v.clone().sub(s.vel).divideScalar(h); s.vel.copy(v);
+    if (acc.length() > 300) acc.setLength(300);
+    s.j.parent.getWorldQuaternion(_q).invert();
+    acc.applyQuaternion(_q); _g.set(0,-1,0).applyQuaternion(_q);
+    const hair = s.j.name.startsWith('Hair'), c = hair ? 0.007 : 0.004;
+    let tx = Math.atan(_g.z/_g.y)*0.8 + c*acc.z, tz = -Math.atan(_g.x/_g.y)*0.8 - c*acc.x;
+    const w = sim.wind, t = sim.t + s.ph;
+    tx += w*(0.09 + 0.05*Math.sin(t*1.7) + 0.03*Math.sin(t*3.9));
+    tz += w*0.05*Math.sin(t*1.3 + 0.7) * (s.kind === 'R' ? -1 : 1) * (s.kind === 'back' ? 1.5 : 1);
+    if (s.kind === 'back'){ tx = Math.max(tx, 0); }
+    if (s.kind === 'L'){ tz = Math.max(tz, 0.0); tx = Math.max(tx, 0); }
+    if (s.kind === 'R'){ tz = Math.min(tz, 0.0); tx = Math.max(tx, 0); }
+    const lim = 0.9; tx = THREE.MathUtils.clamp(tx, 0, lim); tz = THREE.MathUtils.clamp(tz, -lim, lim);
+    const k = 110*(0.35 + sim.stiff), d = 2*Math.sqrt(k)*0.32;
+    s.vx += (-k*(s.rx - tx) - d*s.vx)*h; s.rx += s.vx*h;
+    s.vz += (-k*(s.rz - tz) - d*s.vz)*h; s.rz += s.vz*h;
+    if (s.kind === 'back') s.rx = Math.max(s.rx, -0.02);
+    if (s.kind === 'L') s.rz = Math.max(s.rz, -0.02);
+    if (s.kind === 'R') s.rz = Math.min(s.rz, 0.02);
+    s.j.rotation.set(s.rx, 0, s.rz);
+  }
+}
+function springReset(){ for (const s of springs){ s.init = false; s.rx = s.rz = s.vx = s.vz = 0; s.j.rotation.set(0,0,0); } sim.t = 0; }
+
+/* ───────────── animation (joint hierarchy + keyframes with easing) ───────────── */
+const BASE = {
+  Root:[0,0,0], Torso:[0,0,0], Head:[0,0,0],
+  ShoulderL:[-0.55,0,0.32], WristL:[-0.85,0,0],           // шпага в левой руке, клинок вверх-вперёд
+  ShoulderR:[-0.1,0,-0.12], WristR:[0,0,0],
+  HipL:[0,0,0], HipR:[0,0,0],
+};
+const EASE = {io:u=>u*u*(3-2*u), in:u=>u*u*u, out:u=>1-Math.pow(1-u,3), lin:u=>u, back:u=>{const c=1.70158;return 1+(c+1)*Math.pow(u-1,3)+c*Math.pow(u-1,2);}};
+function makeClip(name, dur, keys, fps = 30){
+  const times = [], vals = Object.fromEntries(Object.keys(BASE).map(k => [k, []]));
+  const pose = k => ({...BASE, ...k});
+  const eul = new THREE.Euler(), qq = new THREE.Quaternion();
+  for (let f = 0; f <= Math.round(dur*fps); f++){
+    const t = f/fps; let i = 0; while (i < keys.length-2 && t > keys[i+1].t) i++;
+    const A = keys[i], B = keys[i+1], u = THREE.MathUtils.clamp((t - A.t)/(B.t - A.t), 0, 1), e = (EASE[A.ease] || EASE.io)(u);
+    const pa = pose(A), pb = pose(B); times.push(t);
+    for (const j of Object.keys(BASE)){
+      const v = pa[j].map((x, n) => x + (pb[j][n] - x)*e);
+      if (j === 'Root') vals[j].push(...v); else { eul.set(v[0], v[1], v[2]); qq.setFromEuler(eul); vals[j].push(qq.x, qq.y, qq.z, qq.w); }
+    }
+  }
+  const tracks = Object.keys(BASE).map(j => j === 'Root'
+    ? new THREE.VectorKeyframeTrack('Root.position', times, vals.Root)
+    : new THREE.QuaternionKeyframeTrack(j + '.quaternion', times, vals[j]));
+  return new THREE.AnimationClip(name, dur, tracks);
+}
+const B = BASE;
+const walkKeys = []; { const n = 8;
+  for (let i = 0; i <= n; i++){
+    const a = Math.sin(i/n*Math.PI*2), leg = 0.5*a, drop = -3.0*(1 - Math.cos(leg));
+    walkKeys.push({t:i/n*1.0, ease:'lin', Root:[0,drop,0], HipL:[-leg,0,0], HipR:[leg,0,0],
+      ShoulderL:[B.ShoulderL[0] + 0.18*a, 0, B.ShoulderL[2]], ShoulderR:[B.ShoulderR[0] - 0.5*a, 0, B.ShoulderR[2]],
+      Torso:[0, 0.12*a, 0], Head:[0, -0.08*a, 0]});
+  }
+}
+// «отчаливать!» → «лево руля!»: правая рука вперёд, затем в сторону
+const cmdFwd = {Torso:[0,-0.1,0], Head:[-0.08,-0.1,0], ShoulderR:[-1.6,0,-0.12], WristR:[0,0,0], ShoulderL:[-0.55,0,0.32], Root:[0,0,0]};
+const cmdLeft = {Torso:[0,0.3,0], Head:[-0.05,0.3,0], ShoulderR:[-1.4,0,0.9], WristR:[0,0,0], ShoulderL:[-0.55,0,0.32], Root:[0,0,0]};
+const CLIPS = {
+  'Стойка': makeClip('Idle', 4, [
+    {t:0}, {t:2, Head:[0.03,0.18,0], Torso:[0,0.04,0], Root:[0,0.03,0], ShoulderL:[-0.6,0,0.36], ShoulderR:[-0.06,0,-0.2]}, {t:4}]),
+  'Ходьба': makeClip('Walk', 1, walkKeys),
+  'Команда капитана': makeClip('Command', 4, [
+    {t:0},
+    {t:0.5, ease:'back', ...cmdFwd, Head:[-0.12,-0.1,0], Root:[0,0.02,0]},
+    {t:0.75, ease:'out', ...cmdFwd, ShoulderR:[-1.45,0,-0.12], Root:[0,-0.05,0.05]},
+    {t:1.15, ...cmdFwd, ShoulderR:[-1.62,0,-0.12], Root:[0,0.02,0]},
+    {t:1.9, ease:'io', ...cmdLeft},
+    {t:2.2, ease:'out', ...cmdLeft, ShoulderR:[-1.4,0,1.0], Root:[0,-0.05,0]},
+    {t:2.9, ...cmdLeft},
+    {t:4}]),
+  'Фехтование': makeClip('Fencing', 3.2, [
+    {t:0},
+    {t:0.5, Root:[0,-0.31,0], HipL:[-0.45,0,0], HipR:[0.45,0,0], Torso:[0,-0.5,0], Head:[0,0.45,0], ShoulderL:[-1.3,0,0.1], WristL:[1.0,0,0], ShoulderR:[0.4,0,-1.7]},
+    {t:0.85, ease:'in', Root:[0,-0.31,0], HipL:[-0.45,0,0], HipR:[0.45,0,0], Torso:[0,-0.5,0], Head:[0,0.45,0], ShoulderL:[-1.1,0,0.1], WristL:[0.95,0,0], ShoulderR:[0.4,0,-1.7]},
+    {t:1.05, ease:'out', Root:[0,-0.91,0.9], HipL:[-0.8,0,0], HipR:[0.8,0,0], Torso:[0,-0.6,0], Head:[0,0.55,0], ShoulderL:[-1.5,0,0.05], WristL:[1.45,0,0], ShoulderR:[0.5,0,-1.9]},
+    {t:1.5, Root:[0,-0.91,0.9], HipL:[-0.8,0,0], HipR:[0.8,0,0], Torso:[0,-0.6,0], Head:[0,0.55,0], ShoulderL:[-1.5,0,0.05], WristL:[1.45,0,0], ShoulderR:[0.5,0,-1.9]},
+    {t:2.0, ease:'io', Root:[0,-0.31,0], HipL:[-0.45,0,0], HipR:[0.45,0,0], Torso:[0,-0.5,0], Head:[0,0.45,0], ShoulderL:[-1.3,0,0.1], WristL:[1.0,0,0], ShoulderR:[0.4,0,-1.7]},
+    {t:2.3, Root:[0,-0.31,0], HipL:[-0.45,0,0], HipR:[0.45,0,0], Torso:[0,-0.45,0], Head:[0,0.4,0], ShoulderL:[-1.25,0,0.3], WristL:[0.7,0,0], ShoulderR:[0.3,0,-1.7]},
+    {t:3.2}]),
+  'Салют шпагой': makeClip('Salute', 3, [
+    {t:0},
+    {t:0.7, ease:'out', Torso:[0,-0.1,0], Head:[-0.05,0.05,0], ShoulderL:[-1.25,0,0.2], WristL:[-0.32,0,0], ShoulderR:[-0.1,0,-0.2]},
+    {t:1.4, Torso:[0,-0.12,0], Head:[0.28,0.05,0], ShoulderL:[-1.25,0,0.2], WristL:[-0.32,0,0], Root:[0,-0.05,0]},
+    {t:2.0, ease:'io', Torso:[0,-0.1,0], Head:[-0.05,0.05,0], ShoulderL:[-0.9,0,1.15], WristL:[-0.6,0,0], ShoulderR:[-0.1,0,-0.2]},
+    {t:3}]),
+};
+const mixer = new THREE.AnimationMixer(figure);
+const actions = {}; for (const [k, c] of Object.entries(CLIPS)){ actions[k] = mixer.clipAction(c); }
+let current = null;
+function play(name, fade = 0.25){
+  const next = actions[name]; if (!next || next === current) return;
+  next.reset().setLoop(THREE.LoopRepeat).play();
+  if (current) current.crossFadeTo(next, fade, false);
+  current = next; document.querySelectorAll('.clips button').forEach(b => b.classList.toggle('on', b.dataset.n === name));
+}
+
+/* ───────────── loop: фиксированный шаг + аккумулятор ───────────── */
+const H = 1/60; let acc = 0, speed = 1, paused = false;
+function advance(h){ mixer.update(h); figure.updateMatrixWorld(true); springStep(h); }
+function frame(dt){
+  if (!paused){ acc += Math.min(dt, 0.05)*speed; let n = 0; while (acc >= H && n++ < 8){ advance(H); acc -= H; } }
+}
+function seek(name, t){
+  for (const a of Object.values(actions)) a.stop();
+  current = null; mixer.stopAllAction(); play(name, 0); current.time = 0; mixer.update(0); springReset();
+  const steps = Math.round(t/H); for (let i = 0; i < steps; i++) advance(H);
+}
+window.__seek = seek;
+window.__spr = () => { let m = 0, bad = 0; for (const s of springs){ if (!isFinite(s.rx+s.rz)) bad++; m = Math.max(m, Math.abs(s.rx), Math.abs(s.rz)); } return {max:m, bad}; };
+window.__run = (steps) => { for (let i = 0; i < steps; i++) advance(H); return window.__spr(); };
+
+/* ───────────── UI ───────────── */
+const clipsEl = document.getElementById('clips');
+for (const name of Object.keys(CLIPS)){ const b = document.createElement('button'); b.textContent = name; b.dataset.n = name; b.onclick = () => play(name); clipsEl.append(b); }
+const $ = id => document.getElementById(id);
+$('play').onclick = () => { paused = !paused; $('play').textContent = paused ? '▶ Играть' : '⏸ Пауза'; };
+addEventListener('keydown', e => { if (e.code === 'Space'){ e.preventDefault(); $('play').click(); } });
+$('reset').onclick = () => { setCam('three'); springReset(); };
+$('speed').oninput = e => { speed = +e.target.value; $('vSpeed').textContent = speed.toFixed(1) + '×'; };
+$('wind').oninput = e => { sim.wind = +e.target.value; $('vWind').textContent = sim.wind.toFixed(2); };
+$('stiff').oninput = e => { sim.stiff = +e.target.value; $('vStiff').textContent = sim.stiff.toFixed(2); };
+$('rot').onchange = e => controls.autoRotate = e.target.checked;
+$('sword').onchange = e => sword.visible = e.target.checked;
+$('hat').onchange = e => hat.visible = e.target.checked;
+addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+/* ───────────── start ───────────── */
+$('loading').remove();
+play(Q.get('clip') || 'Стойка', 0);
+mixer.update(0); figure.updateMatrixWorld(true); springReset();
+if (Q.has('clip') && Q.has('t')) seek(Q.get('clip'), +Q.get('t'));
+else for (let i = 0; i < 90; i++) advance(H);
+if (Q.get('sim')) { const r = document.createElement('pre'); r.id = 'simres'; r.textContent = JSON.stringify(window.__run(+Q.get('sim'))); document.body.append(r); }
+if (Q.has('t')) paused = true;
+let last = performance.now();
+renderer.setAnimationLoop(now => { const dt = (now - last)/1000; last = now; frame(dt); controls.update(); renderer.render(scene, camera); window.READY = true; });
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Город — превью моделей</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#bfe3f2;font:13px -apple-system,"Segoe UI",sans-serif;color:#2a2723}
+canvas{display:block}
+.hud{position:fixed;left:12px;top:12px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.85);box-shadow:0 4px 18px rgba(0,0,0,.15);max-width:260px}
+.hud button{font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:5px 9px;cursor:pointer;margin:4px 4px 0 0}
+.lbl{position:fixed;transform:translate(-50%,0);pointer-events:none;font-size:11px;text-align:center;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:6px;white-space:nowrap}
+body.nohud .hud,body.nohud .lbl{display:none}
+#err{position:fixed;inset:0;display:none;place-items:center;text-align:center;padding:30px;font-size:16px;background:#fff3e0}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<div class="hud"><b>Город</b> · <span id="cnt"></span><br><small>ЛКМ — вращение, колесо — зум, ПКМ — сдвиг</small><br>
+<button id="shuf">Seed: <span id="sd">0</span> (перемешать)</button><button id="dr">Дверь: открыта</button><button id="an">Анимация: вкл</button></div>
+<div id="err"></div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const Q=new URLSearchParams(location.search);
+if(Q.get('hud')==='0')document.body.classList.add('nohud');
+let MODELS;
+try{ ({MODELS}=await import('./models.js')); }
+catch(e){ const el=document.getElementById('err'); el.style.display='grid';
+  el.innerHTML='Не удалось загрузить models.js ('+e.message+').<br>Chrome блокирует ES-модули с file://. Запустите в папке: <code>python3 -m http.server</code> и откройте http://localhost:8000/preview.html<br>или откройте файл в Firefox/Safari.'; throw e; }
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5)); renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xbfe3f2);
+const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.5,2000);
+const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.maxPolarAngle=Math.PI*.495;
+scene.add(new THREE.HemisphereLight(0xdff2ff,0x6a7a55,.9));
+const sun=new THREE.DirectionalLight(0xfff1d6,2.4); sun.castShadow=true; sun.shadow.mapSize.set(2048,2048); sun.shadow.bias=-.0006; sun.shadow.normalBias=.05; scene.add(sun,sun.target);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(4000,4000),new THREE.MeshStandardMaterial({color:0x6ea848,roughness:1})); ground.rotation.x=-Math.PI/2; ground.position.y=-.02; ground.receiveShadow=true; scene.add(ground);
+let seed=+(Q.get('seed')||0), open=Q.get('door')!=='0', animOn=true, items=[], labels=[];
+const only=Q.get('only'), ids=Q.get('ids')?Q.get('ids').split(','):null;
+const list=MODELS.filter(m=>only?m.id===only:(ids?ids.includes(m.id):true));
+function build(){
+  items.forEach(i=>scene.remove(i.obj)); labels.forEach(l=>l.remove()); items=[]; labels=[];
+  let x=0,z=0,rowH=0; const maxW=list.length>1?Math.sqrt(list.length)*38:1e9; const boxAll=new THREE.Box3();
+  for(const m of list){
+    const obj=m.make(THREE,seed,{doorOpen:open}); const b=new THREE.Box3().setFromObject(obj); const s=b.getSize(new THREE.Vector3());
+    const w=Math.max(s.x,s.z)+10; if(x+w>maxW&&x>0){ x=0; z+=rowH; rowH=0; }
+    obj.position.set(x+w/2,0,z+w/2); x+=w; rowH=Math.max(rowH,w); scene.add(obj);
+    obj.traverse(o=>{ if(o.isMesh&&o.material.transparent) o.castShadow=false; });
+    const L=document.createElement('div'); L.className='lbl'; L.textContent=m.id+' · '+m.name; document.body.appendChild(L); labels.push(L);
+    items.push({obj,m,size:s,box:b}); boxAll.expandByObject(obj);
+    if(Q.get('report')){ let tris=0; obj.traverse(o=>{ if(o.isMesh&&o.visible){ const g=o.geometry; const n=(g.index?g.index.count:g.attributes.position.count)/3; tris+=n*(o.isInstancedMesh?o.count:1); } });
+      const bb=new THREE.Box3().setFromObject(obj); console.log('REPORT '+JSON.stringify({id:m.id,w:+s.x.toFixed(1),h:+s.y.toFixed(1),d:+s.z.toFixed(1),miny:+bb.min.y.toFixed(2),cx:+((bb.min.x+bb.max.x)/2-obj.position.x).toFixed(1),cz:+((bb.min.z+bb.max.z)/2-obj.position.z).toFixed(1),tris:Math.round(tris),anim:!!obj.userData.animate})); }
+  }
+  const c=boxAll.getCenter(new THREE.Vector3()), sz=boxAll.getSize(new THREE.Vector3()), R=Math.max(sz.x,sz.z,sz.y)*.9;
+  if(!build.done){ const az=(+Q.get('az')||35)*Math.PI/180, el=(+Q.get('el')||32)*Math.PI/180, d=R*(list.length>1?1.1:1.25)/(+Q.get('zoom')||1);
+    camera.position.set(c.x+d*Math.sin(az)*Math.cos(el),d*Math.sin(el),c.z+d*Math.cos(az)*Math.cos(el)); controls.target.set(c.x,Math.min(c.y,sz.y*.35),c.z); build.done=true; }
+  const ext=Math.max(sz.x,sz.z)*.7+20; sun.position.set(c.x+ext*.6,ext*1.2,c.z+ext*.5); sun.target.position.copy(c);
+  Object.assign(sun.shadow.camera,{left:-ext,right:ext,top:ext,bottom:-ext,near:1,far:ext*4}); sun.shadow.camera.updateProjectionMatrix();
+  document.getElementById('cnt').textContent=list.length+' моделей'; document.getElementById('sd').textContent=seed;
+}
+build();
+document.getElementById('shuf').onclick=()=>{ seed=Math.floor(Math.random()*1000); build(); };
+document.getElementById('dr').onclick=e=>{ open=!open; e.target.textContent='Дверь: '+(open?'открыта':'закрыта'); build(); };
+document.getElementById('an').onclick=e=>{ animOn=!animOn; e.target.textContent='Анимация: '+(animOn?'вкл':'выкл'); };
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+const fixedT=Q.get('t'), v=new THREE.Vector3(); let t0=performance.now();
+function frame(){ const t=fixedT!==null?+fixedT:(animOn?(performance.now()-t0)/1000:0);
+  items.forEach(i=>{ if(i.obj.userData.animate) i.obj.userData.animate(t); });
+  controls.update(); renderer.render(scene,camera);
+  items.forEach((i,k)=>{ v.set(i.obj.position.x,0,i.obj.position.z+i.size.z/2+1).project(camera); const L=labels[k];
+    L.style.left=((v.x+1)/2*innerWidth)+'px'; L.style.top=((1-v.y)/2*innerHeight)+'px'; L.style.display=v.z<1?'block':'none'; });
+  requestAnimationFrame(frame); }
+frame();
+</script></body></html>

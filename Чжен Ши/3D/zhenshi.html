@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Чжэнь Ши — самурай-абордажник — 3D</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--ink:#2a2723;--mute:#7a746b;--card:rgba(255,255,255,.82);--accent:#2a45c2}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+  body{background:radial-gradient(ellipse at 50% 38%,#f6f4ef 0%,#e4e1d9 55%,#c9c5bb 100%)}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  .hud{position:fixed;left:16px;top:16px;width:236px;padding:14px;border-radius:14px;background:var(--card);
+       backdrop-filter:blur(10px);box-shadow:0 6px 24px rgba(0,0,0,.12)}
+  .hud h1{font-size:15px;margin:0 0 2px}
+  .hud small{color:var(--mute)}
+  .clips{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 0}
+  button{font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:7px 8px;cursor:pointer;color:var(--ink)}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  label{display:flex;justify-content:space-between;align-items:center;margin:8px 0 2px;font-size:12px;color:var(--mute)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .row button{flex:1;white-space:nowrap}
+  .chk{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;color:var(--ink)}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;color:var(--mute);pointer-events:none}
+  body.nohud .hud{display:none}
+</style>
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="loading">Собираю Чжэнь Ши…</div>
+<div class="hud" id="hud">
+  <h1>Чжэнь Ши</h1>
+  <small>3D по фото фигурки · перетащи мышью, колесо — зум</small>
+  <div class="clips" id="clips"></div>
+  <div class="row"><button id="play">⏸ Пауза</button><button id="reset">Сброс</button></div>
+  <label>Скорость <span id="vSpeed">1.0×</span></label><input id="speed" type="range" min="0.1" max="2" step="0.05" value="1">
+  <label>Ветер (полы, волосы) <span id="vWind">0.6</span></label><input id="wind" type="range" min="0" max="3" step="0.05" value="0.6">
+  <label>Жёсткость плаща (волосы в 10× мягче) <span id="vStiff">0.6</span></label><input id="stiff" type="range" min="0.1" max="1" step="0.05" value="0.6">
+  <div class="chk"><input id="rot" type="checkbox"><label style="margin:0;color:inherit">Авто-вращение камеры</label></div>
+  <div class="chk"><input id="sword" type="checkbox" checked><label style="margin:0;color:inherit">Меч</label></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('nohud');
+
+/* ───────────── renderer / scene ───────────── */
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth/innerHeight, 0.1, 200);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.target.set(0, 4.2, 0);
+controls.minDistance = 6; controls.maxDistance = 40; controls.maxPolarAngle = Math.PI * 0.52;
+controls.autoRotateSpeed = 1.6;
+const CAMS = {
+  three:[8.5, 6.6, 18], front:[0, 4.8, 20], side:[20, 4.8, 0], back:[0, 5.5, -20], top:[0.1, 22, 7], close:[3, 7, 10]
+};
+function setCam(n){ const c = CAMS[n] || CAMS.three; camera.position.set(...c); controls.target.set(0, n==='close'?6.4:4.2, 0); controls.update(); }
+setCam(Q.get('cam') || 'three');
+
+const key = new THREE.DirectionalLight(0xfff4e6, 2.3);
+key.position.set(6, 12, 8); key.castShadow = true;
+key.shadow.mapSize.set(768, 768);
+Object.assign(key.shadow.camera, {left:-9, right:9, top:10, bottom:-6, near:1, far:40});
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xbcd0ff, 1.0); rim.position.set(-8, 6, -9); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc8ba, 0.35));
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({opacity:0.22}));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+
+/* ───────────── helpers ───────────── */
+const V3 = THREE.Vector3;
+const rb = (w,h,d,r=0.12,seg=4) => new RoundedBoxGeometry(w,h,d,seg,Math.min(r, w/2-1e-3, h/2-1e-3, d/2-1e-3));
+function mesh(parent, geo, mat, x=0,y=0,z=0, name){
+  const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z);
+  m.castShadow = true; m.receiveShadow = true; if (name) m.name = name; parent.add(m); return m;
+}
+function joint(parent, name, x=0,y=0,z=0){ const g = new THREE.Group(); g.name = name; g.position.set(x,y,z); parent.add(g); return g; }
+function canvasTex(w, h, draw){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+const plastic = (color, o={}) => new THREE.MeshPhysicalMaterial({color, roughness:0.3, ...o});
+
+/* ───────────── textures (drawn on canvas) ───────────── */
+function drawLion(g, cx, cy, s, mane, face, ink, crown){
+  g.save(); g.translate(cx, cy); g.scale(s, s);
+  g.fillStyle = mane; g.beginPath();
+  const N = 18;
+  for (let i = 0; i < N*2; i++){
+    const a = i/(N*2)*Math.PI*2 - Math.PI/2, r = i%2 ? 0.8 : 1.0;
+    g.lineTo(Math.cos(a)*r*0.95, Math.sin(a)*r + 0.12);
+  }
+  g.closePath(); g.fill();
+  g.fillStyle = face; g.beginPath(); g.ellipse(0, 0.14, 0.56, 0.62, 0, 0, 7); g.fill();
+  for (const sx of [-1,1]){ g.beginPath(); g.arc(sx*0.5, -0.4, 0.15, 0, 7); g.fill(); }
+  g.fillStyle = ink;
+  for (const sx of [-1,1]){
+    g.beginPath(); g.moveTo(sx*0.1,-0.02); g.lineTo(sx*0.44,-0.16); g.lineTo(sx*0.36,0.04); g.closePath(); g.fill();
+  }
+  g.beginPath(); g.moveTo(-0.15,0.2); g.lineTo(0.15,0.2); g.lineTo(0,0.34); g.closePath(); g.fill();
+  g.beginPath(); g.ellipse(0, 0.47, 0.27, 0.17, 0, 0, Math.PI); g.fill();
+  g.fillStyle = face;
+  for (const sx of [-0.12, 0.12]){ g.beginPath(); g.moveTo(sx-0.045,0.47); g.lineTo(sx+0.045,0.47); g.lineTo(sx,0.57); g.fill(); }
+  g.fillStyle = crown; g.beginPath();
+  g.moveTo(-0.46,-0.78); g.lineTo(-0.5,-1.2); g.lineTo(-0.24,-0.98); g.lineTo(0,-1.32); g.lineTo(0.24,-0.98); g.lineTo(0.5,-1.2); g.lineTo(0.46,-0.78);
+  g.closePath(); g.fill();
+  for (const [x,y] of [[-0.5,-1.22],[0,-1.34],[0.5,-1.22]]){ g.beginPath(); g.arc(x,y,0.06,0,7); g.fill(); }
+  g.restore();
+}
+const lionTex = canvasTex(512, 435, (g, w, h) => {      // белый коронованный лев на синем (прозрачный фон)
+  g.clearRect(0,0,w,h);
+  drawLion(g, w/2, 190, 118, '#f2f4f9', '#dfe5f3', '#2a45c2', '#f6f8fc');
+});
+const R_HEAD = 1.0, H_HEAD = 1.9;
+const faceTex = canvasTex(2048, 512, (g, W, H) => {
+  g.fillStyle = '#f6c2a8'; g.fillRect(0,0,W,H);
+  const px = x => W/2 + Math.asin(Math.max(-1, Math.min(1, x/R_HEAD)))/(2*Math.PI)*W;
+  const py = y => (1 - y/H_HEAD)*H;
+  g.fillStyle = '#4a2820';
+  for (const sx of [-1,1]){ g.beginPath(); g.ellipse(px(sx*0.3), py(0.64), 38, 36, 0, 0, 7); g.fill(); }
+  g.beginPath(); g.moveTo(px(-0.26), py(0.4)); g.quadraticCurveTo(px(0), py(0.1), px(0.26), py(0.4));
+  g.quadraticCurveTo(px(0), py(0.34), px(-0.26), py(0.4)); g.fill();                                   // улыбка
+}); faceTex.wrapS = THREE.RepeatWrapping;
+const hairBump = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#808080'; g.fillRect(0,0,w,h);
+  for (let i = 0; i < 70; i++){ const x = Math.random()*w; g.strokeStyle = Math.random() < .5 ? '#d0d0d0' : '#303030'; g.lineWidth = 2 + Math.random()*3;
+    g.beginPath(); g.moveTo(x, 0); g.quadraticCurveTo(x + (Math.random()-.5)*14, h/2, x + (Math.random()-.5)*10, h); g.stroke(); }
+}); hairBump.wrapS = hairBump.wrapT = THREE.RepeatWrapping;
+const braidTex = canvasTex(256, 64, (g, w, h) => {
+  g.fillStyle = '#c4962a'; g.fillRect(0,0,w,h);
+  g.strokeStyle = '#a07a1c'; g.lineWidth = 4;
+  for (let x = -h; x < w + h; x += 16){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x + h*0.8, h); g.stroke(); }
+  g.strokeStyle = '#e8c660'; g.lineWidth = 3;
+  for (let x = -h + 8; x < w + h; x += 16){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x + h*0.8, h); g.stroke(); }
+}); braidTex.wrapS = braidTex.wrapT = THREE.RepeatWrapping;
+
+const M = {
+  skin: plastic(0xf5c0a6, {roughness:0.45}),
+  hair: plastic(0x9a9ca3, {roughness:0.5, side:THREE.DoubleSide, bumpMap:hairBump, bumpScale:1.4}),
+  helmet: new THREE.MeshPhysicalMaterial({color:0x8d9096, metalness:0.55, roughness:0.34, side:THREE.DoubleSide}),
+  gold: new THREE.MeshPhysicalMaterial({color:0xd9ac2e, metalness:0.5, roughness:0.3}),
+  braid: new THREE.MeshPhysicalMaterial({map:braidTex, bumpMap:braidTex, bumpScale:2, metalness:0.5, roughness:0.38}),
+  blue: plastic(0x2740b8), red: plastic(0xc41a1d), black: plastic(0x1c1c1f, {roughness:0.42}),
+  sleeve: plastic(0x4a4c51, {roughness:0.4, metalness:0.25}),
+  steel: new THREE.MeshPhysicalMaterial({color:0xd2d5da, metalness:0.45, roughness:0.3}),
+  grip: plastic(0x8f1b22), guard: plastic(0xb3131b),
+};
+
+/* ───────────── figure ───────────── */
+const figure = new THREE.Group(); figure.name = 'Figure'; scene.add(figure);
+const root = joint(figure, 'Root');
+const torso = joint(root, 'Torso', 0, 3.0, 0);
+
+// торс: синий табард
+mesh(torso, rb(2.5,1.7,1.3,0.22), M.blue, 0, 1.35, 0, 'Chest');
+mesh(torso, rb(2.3,0.9,1.15,0.2), M.red, 0, 0.2, 0, 'Hips');
+{ const p = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.7), new THREE.MeshPhysicalMaterial({
+    map:lionTex, transparent:true, alphaTest:0.4, roughness:0.4, polygonOffset:true, polygonOffsetFactor:-2}));
+  p.position.set(0, 1.35, 0.658); p.name = 'Lion'; p.castShadow = true; torso.add(p); }
+// пояс: чёрный, круглая пряжка спереди, шпенёк сзади
+mesh(torso, rb(2.58,0.3,1.38,0.08,3), M.black, 0, 0.62, 0, 'Belt');
+{ const b = mesh(torso, new THREE.TorusGeometry(0.2,0.07,10,28), plastic(0x3a3a3e,{metalness:0.5}), 0, 0.62, 0.72, 'Buckle'); b.scale.set(1,1.1,1);
+  mesh(torso, new THREE.CylinderGeometry(0.07,0.07,0.3,12), M.black, 0, 0.62, 0.72).rotation.x = Math.PI/2;
+  const st = mesh(torso, new THREE.CylinderGeometry(0.08,0.08,0.1,12), M.black, -0.5, 0.62, -0.72); st.rotation.x = Math.PI/2; }
+// полы табарда (вторичное движение): спереди и сзади
+function flap(name, z){
+  const j = joint(torso, name, 0, 0.5, z);
+  const g = rb(2.28, 0.72, 0.14, 0.05, 3); g.translate(0, -0.34, 0);
+  mesh(j, g, M.blue, 0, 0, 0, name + 'Cloth'); return j;
+}
+const flapF = flap('TabardFront', 0.64), flapB = flap('TabardBack', -0.64);
+
+// золотой плетёный воротник
+const collar = mesh(torso, new THREE.TorusGeometry(0.85,0.3,16,56), M.braid, 0, 2.42, 0, 'Collar'); collar.rotation.x = Math.PI/2;
+collar.material.map.repeat.set(7, 1); collar.material.bumpMap.repeat.set(7, 1);
+mesh(torso, new THREE.CylinderGeometry(0.62,0.7,0.5,28), M.skin, 0, 2.35, 0, 'Neck');
+
+// голова
+const head = joint(torso, 'Head', 0, 2.5, 0);
+{
+  const prof = new THREE.SplineCurve([[0,0],[0.55,0.02],[0.86,0.18],[0.985,0.55],[1.0,0.95],[0.99,1.3],[0.9,1.62],[0.65,1.82],[0.3,1.895],[0,1.9]].map(p => new THREE.Vector2(...p))).getPoints(48);
+  const geo = new THREE.LatheGeometry(prof, 56);
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, Math.atan2(pos.getX(i), pos.getZ(i))/(2*Math.PI) + 0.5, pos.getY(i)/H_HEAD);
+  mesh(head, geo, new THREE.MeshPhysicalMaterial({map:faceTex, roughness:0.42}), 0, 0, 0, 'HeadShell');
+  // шлем: низкая тулья, широкие поля, гребень, заклёпки
+  const helmet = joint(head, 'Helmet');
+  const crown = new THREE.LatheGeometry([[1.1,0.96],[1.14,1.15],[1.14,1.45],[1.06,1.8],[0.82,2.06],[0.42,2.2],[0,2.24]].map(p => new THREE.Vector2(...p)), 56);
+  mesh(helmet, crown, M.helmet, 0, 0, 0, 'Crown');
+  const brim = new THREE.LatheGeometry([[1.12,1.0],[1.45,0.97],[1.72,0.89],[1.77,0.85],[1.73,0.82],[1.45,0.9],[1.1,0.93]].map(p => new THREE.Vector2(...p)), 64);
+  mesh(helmet, brim, M.helmet, 0, 0, 0, 'Brim');
+  const ridge = mesh(helmet, new THREE.TorusGeometry(1.1,0.045,8,40,Math.PI), M.helmet, 0, 1.18, 0, 'Ridge'); ridge.rotation.y = Math.PI/2;
+  mesh(helmet, new THREE.SphereGeometry(0.1,12,8), M.helmet, 0, 2.27, 0);
+  const rv = new THREE.TorusGeometry(1.145,0.04,8,56);
+  const band = mesh(helmet, rv, M.helmet, 0, 1.02, 0, 'CrownBand'); band.rotation.x = Math.PI/2;
+  for (let i = 0; i < 10; i++){ const a = i/10*Math.PI*2; mesh(helmet, new THREE.SphereGeometry(0.055,8,6), M.helmet, Math.sin(a)*1.165, 1.12, Math.cos(a)*1.165); }
+}
+// волосы: три пряди-«локона» на шарнирах (вторичное движение); спереди открыт лицо
+const locks = {};
+function hairLock(name, a0, a1){
+  const j = joint(head, name, 0, 0.95, 0);
+  const g = new THREE.CylinderGeometry(1.07,1.12,1.3,24,6,true,THREE.MathUtils.degToRad(a0),THREE.MathUtils.degToRad(a1-a0)); g.translate(0,-0.65,0);
+  mesh(j, g, M.hair, 0, 0, 0, name + 'Shell'); locks[name] = j; return j;
+}
+hairLock('HairL', 36, 112); hairLock('HairBack', 112, 248); hairLock('HairR', 248, 324);
+
+// руки: рукав графитовый, кисть — C-захват
+const ARM = 1.8;
+function handGeo(){
+  const R = 0.34, r = 0.165, gap = 0.75, s = new THREE.Shape();
+  const a0 = -Math.PI/2 + gap/2, a1 = -Math.PI/2 + Math.PI*2 - gap/2;
+  s.absarc(0,0,R,a0,a1,false); s.absarc(0,0,r,a1,a0,true); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, {depth:0.55, bevelEnabled:true, bevelSize:0.035, bevelThickness:0.035, bevelSegments:2, curveSegments:28});
+  g.translate(0,0,-0.275); return g;
+}
+function buildArm(side){
+  const sh = joint(torso, side > 0 ? 'ShoulderL' : 'ShoulderR', side*1.55, 2.0, 0);
+  mesh(sh, new THREE.SphereGeometry(0.46, 24, 16), M.sleeve, 0, 0, 0, 'ShoulderCap');
+  mesh(sh, new THREE.CylinderGeometry(0.42,0.38,1.35,24), M.sleeve, 0, -0.7, 0, 'Sleeve');
+  const el = mesh(sh, new THREE.TorusGeometry(0.4,0.03,6,24), M.black, 0, -0.75, 0); el.rotation.x = Math.PI/2;
+  mesh(sh, new THREE.CylinderGeometry(0.2,0.22,0.4,16), M.skin, 0, -1.5, 0, 'Wrist');
+  const wrist = joint(sh, side > 0 ? 'WristL' : 'WristR', 0, -ARM, 0);
+  mesh(wrist, handGeo(), M.skin, 0, 0, 0, 'Hand');
+  return sh;
+}
+buildArm(+1); buildArm(-1);
+
+// ноги: красные бриджи сверху, золотые сапоги и вставка между ног
+function buildLeg(side){
+  const hip = joint(root, side > 0 ? 'HipL' : 'HipR', side*0.52, 3.0, 0);
+  mesh(hip, rb(0.96,1.5,0.96,0.2), M.gold, 0, -0.76, 0, 'ThighCore');
+  mesh(hip, rb(0.74,1.45,1.12,0.18), M.red, side*0.12, -0.72, 0, 'ThighRed');
+  mesh(hip, rb(0.98,1.6,1.02,0.2), M.gold, 0, -2.2, 0, 'Boot');
+  mesh(hip, rb(0.98,0.45,1.5,0.18), M.gold, 0, -2.78, 0.22, 'Foot');
+  return hip;
+}
+buildLeg(+1); buildLeg(-1);
+
+// меч: двусторонний, рукоять посередине (красная обмотка, две красные гарды), клинок слегка изогнут
+const sword = joint(torso, 'Sword', 0, 1.7, 1.0);
+let bladeBottom;
+{
+  function blade(L, flip){
+    const s = new THREE.Shape(); s.moveTo(-0.24,0); s.lineTo(0.24,0); s.lineTo(0.24,L-0.5); s.quadraticCurveTo(0.2,L-0.12,-0.03,L); s.lineTo(-0.24,L-0.45); s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, {depth:0.07, bevelEnabled:true, bevelSize:0.02, bevelThickness:0.02, bevelSegments:1, curveSegments:6});
+    g.translate(0,0,-0.035);
+    const p = g.attributes.position; for (let i = 0; i < p.count; i++){ const y = p.getY(i); p.setZ(i, p.getZ(i) + 0.02*y*y); }
+    if (flip) g.rotateZ(Math.PI);
+    g.translate(0, flip ? -0.95 : 0.95, 0); g.computeVertexNormals(); return g;
+  }
+  mesh(sword, blade(3.2, false), M.steel, 0, 0, 0, 'BladeTop');
+  bladeBottom = mesh(sword, blade(4.0, true),  M.steel, 0, 0, 0, 'BladeBottom');
+  mesh(sword, new THREE.CylinderGeometry(0.14,0.14,1.7,18), M.grip, 0, 0, 0, 'Grip');
+  { const rg = new THREE.TorusGeometry(0.145,0.025,6,16), rm = plastic(0x6e1218); for (let i = 0; i < 9; i++){ const t = mesh(sword, rg, rm, 0, -0.7 + i*0.175, 0); t.rotation.x = Math.PI/2; } }
+  for (const sy of [-1,1]) mesh(sword, rb(0.62,0.22,0.36,0.09,3), M.guard, 0, sy*0.9, 0, 'Guard');
+}
+
+/* ───────────── skeleton / IK-aim для двуручного хвата ───────────── */
+const SH = {L: new V3(1.55,2.0,0), R: new V3(-1.55,2.0,0)};
+let GRIP_R = new V3(0, 0.36, 0); const GRIP_L = new V3(0, -0.36, 0);
+const GRIP_R2 = new V3(0, 0.36, 0), GRIP_R1 = new V3(0, 0, 0);   // одной рукой — хват за середину рукояти     // правая рука ближе к «верхней» гарде
+const DOWN = new V3(0,-1,0);
+const _q = new THREE.Quaternion(), _e = new THREE.Euler();
+let maxResid = 0;
+// коллизия меча с телом (в системе Torso): грудь/бёдра и ноги — боксы; если клинок внутри — поворачиваем меч вокруг кисти наружу
+const BODY = [{min:[-1.4,-0.3,-0.8], max:[1.4,2.35,0.8]}, {min:[-1.15,-3.1,-1.2], max:[1.15,0.0,1.2]}];
+const _ax = new V3(), _sp = new V3(), _v1 = new V3(), _v2 = new V3(), _qd = new THREE.Quaternion(), _id = new THREE.Quaternion();
+let curClip = '', maxPen = {};
+function avoidBody(q, c, measure){
+  _ax.set(0,1,0).applyQuaternion(q);
+  let best = 0, bd = null, bp = new V3();
+  for (let t = -4.95; t <= 4.2; t += 0.2){
+    if (Math.abs(t) < 0.7) continue;
+    _sp.copy(_ax).multiplyScalar(t).add(c);
+    for (const b of BODY){
+      const d = [0,0,0]; let inside = true, mn = 1e9, ai = 0, sg = 1;
+      for (let a = 0; a < 3; a++){
+        const lo = _sp.getComponent(a) - b.min[a], hi = b.max[a] - _sp.getComponent(a);
+        if (lo <= 0 || hi <= 0){ inside = false; break; }
+        const m = Math.min(lo, hi); if (m < mn){ mn = m; ai = a; sg = lo < hi ? -1 : 1; }
+      }
+      if (inside && mn > best){ best = mn; bd = new V3().setComponent(ai, sg*(mn + 0.12)); bp.copy(_sp); }
+    }
+  }
+  if (measure){ maxPen[curClip] = Math.max(maxPen[curClip] || 0, best); return best; }
+  if (!bd) return false;
+  _v1.copy(bp).sub(c).normalize(); _v2.copy(bp).add(bd).sub(c).normalize();
+  _qd.setFromUnitVectors(_v1, _v2); _qd.slerp(_id, 0.25);          // 75% шага
+  q.premultiply(_qd).normalize();
+  return true;
+}
+function solveSword(pose, one){ GRIP_R = one ? GRIP_R1 : GRIP_R2;                    // pose = [pitch, yaw, roll, dx, dy, dz]; меч в системе координат Torso
+  const q = new THREE.Quaternion().setFromEuler(_e.set(pose[0], pose[1], pose[2], 'YXZ'));
+  const c = new V3(0, 1.7, 1.0).add(new V3(pose[3], pose[4], pose[5]));
+  const PR = new V3(), PL = new V3(), WR = new V3(), WL = new V3();
+  for (let outer = 0; outer < 14; outer++){
+    for (let it = 0; it < 14; it++){
+      PR.copy(GRIP_R).applyQuaternion(q).add(c); PL.copy(GRIP_L).applyQuaternion(q).add(c);
+      WR.copy(PR).sub(SH.R).normalize().multiplyScalar(ARM).add(SH.R);
+      WL.copy(PL).sub(SH.L).normalize().multiplyScalar(ARM).add(SH.L);
+      if (one) c.add(WR.clone().sub(PR).multiplyScalar(0.6));
+      else c.add(WR.clone().sub(PR).add(WL.clone().sub(PL)).multiplyScalar(0.45));
+    }
+    if (!avoidBody(q, c)) break;      // меч не должен торчать сквозь тело и ноги
+  }
+  avoidBody(q, c, true);
+  PR.copy(GRIP_R).applyQuaternion(q).add(c); PL.copy(GRIP_L).applyQuaternion(q).add(c);
+  const axis = new V3(0,1,0).applyQuaternion(q);
+  function arm(S, P){
+    const u = P.clone().sub(S).normalize();
+    const qs = new THREE.Quaternion().setFromUnitVectors(DOWN, u);
+    const z = axis.clone();
+    let y = u.clone().sub(axis.clone().multiplyScalar(u.dot(axis))).multiplyScalar(-1);
+    if (y.lengthSq() < 1e-4) y.set(0,0,-1); y.normalize();
+    const x = new V3().crossVectors(y, z);
+    const qh = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    const qw = qs.clone().invert().multiply(qh);
+    const W = S.clone().addScaledVector(u, ARM);
+    return {qs, qw, err: W.distanceTo(P)};
+  }
+  const aR = arm(SH.R, PR), aL = arm(SH.L, PL);
+  maxResid = Math.max(maxResid, aR.err, one ? 0 : aL.err);
+  return {pos:c, q, aR, aL};
+}
+
+/* ───────────── animation (joint hierarchy + keyframes with easing) ───────────── */
+const BASE = {Root:[0,0,0], Torso:[0,0,0], Head:[0,0,0], HipL:[0,0,0], HipR:[0,0,0], Sw:[0.25,0,1.0,0,0,0], AL:[0,0,0]};
+// одноручный хват: меч в правой руке сбоку-спереди, левая рука свободна (AL = поворот левого плеча, Эйлер XYZ)
+const BASE1 = {...BASE, Sw:[0.4,0,0.2,-2.4,0.7,0.35], AL:[-0.2,0,0.18]};
+const EASE = {io:u=>u*u*(3-2*u), in:u=>u*u*u, out:u=>1-Math.pow(1-u,3), lin:u=>u, back:u=>{const c=1.70158;return 1+(c+1)*Math.pow(u-1,3)+c*Math.pow(u-1,2);}};
+function makeClip(name, dur, keys, fps = 30, one = false){
+  curClip = name;
+  const times = [], T = {};
+  const names = ['Torso','Head','HipL','HipR','Sword','ShoulderL','ShoulderR','WristL','WristR'];
+  for (const n of names) T[n] = []; T.Root = []; T.SwordP = [];
+  const BS = one ? BASE1 : BASE;
+  const pose = k => ({...BS, ...k});
+  const eul = new THREE.Euler(), qq = new THREE.Quaternion();
+  for (let f = 0; f <= Math.round(dur*fps); f++){
+    const t = f/fps; let i = 0; while (i < keys.length-2 && t > keys[i+1].t) i++;
+    const A = keys[i], B = keys[i+1], u = THREE.MathUtils.clamp((t - A.t)/(B.t - A.t), 0, 1), e = (EASE[A.ease] || EASE.io)(u);
+    const pa = pose(A), pb = pose(B); times.push(t);
+    const v = {}; for (const j of Object.keys(BS)) v[j] = pa[j].map((x, n) => x + (pb[j][n] - x)*e);
+    T.Root.push(...v.Root);
+    for (const j of ['Torso','Head','HipL','HipR']){ eul.set(v[j][0], v[j][1], v[j][2]); qq.setFromEuler(eul); T[j].push(qq.x, qq.y, qq.z, qq.w); }
+    const S = solveSword(v.Sw, one);
+    T.SwordP.push(S.pos.x, S.pos.y, S.pos.z); T.Sword.push(S.q.x, S.q.y, S.q.z, S.q.w);
+    if (one){ eul.set(v.AL[0], v.AL[1], v.AL[2]); qq.setFromEuler(eul); T.ShoulderL.push(qq.x, qq.y, qq.z, qq.w); T.WristL.push(0.0, 0.0, 0.0, 1.0); }
+    else { T.ShoulderL.push(S.aL.qs.x, S.aL.qs.y, S.aL.qs.z, S.aL.qs.w); T.WristL.push(S.aL.qw.x, S.aL.qw.y, S.aL.qw.z, S.aL.qw.w); }
+    T.ShoulderR.push(S.aR.qs.x, S.aR.qs.y, S.aR.qs.z, S.aR.qs.w); T.WristR.push(S.aR.qw.x, S.aR.qw.y, S.aR.qw.z, S.aR.qw.w);
+  }
+  maxPen[name + '_gripGap'] = +maxResid.toFixed(3); maxResid = 0;   // на сколько кисть отрывается от рукояти
+  const tracks = [new THREE.VectorKeyframeTrack('Root.position', times, T.Root), new THREE.VectorKeyframeTrack('Sword.position', times, T.SwordP)];
+  for (const n of names) tracks.push(new THREE.QuaternionKeyframeTrack(n + '.quaternion', times, T[n]));
+  return new THREE.AnimationClip(name, dur, tracks);
+}
+// ходьба «ножницами» как у Playmobil
+function mkWalk(one){ const walkKeys = []; const n = 8;
+  for (let i = 0; i <= n; i++){
+    const a = Math.sin(i/n*Math.PI*2), leg = 0.5*a, drop = -3.0*(1 - Math.cos(leg));
+    walkKeys.push({t:i/n*1.0, ease:'lin', Root:[0,drop,0], HipL:[-leg,0,0], HipR:[leg,0,0],
+      Torso:[0.04, 0.12*a, 0], Head:[0, -0.08*a, 0],
+      ...(one ? {Sw:[0.4, 0.06*a, 0.2 + 0.05*a, -2.4,0.7,0.35], AL:[-0.2 + 0.5*a, 0, 0.18]} : {Sw:[0.25, 0.06*a, 1.0 + 0.05*a, 0,0,0]})});
+  }
+  return walkKeys;
+}
+const SPR = 0.42;
+const CLIPS = {
+  'Стойка': makeClip('Idle', 4, [
+    {t:0}, {t:2, Head:[0.03,0.15,0], Torso:[0.02,0.03,0], Root:[0,0.03,0], Sw:[0.43,0,0.22,-2.4,0.72,0.35], AL:[-0.25,0,0.2]}, {t:4}], 30, true),
+  'Ходьба': makeClip('Walk', 1, mkWalk(true), 30, true),
+  'Бой одной рукой (стойка)': makeClip('OneHandGuard', 3, [
+    {t:0, Torso:[0.04,-0.4,0], Head:[0,0.35,0], HipL:[-0.25,0,0.3], HipR:[0.3,0,-0.3], Root:[0,-0.35,0], Sw:[0.8,-0.2,0.25,-2.3,0.6,0.6], AL:[-0.5,0,0.35]},
+    {t:1.5, Torso:[0.06,-0.45,0], Head:[0,0.38,0], HipL:[-0.25,0,0.3], HipR:[0.3,0,-0.3], Root:[0,-0.32,0.02], Sw:[0.85,-0.2,0.23,-2.3,0.65,0.65], AL:[-0.55,0,0.38]},
+    {t:3, Torso:[0.04,-0.4,0], Head:[0,0.35,0], HipL:[-0.25,0,0.3], HipR:[0.3,0,-0.3], Root:[0,-0.35,0], Sw:[0.8,-0.2,0.25,-2.3,0.6,0.6], AL:[-0.5,0,0.35]}], 30, true),
+  'Удар одной рукой (рубящий)': makeClip('OneHandSlash', 1.8, [
+    {t:0},
+    {t:0.45, ease:'io', Torso:[-0.05,-0.7,0], Head:[0,0.4,0], Sw:[-0.3,-0.3,0.9,-1.3,0.6,0.5], AL:[-0.2,0,0.5], HipL:[0.2,0,0.1], HipR:[-0.15,0,-0.1], Root:[0,-0.12,-0.1]},
+    {t:0.7, ease:'out', Torso:[0.15,0.6,0], Head:[0.05,-0.3,0], Sw:[1.2,0.3,-0.2,-0.5,-0.1,1.5], AL:[0.3,0,0.2], HipL:[-0.5,0,0.1], HipR:[0.4,0,-0.1], Root:[0,-0.3,0.6]},
+    {t:1.2, Torso:[0.12,0.55,0], Head:[0.05,-0.28,0], Sw:[1.15,0.28,-0.15,-0.5,-0.1,1.5], AL:[0.3,0,0.2], HipL:[-0.5,0,0.1], HipR:[0.4,0,-0.1], Root:[0,-0.3,0.6]},
+    {t:1.8}], 30, true),
+  'Выпад одной рукой': makeClip('OneHandLunge', 1.6, [
+    {t:0},
+    {t:0.4, ease:'io', Torso:[0.0,-0.5,0], Sw:[1.2,-0.2,0.2,-2.2,0.3,0.3], AL:[0.3,0,0.4], HipL:[0.25,0,0.1], HipR:[-0.2,0,-0.1], Root:[0,-0.15,-0.2]},
+    {t:0.65, ease:'out', Torso:[0.1,-0.25,0], Sw:[1.4,0,0.1,-2.1,0.15,0.9], AL:[0.6,0,0.5], HipL:[-0.6,0,0.12], HipR:[0.5,0,-0.12], Root:[0,-0.4,0.9]},
+    {t:1.1, Torso:[0.1,-0.25,0], Sw:[1.4,0,0.1,-2.1,0.15,0.9], AL:[0.6,0,0.5], HipL:[-0.6,0,0.12], HipR:[0.5,0,-0.12], Root:[0,-0.4,0.9]},
+    {t:1.6}], 30, true),
+  'Удар двуручным мечом (редко)': makeClip('Strike', 2.8, [
+    {t:0},
+    {t:0.7, ease:'io', Torso:[-0.1,-0.5,0], Head:[0,0.3,0], Sw:[-0.45,-0.5,1.5,0,0,0], HipL:[0.2,0,0.1], HipR:[-0.15,0,-0.1], Root:[0,-0.12,-0.1]},
+    {t:0.95, ease:'in', Torso:[-0.14,-0.55,0], Head:[0,0.3,0], Sw:[-0.55,-0.55,1.6,0,0,0], HipL:[0.2,0,0.1], HipR:[-0.15,0,-0.1], Root:[0,-0.12,-0.1]},
+    {t:1.2, ease:'out', Torso:[0.35,0.55,0], Head:[0.15,-0.3,0], Sw:[0.8,0.5,0.8,0,0,0], HipL:[-0.55,0,0.1], HipR:[0.45,0,-0.1], Root:[0,-0.35,0.8]},
+    {t:1.9, Torso:[0.3,0.5,0], Head:[0.1,-0.28,0], Sw:[0.78,0.45,0.85,0,0,0], HipL:[-0.55,0,0.1], HipR:[0.45,0,-0.1], Root:[0,-0.35,0.8]},
+    {t:2.8}]),
+  'Стойка самурая (двуручная)': makeClip('SamuraiStance', 4, [
+    {t:0, Torso:[0.05,-0.35,0], Head:[0,0.3,0], HipL:[-0.3,0,0.42], HipR:[0.4,0,-0.42], Root:[0,-0.55,0], Sw:[0.3,-0.2,0.95,0,0,0]},
+    {t:2, Torso:[0.08,-0.4,0], Head:[0.02,0.32,0], HipL:[-0.3,0,0.42], HipR:[0.4,0,-0.42], Root:[0,-0.5,0.02], Sw:[0.35,-0.2,0.9,0,0,0]},
+    {t:4, Torso:[0.05,-0.35,0], Head:[0,0.3,0], HipL:[-0.3,0,0.42], HipR:[0.4,0,-0.42], Root:[0,-0.55,0], Sw:[0.3,-0.2,0.95,0,0,0]}]),
+};
+const mixer = new THREE.AnimationMixer(figure);
+const actions = {}; for (const [k, c] of Object.entries(CLIPS)){ actions[k] = mixer.clipAction(c); }
+let current = null;
+const ONE_HAND = new Set(['Стойка','Ходьба','Бой одной рукой (стойка)','Удар одной рукой (рубящий)','Выпад одной рукой']);
+function play(name, fade = 0.25){
+  const next = actions[name]; if (!next || next === current) return;
+  next.reset().setLoop(THREE.LoopRepeat).play();
+  if (current) current.crossFadeTo(next, fade, false);
+  current = next; document.querySelectorAll('.clips button').forEach(b => b.classList.toggle('on', b.dataset.n === name));
+}
+
+/* ───────────── вторичное движение: полы табарда и пряди волос (пружины) ───────────── */
+const HAIR_K = 0.1;   // жёсткость волос = 1/10 жёсткости плаща (полы табарда)
+const sim = {wind:0.6, stiff:0.6, t:0};
+const springs = [];
+function addSpring(j, kind){
+  springs.push({j, kind, p:new V3(), v:new V3(), init:false, th:[0,0], om:[0,0]});
+}
+addSpring(flapF, 'F'); addSpring(flapB, 'B'); addSpring(locks.HairL, 'L'); addSpring(locks.HairBack, 'K'); addSpring(locks.HairR, 'R');
+const LIM = { // [minX,maxX,minZ,maxZ]; +x-угол уводит низ назад (-z), +z-угол — к +x
+  F:[-0.9,0.03,-0.2,0.2], B:[-0.03,0.9,-0.2,0.2], L:[-0.05,0.05,-0.02,0.6], K:[-0.02,0.6,-0.1,0.1], R:[-0.05,0.05,-0.6,0.02]};
+const _g = new V3(), _a = new V3(), _pq = new THREE.Quaternion(), _p = new V3();
+function springStep(h){
+  sim.t += h;
+  const kCloak = 60 + 380*sim.stiff;
+  for (const s of springs){
+    const k = s.kind === 'F' || s.kind === 'B' ? kCloak : kCloak*HAIR_K, c = 2*0.42*Math.sqrt(k);   // волосы в 10 раз мягче плаща
+    s.j.parent.updateWorldMatrix(true, false); s.j.updateWorldMatrix(true, false);
+    s.j.getWorldPosition(_p);
+    if (!s.init){ s.p.copy(_p); s.v.set(0,0,0); s.init = true; }
+    const v = _a.copy(_p).sub(s.p).divideScalar(h);
+    const acc = v.clone().sub(s.v).divideScalar(h); if (acc.length() > 250) acc.setLength(250);
+    s.p.copy(_p); s.v.copy(v);
+    const w = sim.wind*(0.7 + 0.3*Math.sin(sim.t*1.7) + 0.2*Math.sin(sim.t*3.9))*22;
+    _g.set(0.25*w*Math.sin(sim.t*0.9), -60, -w).sub(acc);          // эффективная «гравитация»
+    s.j.parent.getWorldQuaternion(_pq); _g.applyQuaternion(_pq.invert()).normalize();
+    const eq = [Math.atan2(-_g.z, -_g.y), Math.atan2(_g.x, -_g.y)];
+    const lim = LIM[s.kind], idx = [[0,1],[2,3]];
+    for (let d = 0; d < 2; d++){
+      const f = -k*(s.th[d] - eq[d]) - c*s.om[d];
+      s.om[d] += f*h; s.th[d] += s.om[d]*h;
+      const lo = lim[idx[d][0]], hi = lim[idx[d][1]];
+      if (s.th[d] < lo){ s.th[d] = lo; s.om[d] = 0; } if (s.th[d] > hi){ s.th[d] = hi; s.om[d] = 0; }
+    }
+    s.j.rotation.set(s.th[0], 0, s.th[1]);
+  }
+}
+function springReset(){ for (const s of springs){ s.init = false; s.th = [0,0]; s.om = [0,0]; s.j.rotation.set(0,0,0); } sim.t = 0; }
+
+/* ───────────── loop: фиксированный шаг + аккумулятор ───────────── */
+const H = 1/60; let acc = 0, speed = 1, paused = false;
+function advance(h){ mixer.update(h); figure.updateMatrixWorld(true); springStep(h); }
+function frame(dt){
+  if (!paused){ acc += Math.min(dt, 0.05)*speed; let n = 0; while (acc >= H && n++ < 8){ advance(H); acc -= H; } }
+}
+function seek(name, t){ // детерминированная перемотка для скриншотов
+  for (const a of Object.values(actions)) a.stop();
+  current = null; mixer.stopAllAction(); play(name, 0); current.time = 0; mixer.update(0); springReset();
+  const steps = Math.round(t/H); for (let i = 0; i < steps; i++){ advance(H); }
+}
+window.__seek = seek;
+window.__resid = () => maxResid;
+
+/* ───────────── UI ───────────── */
+const clipsEl = document.getElementById('clips');
+for (const name of Object.keys(CLIPS)){ const b = document.createElement('button'); b.textContent = name; b.dataset.n = name; b.onclick = () => play(name); clipsEl.append(b); }
+const $ = id => document.getElementById(id);
+$('play').onclick = () => { paused = !paused; $('play').textContent = paused ? '▶ Играть' : '⏸ Пауза'; };
+addEventListener('keydown', e => { if (e.code === 'Space'){ e.preventDefault(); $('play').click(); } });
+$('reset').onclick = () => { setCam('three'); springReset(); };
+$('speed').oninput = e => { speed = +e.target.value; $('vSpeed').textContent = speed.toFixed(1) + '×'; };
+$('wind').oninput = e => { sim.wind = +e.target.value; $('vWind').textContent = sim.wind.toFixed(2); };
+$('stiff').oninput = e => { sim.stiff = +e.target.value; $('vStiff').textContent = sim.stiff.toFixed(2); };
+$('rot').onchange = e => controls.autoRotate = e.target.checked;
+$('sword').onchange = e => sword.visible = e.target.checked;
+addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+/* ───────────── start ───────────── */
+$('loading').remove();
+play(Q.get('clip') || 'Стойка', 0);
+mixer.update(0); figure.updateMatrixWorld(true); springReset();
+if (Q.has('clip') && Q.has('t')) seek(Q.get('clip'), +Q.get('t'));
+else for (let i = 0; i < 90; i++) advance(H);
+{ const r = document.createElement('pre'); r.id = 'resid'; r.style.display = 'none'; r.textContent = 'resid=' + maxResid.toFixed(3); document.body.append(r); }
+if (Q.get('pen')){ const r = document.createElement('pre'); r.id = 'penres'; r.textContent = JSON.stringify(maxPen); document.body.append(r); }
+if (Q.has('t')) paused = true;
+let last = performance.now();
+renderer.setAnimationLoop(now => { const dt = (now - last)/1000; last = now; frame(dt); controls.update(); renderer.render(scene, camera); window.READY = true; });
+</script>
+</body>
+</html>

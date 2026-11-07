@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Рисуем карту острова</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--ink:#3b2f1e;--mute:#7a6a50;--accent:#8c5a1e;--card:rgba(250,243,226,.96);--line:#c8b184}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 Georgia,"Times New Roman",serif;color:var(--ink);background:#cdb98d;user-select:none}
+  #stage{position:fixed;inset:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #ov{pointer-events:none}
+  .panel{position:fixed;left:12px;top:12px;bottom:12px;width:280px;padding:12px;border-radius:14px;background:var(--card);box-shadow:0 6px 24px rgba(60,40,10,.25);border:1px solid var(--line);overflow:auto;z-index:2}
+  h1{font-size:17px;margin:0 0 2px}
+  small{color:var(--mute)}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:12px 0 5px}
+  .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .tool{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border:1px solid var(--line);background:#fffaf0;border-radius:9px;cursor:pointer;font:inherit;color:inherit;font-size:11px;line-height:1.1;text-align:center}
+  .tool i{font-style:normal;font-size:20px;line-height:1.1}
+  .tool:hover{border-color:var(--accent)}
+  .tool.on{background:#8c5a1e;color:#fff;border-color:#8c5a1e}
+  .sw{width:20px;height:20px;border-radius:50%;border:1px solid rgba(0,0,0,.35);display:inline-block}
+  label.s{display:flex;justify-content:space-between;font-size:12px;color:var(--mute);margin:8px 0 2px}
+  input[type=range]{width:100%;accent-color:#8c5a1e}
+  .row{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  button.b{flex:1;font:inherit;font-size:13px;border:1px solid var(--line);background:#fffaf0;border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--ink);white-space:nowrap}
+  button.b:hover{border-color:var(--accent)}
+  .chk{display:flex;gap:8px;align-items:center;margin:4px 0;font-size:13px}
+  input[type=text]{width:100%;font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fffaf0}
+  input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--line);border-radius:6px;background:#fffaf0}
+  #hint{position:fixed;left:50%;transform:translateX(-18%);bottom:14px;padding:8px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:12px;max-width:min(640px,60vw);text-align:center;z-index:2}
+  #lab{position:fixed;display:none;z-index:4;padding:4px 8px;font:bold 16px Georgia;border:2px solid #8c5a1e;border-radius:6px;background:#fffaf0;min-width:160px}
+  #toast{position:fixed;right:16px;top:16px;padding:8px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:13px;opacity:0;transition:opacity .3s;z-index:5;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas><canvas id="ov"></canvas></div>
+<div class="panel">
+  <h1>Рисуем карту</h1>
+  <small>Холст 1600×1100 (≈ 32×22 км). Рисуй, что хочешь — всё сохраняется само.</small>
+  <h2>Название карты</h2>
+  <input type="text" id="title" value="Остров Ниндзи">
+  <div id="toolbox"></div>
+  <h2>Параметры</h2>
+  <label class="s"><span>Размер кисти</span><b id="vSize">40</b></label><input type="range" id="size" min="6" max="160" value="40">
+  <label class="s"><span>Масштаб значков и текста</span><b id="vScale">1.0</b></label><input type="range" id="scale" min="0.4" max="4" step="0.1" value="1">
+  <label class="s"><span>Плотность (деревья, горы)</span><b id="vDens">4</b></label><input type="range" id="dens" min="1" max="12" value="4">
+  <label class="chk"><input type="checkbox" id="rough" checked>Неровный берег</label>
+  <label class="chk"><input type="checkbox" id="italic">Подпись курсивом</label>
+  <label class="chk" style="gap:10px">Цвет подписи <input type="color" id="lcol" value="#3b2f1e"></label>
+  <h2>Вид</h2>
+  <label class="chk"><input type="checkbox" id="vGrid">Сетка</label>
+  <label class="chk"><input type="checkbox" id="vGround" checked>Рамка и компас</label>
+  <h2>Действия</h2>
+  <div class="row"><button class="b" id="undo">↶ Отмена</button><button class="b" id="redo">↷ Повтор</button></div>
+  <div class="row" id="presetRow" style="display:none"><button class="b" id="preset">↺ Вернуть заготовку</button></div>
+  <div class="row"><button class="b" id="sketch">Набросок острова</button><button class="b" id="clear">Очистить</button></div>
+  <div class="row"><button class="b" id="png">Скачать PNG</button><button class="b" id="save">Сохранить файл</button><button class="b" id="load">Открыть файл</button></div>
+  <input type="file" id="file" accept=".json,application/json" style="display:none">
+  <h2>Горячие клавиши</h2>
+  <small>Пробел + тащить — двигать карту · колесо — масштаб · [ ] — размер кисти · Ctrl+Z / Ctrl+Shift+Z — отмена / повтор · двойной клик по подписи (инструмент «Двигать») — править текст</small>
+</div>
+<div id="hint">Начни с кисти «Луг» — нарисуй берег острова. Потом раскрась песком, добавь горы, леса и реки.</div>
+<input id="lab" type="text" placeholder="Текст и Enter">
+<div id="toast"></div>
+<script>
+'use strict';
+const W = 1600, H = 1100, $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const cv = $('cv'), ctx = cv.getContext('2d'), ov = $('ov'), octx = ov.getContext('2d');
+const ground = mk(W, H), gctx = ground.getContext('2d', {willReadFrequently:true});
+const lakes = mk(W, H), lctx = lakes.getContext('2d', {willReadFrequently:true});
+const cache = mk(W, H), cctx = cache.getContext('2d'), tmp = mk(W, H), tctx = tmp.getContext('2d');
+let UNDER = null;
+const INK = '#3a2713';
+let S = {title:'Остров Ниндзи', objs:[], lines:[], labels:[], patches:[]};      // всё, кроме земли
+const rnd = (a = 1, b) => b === undefined ? Math.random()*a : a + Math.random()*(b - a);
+
+/* ───────────── инструменты ───────────── */
+const GROUNDS = {
+  grass:{name:'Луг', color:'#93b857', mode:'paint', ico:'🟩'}, sand:{name:'Песок', color:'#e8d49b', mode:'recolor', ico:'🟨'},
+  forestg:{name:'Лесная земля', color:'#5f8f44', mode:'recolor', ico:'🟢'}, hills:{name:'Холмы', color:'#b4a46a', mode:'recolor', ico:'🟫'},
+  rockg:{name:'Скалы', color:'#8c8478', mode:'recolor', ico:'⬜'}, snow:{name:'Снег', color:'#f5f7fa', mode:'recolor', ico:'⬜'}, water:{name:'Вода (стереть землю)', color:'#000', mode:'erase', ico:'🌊'},
+};
+const TOOLS = [
+  ['Земля', ['grass','sand','forestg','hills','rockg','snow','water'].map(id => ({id, kind:'ground', name:GROUNDS[id].name.replace(' (стереть землю)', ''), ico:GROUNDS[id].ico})).concat([{id:'lake', kind:'lake', name:'Озеро', ico:'💧'}, {id:'unlake', kind:'lake', name:'Осушить', ico:'🏜️'}])],
+  ['Рисунки (кистью)', [{id:'tree', kind:'spray', name:'Ёлки', ico:'🌲'}, {id:'palm', kind:'spray', name:'Пальмы', ico:'🌴'}, {id:'mountain', kind:'spray', name:'Горы', ico:'⛰️'}, {id:'hill', kind:'spray', name:'Холмики', ico:'🟤'}, {id:'wave', kind:'spray', name:'Волны', ico:'🌊'}]],
+  ['Места (клик)', [{id:'hut', kind:'stamp', name:'Домик', ico:'🏠'}, {id:'castle', kind:'stamp', name:'Крепость', ico:'🏰'}, {id:'light', kind:'stamp', name:'Маяк', ico:'🗼'}, {id:'anchor', kind:'stamp', name:'Причал', ico:'⚓'}, {id:'ship', kind:'stamp', name:'Корабль', ico:'⛵'}, {id:'skull', kind:'stamp', name:'Череп', ico:'☠️'}, {id:'cross', kind:'stamp', name:'Клад', ico:'❌'}, {id:'flag', kind:'stamp', name:'Флаг', ico:'🚩'}]],
+  ['Город и порт (клик)', [{id:'tavern', kind:'stamp', name:'Большой дом', ico:'🏡'}, {id:'church', kind:'stamp', name:'Церковь', ico:'⛪'}, {id:'fountain', kind:'stamp', name:'Фонтан', ico:'⛲'}, {id:'market', kind:'stamp', name:'Рынок', ico:'🎪'}, {id:'tower', kind:'stamp', name:'Башня', ico:'🗼'}, {id:'well', kind:'stamp', name:'Колодец', ico:'🪣'}, {id:'warehouse', kind:'stamp', name:'Склад', ico:'🏚️'}, {id:'crates', kind:'stamp', name:'Ящики', ico:'📦'}, {id:'crane', kind:'stamp', name:'Кран', ico:'🏗️'}, {id:'boat', kind:'stamp', name:'Лодка', ico:'🛶'}, {id:'windmill', kind:'stamp', name:'Мельница', ico:'🌬️'}, {id:'farm', kind:'stamp', name:'Поле', ico:'🌾'}, {id:'pagoda', kind:'stamp', name:'Пагода', ico:'🏯'}, {id:'torii', kind:'stamp', name:'Тории', ico:'⛩️'}]],
+  ['Линии (тяни)', [{id:'river', kind:'line', name:'Река', ico:'〰️'}, {id:'road', kind:'line', name:'Дорога', ico:'➖'}, {id:'route', kind:'line', name:'Маршрут', ico:'➰'}, {id:'street', kind:'line', name:'Улица', ico:'🟰'}, {id:'wall', kind:'line', name:'Стена', ico:'🧱'}, {id:'pier', kind:'line', name:'Пирс', ico:'🪵'}]],
+  ['Текст и правка', [{id:'label', kind:'label', name:'Подпись', ico:'🔤'}, {id:'move', kind:'move', name:'Двигать', ico:'✋'}, {id:'erase', kind:'erase', name:'Ластик', ico:'🧽'}, {id:'pan', kind:'pan', name:'Рука', ico:'🖐️'}]],
+];
+let tool = TOOLS[0][1][0];
+{
+  const box = $('toolbox');
+  for (const [title, list] of TOOLS){
+    const h = document.createElement('h2'); h.textContent = title; box.appendChild(h);
+    const g = document.createElement('div'); g.className = 'tools';
+    for (const t of list){
+      const b = document.createElement('button'); b.className = 'tool'; b.dataset.id = t.id;
+      b.innerHTML = `<i>${t.ico}</i>${t.name}`; b.onclick = () => pick(t); g.appendChild(b); t.btn = b;
+    }
+    box.appendChild(g);
+  }
+}
+function pick(t){ tool = t; document.querySelectorAll('.tool').forEach(b => b.classList.toggle('on', b === t.btn)); $('hint').textContent = HINTS[t.kind] || ''; ovDraw(); }
+const HINTS = {
+  lake:'Озеро рисуется поверх суши (внутри острова). «Осушить» стирает озеро.',
+  ground:'Рисуй кистью. «Луг» создаёт сушу, остальные цвета перекрашивают уже нарисованную землю, «Вода» стирает сушу.',
+  spray:'Води кистью — рисунки сыплются в круге. Плотность и размер — в параметрах.', stamp:'Кликни там, где должно быть место. Масштаб — в параметрах.',
+  line:'Тяни линию мышью. Реку веди от гор к морю — она станет шире к устью.', label:'Кликни в нужном месте, введи текст, Enter. Размер — «Масштаб значков и текста».',
+  move:'Тяни значок или подпись, чтобы переместить. Двойной клик по подписи — править текст.', erase:'Стирает значки, линии и подписи под кистью. Землю стирает кисть «Вода».', pan:'Тяни, чтобы двигать карту.',
+};
+
+/* ───────────── камера ───────────── */
+const cam = {x: W/2, y: H/2, z: 0.7}; let dpr = 1, needDraw = true;
+function resize(){ dpr = Math.min(devicePixelRatio || 1, 2); for (const c of [cv, ov]){ c.width = innerWidth*dpr; c.height = innerHeight*dpr; } needDraw = true; ovDraw(); }
+function fit(){ cam.z = Math.min((innerWidth - 300)/W, innerHeight/H)*0.97; cam.x = W/2 - 150/cam.z; cam.y = H/2; needDraw = true; }
+const s2w = (sx, sy) => [(sx - innerWidth/2)/cam.z + cam.x, (sy - innerHeight/2)/cam.z + cam.y];
+function zoomAt(f, sx, sy){ const [wx, wy] = s2w(sx, sy); cam.z = Math.min(6, Math.max(0.2, cam.z*f)); cam.x = wx - (sx - innerWidth/2)/cam.z; cam.y = wy - (sy - innerHeight/2)/cam.z; needDraw = true; ovDraw(); }
+
+/* ───────────── рисунки-штампы ───────────── */
+const STAMP = {
+  tree(c, x, y, s, v){ const h = 15*s; c.fillStyle = 'rgba(25,55,25,.3)'; c.beginPath(); c.ellipse(x + h*0.12, y, h*0.32, h*0.1, 0, 0, 7); c.fill();
+    c.fillStyle = '#4b3220'; c.fillRect(x - h*0.04, y - h*0.2, h*0.08, h*0.2);
+    for (let i = 0; i < 3; i++){ const w = h*(0.34 - i*0.07), yy = y - h*0.15 - i*h*0.27; c.fillStyle = v > 0.5 ? '#2f6a33' : '#3d8140'; c.beginPath(); c.moveTo(x, yy - h*0.45); c.lineTo(x + w, yy); c.lineTo(x - w, yy); c.closePath(); c.fill(); c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.moveTo(x, yy - h*0.45); c.lineTo(x + w, yy); c.lineTo(x, yy - h*0.04); c.closePath(); c.fill(); } },
+  palm(c, x, y, s, v){ const h = 24*s, lean = (v - 0.5)*h*0.5; c.strokeStyle = '#7a5230'; c.lineWidth = Math.max(1.2, h*0.07); c.lineCap = 'round'; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + lean*0.2, y - h*0.5, x + lean, y - h); c.stroke();
+    c.strokeStyle = '#3f9a45'; c.lineWidth = Math.max(1.4, h*0.075); for (let i = 0; i < 6; i++){ const a = i/6*Math.PI*2 + v, lx = x + lean + Math.cos(a)*h*0.5, ly = y - h + Math.sin(a)*h*0.2 + h*0.12; c.beginPath(); c.moveTo(x + lean, y - h); c.quadraticCurveTo((x + lean + lx)/2, y - h - h*0.25, lx, ly); c.stroke(); }
+    c.fillStyle = '#5a3a22'; c.beginPath(); c.arc(x + lean, y - h + 1, h*0.06, 0, 7); c.fill(); },
+  mountain(c, x, y, s, v){ const w = 20*s, h = (22 + v*10)*s; c.fillStyle = 'rgba(40,30,20,.28)'; c.beginPath(); c.ellipse(x + w*0.35, y, w*0.9, h*0.12, 0, 0, 7); c.fill();
+    c.fillStyle = '#7b7469'; c.beginPath(); c.moveTo(x - w, y); c.lineTo(x - w*0.1, y - h); c.lineTo(x + w*0.35, y - h*0.35); c.lineTo(x + w*0.6, y - h*0.65); c.lineTo(x + w, y); c.closePath(); c.fill();
+    c.fillStyle = '#a9a294'; c.beginPath(); c.moveTo(x - w, y); c.lineTo(x - w*0.1, y - h); c.lineTo(x - w*0.05, y); c.closePath(); c.fill();
+    if (v > 0.35){ c.fillStyle = '#fff'; c.beginPath(); c.moveTo(x - w*0.1, y - h); c.lineTo(x + w*0.18, y - h*0.58); c.lineTo(x - w*0.05, y - h*0.66); c.lineTo(x - w*0.3, y - h*0.55); c.closePath(); c.fill(); }
+    c.strokeStyle = 'rgba(30,20,10,.5)'; c.lineWidth = 0.8; c.beginPath(); c.moveTo(x - w, y); c.lineTo(x - w*0.1, y - h); c.lineTo(x + w*0.35, y - h*0.35); c.lineTo(x + w*0.6, y - h*0.65); c.lineTo(x + w, y); c.stroke(); },
+  hill(c, x, y, s, v){ const w = 17*s, h = (8 + v*5)*s; c.fillStyle = 'rgba(60,40,10,.2)'; c.beginPath(); c.ellipse(x + 2, y, w, h*0.25, 0, 0, 7); c.fill(); c.fillStyle = '#a99a62'; c.beginPath(); c.moveTo(x - w, y); c.quadraticCurveTo(x, y - h*2, x + w, y); c.closePath(); c.fill(); c.strokeStyle = 'rgba(60,40,10,.55)'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(x - w, y); c.quadraticCurveTo(x, y - h*2, x + w, y); c.stroke(); c.fillStyle = 'rgba(255,255,255,.18)'; c.beginPath(); c.moveTo(x - w*0.7, y - h*0.3); c.quadraticCurveTo(x - w*0.3, y - h*1.2, x, y - h*0.95); c.lineTo(x - w*0.2, y - h*0.3); c.closePath(); c.fill(); },
+  wave(c, x, y, s){ c.strokeStyle = 'rgba(255,255,255,.65)'; c.lineWidth = 1.3; c.lineCap = 'round'; c.beginPath(); c.moveTo(x - 7*s, y); c.quadraticCurveTo(x - 3.5*s, y - 4*s, x, y); c.quadraticCurveTo(x + 3.5*s, y + 4*s, x + 7*s, y); c.stroke(); },
+
+  tavern(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#d2a971'; c.fillRect(x - u*1.15, y - u*1.0, u*2.3, u*1.0); c.strokeRect(x - u*1.15, y - u*1.0, u*2.3, u*1.0); c.fillStyle = '#9c3a2a'; c.beginPath(); c.moveTo(x - u*1.4, y - u*0.95); c.lineTo(x - u*0.6, y - u*1.9); c.lineTo(x + u*0.6, y - u*1.9); c.lineTo(x + u*1.4, y - u*0.95); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#3a2412'; c.fillRect(x - u*0.2, y - u*0.55, u*0.4, u*0.55); c.fillStyle = '#ffd27a'; c.fillRect(x + u*0.55, y - u*0.7, u*0.35, u*0.3); c.fillRect(x - u*0.9, y - u*0.7, u*0.35, u*0.3); c.fillStyle = '#7a5230'; c.fillRect(x + u*1.15, y - u*1.1, u*0.5, u*0.28); },
+  church(c, x, y, s){ const u = 12*s; c.lineJoin = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#e6dfcf'; c.fillRect(x - u*0.9, y - u*0.9, u*1.8, u*0.9); c.strokeRect(x - u*0.9, y - u*0.9, u*1.8, u*0.9); c.fillStyle = '#7d4a38'; c.beginPath(); c.moveTo(x - u*1.05, y - u*0.85); c.lineTo(x, y - u*1.55); c.lineTo(x + u*1.05, y - u*0.85); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#e6dfcf'; c.fillRect(x + u*0.2, y - u*1.8, u*0.6, u*1.0); c.strokeRect(x + u*0.2, y - u*1.8, u*0.6, u*1.0); c.fillStyle = '#7d4a38'; c.beginPath(); c.moveTo(x + u*0.1, y - u*1.78); c.lineTo(x + u*0.5, y - u*2.5); c.lineTo(x + u*0.9, y - u*1.78); c.closePath(); c.fill(); c.stroke(); c.strokeStyle = INK; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x + u*0.5, y - u*2.5); c.lineTo(x + u*0.5, y - u*2.95); c.moveTo(x + u*0.35, y - u*2.78); c.lineTo(x + u*0.65, y - u*2.78); c.stroke(); c.fillStyle = '#3a2412'; c.beginPath(); c.arc(x - u*0.3, y - u*0.35, u*0.25, Math.PI, 0); c.lineTo(x + u*0.05, y); c.lineTo(x - u*0.65, y); c.fill(); },
+  fountain(c, x, y, s){ const u = 12*s; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#b9b2a4'; c.beginPath(); c.ellipse(x, y - u*0.1, u*1.2, u*0.6, 0, 0, 7); c.fill(); c.stroke(); c.fillStyle = '#5fb5dc'; c.beginPath(); c.ellipse(x, y - u*0.15, u*0.95, u*0.43, 0, 0, 7); c.fill(); c.fillStyle = '#d0cabc'; c.fillRect(x - u*0.14, y - u*1.0, u*0.28, u*0.8); c.strokeRect(x - u*0.14, y - u*1.0, u*0.28, u*0.8); c.beginPath(); c.ellipse(x, y - u*1.0, u*0.42, u*0.17, 0, 0, 7); c.fillStyle = '#c4beb0'; c.fill(); c.stroke(); c.strokeStyle = 'rgba(210,240,255,.95)'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, y - u*1.05); c.quadraticCurveTo(x - u*0.55, y - u*1.5, x - u*0.7, y - u*0.45); c.moveTo(x, y - u*1.05); c.quadraticCurveTo(x + u*0.55, y - u*1.5, x + u*0.7, y - u*0.45); c.moveTo(x, y - u*1.05); c.lineTo(x, y - u*1.5); c.stroke(); },
+  market(c, x, y, s){ const u = 9*s; c.lineWidth = 1.2; c.strokeStyle = INK; c.fillStyle = '#8a6038'; c.fillRect(x - u*0.9, y - u*0.5, u*1.8, u*0.5); c.strokeRect(x - u*0.9, y - u*0.5, u*1.8, u*0.5); for (let i = 0; i < 4; i++){ c.fillStyle = i % 2 ? '#f4efe3' : '#c44a38'; c.beginPath(); c.moveTo(x - u*1.05 + i*u*0.525, y - u*1.5); c.lineTo(x - u*1.05 + (i + 1)*u*0.525, y - u*1.5); c.lineTo(x - u*1.05 + (i + 1)*u*0.525, y - u*0.8); c.lineTo(x - u*1.05 + i*u*0.525, y - u*0.8); c.closePath(); c.fill(); } c.strokeRect(x - u*1.05, y - u*1.5, u*2.1, u*0.7); c.fillStyle = '#e8b04a'; c.beginPath(); c.arc(x - u*0.4, y - u*0.58, u*0.15, 0, 7); c.arc(x + u*0.1, y - u*0.58, u*0.15, 0, 7); c.fill(); c.fillStyle = '#5a9a3a'; c.beginPath(); c.arc(x + u*0.55, y - u*0.58, u*0.15, 0, 7); c.fill(); },
+  tower(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#b9b2a4'; c.fillRect(x - u*0.5, y - u*1.7, u*1.0, u*1.7); c.strokeRect(x - u*0.5, y - u*1.7, u*1.0, u*1.7); c.fillStyle = '#9c3a2a'; c.beginPath(); c.moveTo(x - u*0.72, y - u*1.65); c.lineTo(x, y - u*2.6); c.lineTo(x + u*0.72, y - u*1.65); c.closePath(); c.fill(); c.stroke(); c.fillStyle = INK; c.fillRect(x - u*0.1, y - u*1.2, u*0.2, u*0.4); c.fillStyle = '#b23a30'; c.fillRect(x - 0.5, y - u*3.2, 1.3, u*0.65); c.fillRect(x, y - u*3.2, u*0.5, u*0.3); },
+  well(c, x, y, s){ const u = 8*s; c.lineWidth = 1.2; c.strokeStyle = INK; c.fillStyle = '#a8a294'; c.beginPath(); c.ellipse(x, y - u*0.2, u*0.7, u*0.38, 0, 0, 7); c.fill(); c.stroke(); c.fillStyle = '#2a5a78'; c.beginPath(); c.ellipse(x, y - u*0.25, u*0.45, u*0.22, 0, 0, 7); c.fill(); c.strokeStyle = '#4b3220'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(x - u*0.65, y - u*0.2); c.lineTo(x - u*0.65, y - u*1.3); c.moveTo(x + u*0.65, y - u*0.2); c.lineTo(x + u*0.65, y - u*1.3); c.stroke(); c.fillStyle = '#9c3a2a'; c.beginPath(); c.moveTo(x - u*0.95, y - u*1.25); c.lineTo(x, y - u*1.9); c.lineTo(x + u*0.95, y - u*1.25); c.closePath(); c.fill(); },
+  warehouse(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#9a7248'; c.fillRect(x - u*1.4, y - u*0.9, u*2.8, u*0.9); c.strokeRect(x - u*1.4, y - u*0.9, u*2.8, u*0.9); c.fillStyle = '#6f6a66'; c.beginPath(); c.moveTo(x - u*1.55, y - u*0.85); c.lineTo(x - u*1.0, y - u*1.5); c.lineTo(x + u*1.0, y - u*1.5); c.lineTo(x + u*1.55, y - u*0.85); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#3a2412'; c.fillRect(x - u*0.35, y - u*0.6, u*0.7, u*0.6); c.strokeStyle = 'rgba(40,25,10,.5)'; c.lineWidth = 1; c.beginPath(); for (let i = -3; i <= 3; i++){ c.moveTo(x + i*u*0.38, y - u*0.85); c.lineTo(x + i*u*0.38, y - u*0.05); } c.stroke(); },
+  crates(c, x, y, s){ const u = 7*s; c.lineWidth = 1.1; c.strokeStyle = INK; c.fillStyle = '#b98550'; c.fillRect(x - u, y - u*0.9, u*1.0, u*0.9); c.strokeRect(x - u, y - u*0.9, u*1.0, u*0.9); c.fillRect(x + u*0.1, y - u*0.7, u*0.8, u*0.7); c.strokeRect(x + u*0.1, y - u*0.7, u*0.8, u*0.7); c.fillRect(x - u*0.7, y - u*1.7, u*0.8, u*0.8); c.strokeRect(x - u*0.7, y - u*1.7, u*0.8, u*0.8); c.fillStyle = '#7a5230'; c.beginPath(); c.ellipse(x + u*1.45, y - u*0.45, u*0.4, u*0.5, 0, 0, 7); c.fill(); c.stroke(); },
+  crane(c, x, y, s){ const u = 11*s; c.lineCap = 'round'; c.strokeStyle = INK; c.lineWidth = 2.4; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - u*1.8); c.stroke(); c.strokeStyle = '#8a6038'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(x, y - u*1.8); c.lineTo(x + u*1.4, y - u*1.4); c.stroke(); c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.moveTo(x + u*1.4, y - u*1.4); c.lineTo(x + u*1.4, y - u*0.7); c.stroke(); c.fillStyle = '#b98550'; c.fillRect(x + u*1.15, y - u*0.7, u*0.5, u*0.4); c.strokeRect(x + u*1.15, y - u*0.7, u*0.5, u*0.4); },
+  boat(c, x, y, s){ const u = 8*s; c.lineWidth = 1.2; c.strokeStyle = INK; c.fillStyle = '#9a6a3e'; c.beginPath(); c.moveTo(x - u, y - u*0.35); c.quadraticCurveTo(x, y + u*0.4, x + u, y - u*0.35); c.closePath(); c.fill(); c.stroke(); c.strokeStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.moveTo(x - u*1.2, y + u*0.2); c.lineTo(x - u*0.6, y + u*0.2); c.moveTo(x + u*0.6, y + u*0.2); c.lineTo(x + u*1.2, y + u*0.2); c.stroke(); },
+  windmill(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#e6dfcf'; c.beginPath(); c.moveTo(x - u*0.65, y); c.lineTo(x - u*0.4, y - u*1.5); c.lineTo(x + u*0.4, y - u*1.5); c.lineTo(x + u*0.65, y); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#7d4a38'; c.beginPath(); c.moveTo(x - u*0.55, y - u*1.45); c.lineTo(x, y - u*2.1); c.lineTo(x + u*0.55, y - u*1.45); c.closePath(); c.fill(); c.stroke(); c.strokeStyle = '#4b3220'; c.lineWidth = 2; for (let i = 0; i < 4; i++){ const a = i*Math.PI/2 + 0.4; c.beginPath(); c.moveTo(x, y - u*1.45); c.lineTo(x + Math.cos(a)*u*1.5, y - u*1.45 + Math.sin(a)*u*1.5); c.stroke(); c.fillStyle = '#f4efe3'; const ex = x + Math.cos(a)*u*1.5, ey = y - u*1.45 + Math.sin(a)*u*1.5, nx = -Math.sin(a)*u*0.4, ny = Math.cos(a)*u*0.4; c.beginPath(); c.moveTo(x + Math.cos(a)*u*0.5, y - u*1.45 + Math.sin(a)*u*0.5); c.lineTo(ex, ey); c.lineTo(ex + nx, ey + ny); c.lineTo(x + Math.cos(a)*u*0.5 + nx, y - u*1.45 + Math.sin(a)*u*0.5 + ny); c.closePath(); c.fill(); } },
+  farm(c, x, y, s, v){ const w = 22*s, h = 13*s; c.save(); c.translate(x, y); c.rotate((v - 0.5)*0.5); c.fillStyle = '#b08a52'; c.fillRect(-w/2, -h/2, w, h); c.strokeStyle = '#6a4a20'; c.lineWidth = 1; c.strokeRect(-w/2, -h/2, w, h); c.strokeStyle = 'rgba(110,80,30,.8)'; c.beginPath(); for (let i = -w/2 + 3; i < w/2; i += 3){ c.moveTo(i, -h/2 + 1); c.lineTo(i, h/2 - 1); } c.stroke(); c.restore(); },
+  pagoda(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.3; c.strokeStyle = INK; for (let i = 0; i < 3; i++){ const w = u*(1.2 - i*0.25), yy = y - i*u*0.85; c.fillStyle = '#e6d9b8'; c.fillRect(x - w*0.7, yy - u*0.7, w*1.4, u*0.7); c.strokeRect(x - w*0.7, yy - u*0.7, w*1.4, u*0.7); c.fillStyle = '#9c3a2a'; c.beginPath(); c.moveTo(x - w*1.25, yy - u*0.65); c.quadraticCurveTo(x - w*0.5, yy - u*0.7, x, yy - u*1.15); c.quadraticCurveTo(x + w*0.5, yy - u*0.7, x + w*1.25, yy - u*0.65); c.closePath(); c.fill(); c.stroke(); } c.strokeStyle = INK; c.lineWidth = 1.4; c.beginPath(); c.moveTo(x, y - u*2.85); c.lineTo(x, y - u*3.4); c.stroke(); },
+  torii(c, x, y, s){ const u = 11*s; c.lineCap = 'round'; c.strokeStyle = '#b23a30'; c.lineWidth = 2.6*s; c.beginPath(); c.moveTo(x - u*0.8, y); c.lineTo(x - u*0.8, y - u*1.7); c.moveTo(x + u*0.8, y); c.lineTo(x + u*0.8, y - u*1.7); c.stroke(); c.lineWidth = 3.2*s; c.beginPath(); c.moveTo(x - u*1.1, y - u*1.75); c.quadraticCurveTo(x, y - u*1.5, x + u*1.1, y - u*1.75); c.stroke(); c.lineWidth = 2.2*s; c.beginPath(); c.moveTo(x - u*0.8, y - u*1.2); c.lineTo(x + u*0.8, y - u*1.2); c.stroke(); },
+  hut(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = INK; c.fillStyle = '#c9a068'; c.fillRect(x - u*0.8, y - u*0.9, u*1.6, u); c.strokeRect(x - u*0.8, y - u*0.9, u*1.6, u); c.fillStyle = '#a8412e'; c.beginPath(); c.moveTo(x - u*1.05, y - u*0.85); c.lineTo(x, y - u*1.95); c.lineTo(x + u*1.05, y - u*0.85); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#3a2412'; c.fillRect(x - u*0.2, y - u*0.5, u*0.4, u*0.5); },
+  castle(c, x, y, s){ const u = 12*s; c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = INK; c.fillStyle = '#b9b2a4'; c.fillRect(x - u*0.85, y - u*1.1, u*1.7, u*1.1); c.strokeRect(x - u*0.85, y - u*1.1, u*1.7, u*1.1); for (const cx of [-0.85, -0.28, 0.28]){ c.fillRect(x + u*cx, y - u*1.5, u*0.57, u*0.4); c.strokeRect(x + u*cx, y - u*1.5, u*0.57, u*0.4); } c.fillStyle = '#3a2412'; c.fillRect(x - u*0.2, y - u*0.55, u*0.4, u*0.55); c.fillStyle = '#b23a30'; c.fillRect(x - 0.5, y - u*2.3, 1.4, u*0.8); c.fillRect(x, y - u*2.3, u*0.55, u*0.35); },
+  light(c, x, y, s){ const u = 12*s; c.lineJoin = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#f4efe3'; c.beginPath(); c.moveTo(x - u*0.45, y); c.lineTo(x - u*0.25, y - u*1.5); c.lineTo(x + u*0.25, y - u*1.5); c.lineTo(x + u*0.45, y); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#b23a30'; c.fillRect(x - u*0.35, y - u*0.9, u*0.7, u*0.32); c.fillStyle = '#ffd24a'; c.fillRect(x - u*0.25, y - u*1.9, u*0.5, u*0.4); c.strokeRect(x - u*0.25, y - u*1.9, u*0.5, u*0.4); c.fillStyle = '#b23a30'; c.beginPath(); c.moveTo(x - u*0.35, y - u*1.9); c.lineTo(x, y - u*2.25); c.lineTo(x + u*0.35, y - u*1.9); c.closePath(); c.fill(); },
+  anchor(c, x, y, s){ const u = 11*s; c.strokeStyle = INK; c.lineWidth = 2*s; c.lineCap = 'round'; c.beginPath(); c.arc(x, y - u*1.3, u*0.22, 0, 7); c.moveTo(x, y - u*1.08); c.lineTo(x, y - u*0.1); c.moveTo(x - u*0.45, y - u*0.8); c.lineTo(x + u*0.45, y - u*0.8); c.moveTo(x - u*0.7, y - u*0.45); c.quadraticCurveTo(x, y + u*0.35, x + u*0.7, y - u*0.45); c.stroke(); },
+  ship(c, x, y, s){ const u = 11*s; c.lineJoin = 'round'; c.lineWidth = 1.3; c.strokeStyle = INK; c.fillStyle = '#7a5230'; c.beginPath(); c.moveTo(x - u*1.3, y - u*0.5); c.lineTo(x + u*1.3, y - u*0.5); c.lineTo(x + u*0.9, y); c.lineTo(x - u*0.9, y); c.closePath(); c.fill(); c.stroke(); c.beginPath(); c.moveTo(x, y - u*0.5); c.lineTo(x, y - u*2.4); c.stroke(); c.fillStyle = '#f4efe3';
+    for (const [sx, sy, sw, sh] of [[-0.8, -0.65, 0.8, 0.9], [0.0, -0.65, 0.95, 1.2]]){ c.beginPath(); c.moveTo(x + u*sx, y + u*sy); c.quadraticCurveTo(x + u*(sx + sw*0.5), y + u*(sy - sh*0.2), x + u*(sx + sw), y + u*sy); c.lineTo(x + u*(sx + sw*0.9), y + u*(sy - sh)); c.lineTo(x + u*(sx + 0.1), y + u*(sy - sh)); c.closePath(); c.fill(); c.stroke(); }
+    c.fillStyle = '#b23a30'; c.fillRect(x, y - u*2.4, u*0.6, u*0.3); },
+  skull(c, x, y, s){ const u = 10*s; c.lineWidth = 1.4; c.strokeStyle = INK; c.fillStyle = '#f4efe3'; c.beginPath(); c.arc(x, y - u*0.9, u*0.7, 0, 7); c.fill(); c.stroke(); c.fillRect(x - u*0.35, y - u*0.35, u*0.7, u*0.35); c.strokeRect(x - u*0.35, y - u*0.35, u*0.7, u*0.35); c.fillStyle = INK; c.beginPath(); c.arc(x - u*0.27, y - u*0.95, u*0.16, 0, 7); c.arc(x + u*0.27, y - u*0.95, u*0.16, 0, 7); c.fill(); },
+  cross(c, x, y, s){ const u = 9*s; c.strokeStyle = '#b23a30'; c.lineWidth = 3.2*s; c.lineCap = 'round'; c.beginPath(); c.moveTo(x - u, y - u); c.lineTo(x + u, y + u); c.moveTo(x + u, y - u); c.lineTo(x - u, y + u); c.stroke(); },
+  flag(c, x, y, s){ const u = 12*s; c.strokeStyle = INK; c.lineWidth = 1.8; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - u*2); c.stroke(); c.fillStyle = '#b23a30'; c.beginPath(); c.moveTo(x, y - u*2); c.lineTo(x + u*1.2, y - u*1.7); c.lineTo(x, y - u*1.2); c.closePath(); c.fill(); c.stroke(); },
+};
+const BASE_TOP = new Set(['hut','castle','light','anchor','ship','skull','cross','flag','tavern','church','fountain','market','tower','well','warehouse','crates','crane','boat','windmill','pagoda','torii']);
+const FLAT = new Set(['farm']);
+
+/* ───────────── сборка карты ───────────── */
+const noiseTile = (() => { const c = mk(256, 256), g = c.getContext('2d'), im = g.createImageData(256, 256); for (let i = 0; i < 256*256; i++){ const v = 185 + Math.random()*70; im.data[i*4] = v; im.data[i*4 + 1] = v; im.data[i*4 + 2] = v - 6; im.data[i*4 + 3] = 255; } g.putImageData(im, 0, 0); return c; })();
+const noiseSigned = (() => { const c = mk(256, 256), g = c.getContext('2d'), im = g.createImageData(256, 256); for (let i = 0; i < 256*256; i++){ const w = Math.random() < 0.5; im.data[i*4] = im.data[i*4 + 1] = im.data[i*4 + 2] = w ? 255 : 0; im.data[i*4 + 3] = 18 + Math.random()*10; } g.putImageData(im, 0, 0); return c; })();
+let cacheDirty = true, fastMode = false;
+function buildCache(fast){
+  const g = cctx; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H);
+  if (UNDER) g.drawImage(UNDER, 0, 0, W, H); else { const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#2f7fae'); gr.addColorStop(1, '#1f5f8c'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
+  if (!fast){
+    g.save(); g.shadowColor = 'rgba(120,205,220,.95)'; g.shadowBlur = 44; g.drawImage(ground, 0, 0); g.drawImage(ground, 0, 0); g.restore();
+    g.save(); g.shadowColor = 'rgba(215,245,238,.95)'; g.shadowBlur = 12; g.drawImage(ground, 0, 0); g.restore();
+  }
+  g.save(); g.shadowColor = 'rgba(60,40,15,.95)'; g.shadowBlur = 2.5; g.drawImage(ground, 0, 0); g.drawImage(ground, 0, 0); g.restore();
+  if (fast){ g.drawImage(ground, 0, 0); }
+  else {
+    tctx.clearRect(0, 0, W, H); tctx.globalCompositeOperation = 'source-over'; tctx.drawImage(ground, 0, 0);
+    tctx.globalCompositeOperation = 'source-atop'; tctx.globalAlpha = 0.28; tctx.fillStyle = tctx.createPattern(noiseTile, 'repeat'); tctx.fillRect(0, 0, W, H); tctx.globalAlpha = 1; tctx.globalCompositeOperation = 'source-over';
+    g.drawImage(tmp, 0, 0);
+  }
+  // озёра: песчаный берег, тёмный контур, вода
+  g.save(); g.shadowColor = 'rgba(236,220,160,.95)'; g.shadowBlur = fast ? 4 : 11; g.drawImage(lakes, 0, 0); g.drawImage(lakes, 0, 0); g.restore();
+  g.save(); g.shadowColor = 'rgba(45,35,20,.9)'; g.shadowBlur = 2; g.drawImage(lakes, 0, 0); g.restore();
+  if (!fast){ tctx.clearRect(0, 0, W, H); tctx.globalCompositeOperation = 'source-over'; tctx.drawImage(lakes, 0, 0); tctx.globalCompositeOperation = 'source-atop'; tctx.globalAlpha = 0.5; tctx.fillStyle = 'rgba(160,225,245,1)'; tctx.shadowColor = 'rgba(20,70,110,.9)'; tctx.shadowBlur = 0; tctx.fillRect(0, 0, W, H); tctx.globalAlpha = 1; tctx.globalCompositeOperation = 'source-over'; g.drawImage(lakes, 0, 0); g.save(); g.globalAlpha = 0.55; g.drawImage(tmp, 0, 0); g.restore(); }
+  else g.drawImage(lakes, 0, 0);
+  cacheDirty = false;
+}
+function strokeSmooth(c, pts){ if (pts.length < 2) return; c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length - 1; i++){ const mx = (pts[i][0] + pts[i + 1][0])/2, my = (pts[i][1] + pts[i + 1][1])/2; c.quadraticCurveTo(pts[i][0], pts[i][1], mx, my); } const l = pts[pts.length - 1]; c.lineTo(l[0], l[1]); c.stroke(); }
+function drawLine(c, L){
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  if (L.t === 'street'){ c.strokeStyle = 'rgba(100,78,48,.65)'; c.lineWidth = 6.5*L.s; strokeSmooth(c, L.pts); c.strokeStyle = '#e9dfc4'; c.lineWidth = 4.6*L.s; strokeSmooth(c, L.pts); return; }
+  if (L.t === 'wall'){ c.lineCap = 'butt'; c.strokeStyle = INK; c.lineWidth = 8*L.s; strokeSmooth(c, L.pts); c.strokeStyle = '#aaa396'; c.lineWidth = 6*L.s; strokeSmooth(c, L.pts); c.strokeStyle = '#8c8678'; c.lineWidth = 8*L.s; c.setLineDash([3.2*L.s, 3.2*L.s]); strokeSmooth(c, L.pts); c.setLineDash([]); c.strokeStyle = '#c9c3b4'; c.lineWidth = 2.6*L.s; strokeSmooth(c, L.pts); return; }
+  if (L.t === 'pier'){ c.lineCap = 'butt'; c.strokeStyle = '#4a2f18'; c.lineWidth = 9*L.s; strokeSmooth(c, L.pts); c.strokeStyle = '#b07a42'; c.lineWidth = 7*L.s; strokeSmooth(c, L.pts); c.strokeStyle = 'rgba(60,35,10,.75)'; c.lineWidth = 7*L.s; c.setLineDash([1.1*L.s, 3.4*L.s]); strokeSmooth(c, L.pts); c.setLineDash([]); return; }
+  if (L.t === 'river'){
+    const n = L.pts.length;
+    for (const pass of [0, 1]){ c.strokeStyle = pass ? '#58b6d6' : 'rgba(20,70,110,.7)'; for (let i = 1; i < n; i += 3){ const t = i/n; c.lineWidth = (1.2 + t*3.4)*L.s + (pass ? 0 : 1.4); const seg = L.pts.slice(Math.max(0, i - 3), Math.min(n, i + 3)); strokeSmooth(c, seg); } }
+  } else if (L.t === 'road'){ c.strokeStyle = 'rgba(105,60,25,.9)'; c.lineWidth = 2.2*L.s; c.setLineDash([8*L.s, 6*L.s]); strokeSmooth(c, L.pts); c.setLineDash([]); }
+  else { c.strokeStyle = '#b23a30'; c.lineWidth = 2.4*L.s; c.setLineDash([2*L.s, 7*L.s]); strokeSmooth(c, L.pts); c.setLineDash([]); }
+}
+function drawLabel(c, L){ c.font = `${L.italic ? 'italic ' : ''}bold ${L.size}px Georgia, serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.strokeStyle = 'rgba(255,248,230,.92)'; c.lineWidth = L.size*0.28; c.strokeText(L.text, L.x, L.y); c.fillStyle = L.color; c.fillText(L.text, L.x, L.y); }
+function drawFrame(c){
+  c.strokeStyle = '#5a3d1c'; c.lineWidth = 5; c.strokeRect(10, 10, W - 20, H - 20); c.strokeStyle = '#8c6a3a'; c.lineWidth = 1.5; c.strokeRect(20, 20, W - 40, H - 40);
+  c.font = 'italic bold 40px Georgia'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = 'rgba(255,248,230,.9)'; c.lineWidth = 9; c.strokeText(S.title, W/2, 62); c.fillStyle = '#3b2f1e'; c.fillText(S.title, W/2, 62);
+  c.save(); c.translate(W - 110, H - 120); c.fillStyle = 'rgba(250,243,226,.88)'; c.beginPath(); c.arc(0, 0, 58, 0, 7); c.fill(); c.strokeStyle = '#5a3d1c'; c.lineWidth = 2; c.stroke();
+  for (let i = 0; i < 4; i++){ c.save(); c.rotate(Math.PI/2*i); c.fillStyle = i === 0 ? '#b23a30' : '#4a2f18'; c.beginPath(); c.moveTo(0, -50); c.lineTo(7, 0); c.lineTo(-7, 0); c.closePath(); c.fill(); c.restore(); } c.restore();
+  c.fillStyle = '#4a2f18'; c.font = 'bold 18px Georgia'; c.fillText('С', W - 110, H - 188); c.fillText('Ю', W - 110, H - 52);
+  const km = 1000/20, bx = 60, by = H - 54; c.fillStyle = 'rgba(250,243,226,.88)'; c.fillRect(bx - 10, by - 28, km*5 + 20, 46); c.strokeStyle = '#4a2f18'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(bx, by - 6); c.lineTo(bx, by + 6); c.lineTo(bx + km*5, by + 6); c.lineTo(bx + km*5, by - 6); c.stroke(); c.fillStyle = '#4a2f18'; c.font = '16px Georgia'; c.fillText('5 км', bx + km*2.5, by - 12);
+}
+function drawWorld(c, opt = {}){
+  if (cacheDirty) buildCache(fastMode);
+  c.drawImage(cache, 0, 0);
+  if (S.patches && S.patches.length){ const pat = c.createPattern(noiseSigned, 'repeat'); for (const P of S.patches){ c.beginPath(); P.pts.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.closePath(); c.fillStyle = P.c; c.fill(); c.fillStyle = pat; c.fill(); } }
+  if ($('vGrid').checked){ c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.beginPath(); for (let x = 0; x <= W; x += 100){ c.moveTo(x, 0); c.lineTo(x, H); } for (let y = 0; y <= H; y += 100){ c.moveTo(0, y); c.lineTo(W, y); } c.stroke(); c.fillStyle = 'rgba(255,255,255,.8)'; c.font = '13px Georgia'; c.textAlign = 'left'; c.textBaseline = 'top'; for (let i = 0; i < W/100; i++) c.fillText(String.fromCharCode(65 + i), i*100 + 4, 4); for (let j = 1; j < H/100; j++) c.fillText(String(j + 1), 4, j*100 + 3); }
+  for (const L of S.lines) drawLine(c, L);
+  const low = S.objs.filter(o => !BASE_TOP.has(o.t)).sort((a, b) => a.y - b.y), top = S.objs.filter(o => BASE_TOP.has(o.t)).sort((a, b) => a.y - b.y);
+  for (const o of low) STAMP[o.t](c, o.x, o.y, o.s, o.v); for (const o of top) STAMP[o.t](c, o.x, o.y, o.s, o.v);
+  for (const L of S.labels) drawLabel(c, L);
+  if ($('vGround').checked) drawFrame(c);
+}
+function draw(){
+  needDraw = false; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#cdb98d'; ctx.fillRect(0, 0, innerWidth, innerHeight);
+  ctx.save(); ctx.translate(innerWidth/2, innerHeight/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.x, -cam.y); ctx.imageSmoothingQuality = 'high';
+  ctx.shadowColor = 'rgba(40,25,5,.4)'; ctx.shadowBlur = 24; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.shadowColor = 'transparent';
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); drawWorld(ctx); ctx.restore();
+}
+(function loop(){ if (needDraw) draw(); requestAnimationFrame(loop); })();
+
+/* ───────────── кисть-курсор ───────────── */
+let mouse = {x: -99, y: -99};
+function ovDraw(){
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.clearRect(0, 0, innerWidth, innerHeight);
+  if (['ground', 'spray', 'erase'].includes(tool.kind) && !panning){ const r = +$('size').value*cam.z/2; octx.strokeStyle = tool.kind === 'erase' ? '#b23a30' : '#fff'; octx.lineWidth = 2; octx.beginPath(); octx.arc(mouse.x, mouse.y, r, 0, 7); octx.stroke(); octx.strokeStyle = 'rgba(0,0,0,.55)'; octx.lineWidth = 1; octx.beginPath(); octx.arc(mouse.x, mouse.y, r + 1.5, 0, 7); octx.stroke(); }
+}
+
+/* ───────────── история ───────────── */
+let hist = [], hi = -1, dirtyG = false, dirtyL = false;
+const meta = () => JSON.stringify(S);
+function pushHist(){
+  const prev = hist[hi], gimg = (dirtyG || !prev) ? gctx.getImageData(0, 0, W, H) : prev.g, limg = (dirtyL || !prev) ? lctx.getImageData(0, 0, W, H) : prev.l;
+  hist = hist.slice(0, hi + 1); hist.push({m: meta(), g: gimg, l: limg}); if (hist.length > 14) hist.shift(); hi = hist.length - 1; dirtyG = dirtyL = false; scheduleSave();
+}
+function restore(i){ const h = hist[i]; if (!h) return; hi = i; S = JSON.parse(h.m); $('title').value = S.title; gctx.putImageData(h.g, 0, 0); lctx.putImageData(h.l, 0, 0); dirtyG = dirtyL = false; cacheDirty = true; fastMode = false; needDraw = true; scheduleSave(); }
+$('undo').onclick = () => restore(hi - 1); $('redo').onclick = () => restore(hi + 1);
+
+/* ───────────── ввод ───────────── */
+let drawing = null, panning = null, spaceDown = false;
+function dab(x, y, r){
+  let g, comp, color;
+  if (tool.kind === 'lake'){ g = lctx; comp = tool.id === 'unlake' ? 'destination-out' : 'source-over'; color = '#3f95c4'; }
+  else { const gm = GROUNDS[tool.id]; g = gctx; comp = gm.mode === 'erase' ? 'destination-out' : gm.mode === 'recolor' ? 'source-atop' : 'source-over'; color = gm.color; }
+  g.save(); g.globalCompositeOperation = comp; g.fillStyle = color;
+  const rough = $('rough').checked; g.beginPath();
+  if (rough){ const n = 14, ph = Math.random()*7; for (let i = 0; i <= n; i++){ const a = i/n*Math.PI*2, rr = r*(0.88 + 0.1*Math.sin(a*3 + ph) + Math.random()*0.1); const px = x + Math.cos(a)*rr, py = y + Math.sin(a)*rr; i ? g.lineTo(px, py) : g.moveTo(px, py); } g.closePath(); }
+  else g.arc(x, y, r, 0, 7);
+  g.fill(); g.restore();
+}
+function dabLine(a, b, r){ const d = Math.hypot(b[0] - a[0], b[1] - a[1]), st = Math.max(1, r*0.3), n = Math.max(1, Math.ceil(d/st)); for (let i = 1; i <= n; i++) dab(a[0] + (b[0] - a[0])*i/n, a[1] + (b[1] - a[1])*i/n, r); }
+function sprayAt(x, y){
+  const r = +$('size').value/2, sc = +$('scale').value, dens = +$('dens').value, cnt = Math.max(1, Math.round(dens*r/40*(tool.id === 'wave' ? 1.5 : 1)));
+  for (let i = 0; i < cnt; i++){ const a = rnd(Math.PI*2), d = Math.sqrt(Math.random())*r; S.objs.push({t:tool.id, x:x + Math.cos(a)*d, y:y + Math.sin(a)*d, s:sc*rnd(0.8, 1.2), v:Math.random()}); }
+}
+function eraseAt(x, y){
+  const r = +$('size').value/2; const n0 = S.objs.length + S.lines.length + S.labels.length;
+  S.objs = S.objs.filter(o => Math.hypot(o.x - x, o.y - y) > r); S.labels = S.labels.filter(l => Math.hypot(l.x - x, l.y - y) > r);
+  S.lines = S.lines.filter(L => !L.pts.some(p => Math.hypot(p[0] - x, p[1] - y) < r*0.8));
+  return S.objs.length + S.lines.length + S.labels.length !== n0;
+}
+function nearest(x, y){ let best = null, bd = 28/cam.z + 8; for (const o of S.objs){ const d = Math.hypot(o.x - x, o.y - (o.y > 0 ? y + (BASE_TOP.has(o.t) ? 10*o.s : 0) : y)); if (d < bd){ bd = d; best = o; } } for (const l of S.labels){ const d = Math.hypot(l.x - x, l.y - y) - l.text.length*l.size*0.2; if (d < bd + 10){ bd = d; best = l; } } return best; }
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId); const [x, y] = s2w(e.clientX, e.clientY);
+  if (e.button === 1 || spaceDown || tool.kind === 'pan'){ panning = {x: e.clientX, y: e.clientY}; return; }
+  if (e.button !== 0) return; $('lab').style.display === 'block' && commitLabel();
+  const k = tool.kind;
+  if (k === 'ground' || k === 'lake'){ fastMode = true; drawing = {k:'paint', last:[x, y], changed:true}; k === 'lake' ? dirtyL = true : dirtyG = true; dab(x, y, +$('size').value/2); cacheDirty = true; needDraw = true; }
+  else if (k === 'spray'){ drawing = {k, last:[x, y], acc:0, changed:true}; sprayAt(x, y); needDraw = true; }
+  else if (k === 'stamp'){ S.objs.push({t:tool.id, x, y, s:+$('scale').value, v:Math.random()}); needDraw = true; pushHist(); }
+  else if (k === 'line'){ drawing = {k, line:{t:tool.id, s:+$('scale').value, pts:[[x, y]]}}; S.lines.push(drawing.line); needDraw = true; }
+  else if (k === 'label'){ openLabel(e.clientX, e.clientY, x, y); }
+  else if (k === 'erase'){ drawing = {k, changed:eraseAt(x, y)}; needDraw = true; }
+  else if (k === 'move'){ const o = nearest(x, y); if (o) drawing = {k, o, dx:o.x - x, dy:o.y - y, changed:false}; }
+});
+cv.addEventListener('pointermove', e => {
+  mouse = {x: e.clientX, y: e.clientY}; const [x, y] = s2w(e.clientX, e.clientY);
+  if (panning){ cam.x -= (e.clientX - panning.x)/cam.z; cam.y -= (e.clientY - panning.y)/cam.z; panning = {x: e.clientX, y: e.clientY}; needDraw = true; ovDraw(); return; }
+  ovDraw(); if (!drawing) return;
+  const d = drawing;
+  if (d.k === 'paint'){ dabLine(d.last, [x, y], +$('size').value/2); d.last = [x, y]; cacheDirty = true; needDraw = true; }
+  else if (d.k === 'spray'){ d.acc += Math.hypot(x - d.last[0], y - d.last[1]); d.last = [x, y]; const step = Math.max(6, +$('size').value*0.25); if (d.acc >= step){ d.acc = 0; sprayAt(x, y); needDraw = true; } }
+  else if (d.k === 'line'){ const p = d.line.pts[d.line.pts.length - 1]; if (Math.hypot(x - p[0], y - p[1]) > 5){ d.line.pts.push([x, y]); needDraw = true; } }
+  else if (d.k === 'erase'){ if (eraseAt(x, y)){ d.changed = true; needDraw = true; } }
+  else if (d.k === 'move'){ d.o.x = x + d.dx; d.o.y = y + d.dy; d.changed = true; needDraw = true; }
+});
+function endStroke(){
+  if (panning){ panning = null; return; } if (!drawing) return; const d = drawing; drawing = null;
+  if (d.k === 'line' && d.line.pts.length < 2){ S.lines.pop(); needDraw = true; return; }
+  if (d.k === 'paint'){ fastMode = false; cacheDirty = true; needDraw = true; }
+  if (d.changed !== false) pushHist();
+}
+cv.addEventListener('pointerup', endStroke); cv.addEventListener('pointercancel', endStroke);
+cv.addEventListener('pointerleave', () => { mouse = {x: -99, y: -99}; ovDraw(); });
+cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY*0.0016), e.clientX, e.clientY); }, {passive:false});
+cv.addEventListener('dblclick', e => { if (tool.kind !== 'move') return; const [x, y] = s2w(e.clientX, e.clientY), o = nearest(x, y); if (o && o.text !== undefined) openLabel(e.clientX, e.clientY, o.x, o.y, o); });
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+  if (e.code === 'Space'){ spaceDown = true; e.preventDefault(); }
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ'){ e.preventDefault(); restore(e.shiftKey ? hi + 1 : hi - 1); }
+  if (e.key === '[') { $('size').value = Math.max(6, +$('size').value - 6); sync(); } if (e.key === ']') { $('size').value = Math.min(160, +$('size').value + 6); sync(); }
+});
+addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = false; });
+addEventListener('resize', resize);
+
+/* ───────────── подписи ───────────── */
+let labTarget = null;
+function openLabel(sx, sy, wx, wy, existing){
+  const el = $('lab'); labTarget = {wx, wy, existing}; el.style.display = 'block'; el.style.left = Math.min(innerWidth - 200, sx) + 'px'; el.style.top = Math.min(innerHeight - 50, sy) + 'px'; el.value = existing ? existing.text : ''; setTimeout(() => el.focus(), 0);
+}
+function commitLabel(){
+  const el = $('lab'), t = el.value.trim(); el.style.display = 'none'; if (!labTarget) return; const lt = labTarget; labTarget = null;
+  if (lt.existing){ if (t) lt.existing.text = t; else S.labels = S.labels.filter(l => l !== lt.existing); }
+  else if (t) S.labels.push({text:t, x:lt.wx, y:lt.wy, size:Math.round(26*+$('scale').value), italic:$('italic').checked, color:$('lcol').value});
+  needDraw = true; pushHist();
+}
+$('lab').addEventListener('keydown', e => { if (e.key === 'Enter') commitLabel(); if (e.key === 'Escape'){ labTarget = null; $('lab').style.display = 'none'; } e.stopPropagation(); });
+
+/* ───────────── панель, файлы ───────────── */
+function sync(){ $('vSize').textContent = $('size').value; $('vScale').textContent = (+$('scale').value).toFixed(1); $('vDens').textContent = $('dens').value; ovDraw(); }
+for (const id of ['size', 'scale', 'dens']) $(id).oninput = sync;
+$('vGrid').onchange = $('vGround').onchange = () => needDraw = true;
+$('title').oninput = () => { S.title = $('title').value; needDraw = true; }; $('title').onchange = pushHist;
+function toast(t){ const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(toast.t); toast.t = setTimeout(() => el.style.opacity = 0, 1800); }
+$('clear').onclick = () => { if (!confirm('Очистить всю карту?')) return; gctx.clearRect(0, 0, W, H); lctx.clearRect(0, 0, W, H); S = {title:S.title, objs:[], lines:[], labels:[], patches:[]}; dirtyG = dirtyL = true; cacheDirty = true; needDraw = true; pushHist(); };
+$('sketch').onclick = () => {          // грубый набросок формы острова — потом правь сам
+  gctx.save(); gctx.fillStyle = GROUNDS.grass.color; const cx = W/2, cy = H/2; const ph = [rnd(7), rnd(7), rnd(7)];
+  for (let i = 0; i < 700; i++){ const a = rnd(Math.PI*2), base = 0.62 + 0.18*Math.sin(a*2 + ph[0]) + 0.1*Math.sin(a*3 + ph[1]) + 0.06*Math.sin(a*5 + ph[2]), d = Math.sqrt(Math.random())*base, x = cx + Math.cos(a)*d*W*0.4, y = cy + Math.sin(a)*d*H*0.42; gctx.beginPath(); gctx.arc(x, y, 40 + Math.random()*70, 0, 7); gctx.fill(); }
+  gctx.restore(); dirtyG = true; cacheDirty = true; fastMode = false; needDraw = true; pushHist(); toast('Набросок готов — правь берег кистью «Луг» и «Вода»');
+};
+function dl(url, name){ const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+$('png').onclick = () => { const c = mk(W, H), g = c.getContext('2d'); fastMode = false; cacheDirty = true; drawWorld(g); dl(c.toDataURL('image/png'), 'karta-ostrova.png'); toast('PNG сохранён в «Загрузки»'); };
+$('save').onclick = () => { dl('data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({v:2, meta:S, ground:ground.toDataURL('image/png'), lakes:lakes.toDataURL('image/png')})), 'karta-ostrova.json'); toast('Файл карты сохранён'); };
+$('load').onclick = () => $('file').click();
+$('file').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { const d = JSON.parse(rd.result); loadState(d.meta, d.ground, d.lakes, true); toast('Карта открыта'); } catch (er){ toast('Не удалось открыть файл'); } }; rd.readAsText(f); e.target.value = ''; };
+const loadImg = url => new Promise(res => { if (!url){ res(null); return; } const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
+function loadState(metaObj, groundURL, lakesURL, push){
+  return Promise.all([loadImg(groundURL), loadImg(lakesURL)]).then(([gi, li]) => {
+    gctx.clearRect(0, 0, W, H); lctx.clearRect(0, 0, W, H); if (gi) gctx.drawImage(gi, 0, 0); if (li) lctx.drawImage(li, 0, 0);
+    S = Object.assign({title:'Остров', objs:[], lines:[], labels:[], patches:[]}, metaObj); $('title').value = S.title; dirtyG = dirtyL = true; cacheDirty = true; fastMode = false; needDraw = true;
+    if (push) pushHist(); else { hist = []; hi = -1; pushHist(); }
+  });
+}
+let saveT; function scheduleSave(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify({meta:S, ground:ground.toDataURL('image/png'), lakes:lakes.toDataURL('image/png')})); } catch (e){ /* слишком большой — работаем без автосохранения */ } }, 1500); }
+
+/* ───────────── подложка и заготовка «Архипелаг» ───────────── */
+const KARTA = Q.get('karta'), STORE_KEY = KARTA ? 'ninji-map-' + KARTA + '-v1' : 'ninji-map-v1';
+const loadScript = src => new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('нет файла ' + src)); document.head.appendChild(el); });
+const inPoly = (x, y, P) => { let ins = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++){ const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < (xj - xi)*(y - yi)/(yj - yi) + xi) ins = !ins; } return ins; };
+function sampleGrass(x0, y0, x1, y1){
+  if (!UNDER) return 'rgb(150,186,100)'; tctx.clearRect(0, 0, W, H); tctx.drawImage(UNDER, 0, 0, W, H);
+  const d = tctx.getImageData(x0, y0, x1 - x0, y1 - y0).data; let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4){ if (d[i + 1] > 165 && d[i + 1] > d[i] + 8 && d[i + 1] > d[i + 2] + 55 && d[i] > 120){ r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } }
+  tctx.clearRect(0, 0, W, H); return n ? `rgb(${Math.round(r/n*0.95)},${Math.round(g/n*0.95)},${Math.round(b/n*0.95)})` : 'rgb(150,186,100)';
+}
+function applyPreset(){
+  gctx.clearRect(0, 0, W, H); lctx.clearRect(0, 0, W, H); S = {title:'Архипелаг', objs:[], lines:[], labels:[], patches:[]};
+  const rg = mulberryP(11);
+  const A = {
+    rng: mulberryP, inPoly,
+    add:(t, x, y, sc = 1, v) => S.objs.push({t, x, y, s:sc, v: v === undefined ? rg() : v}),
+    line:(t, pts, sc = 1) => S.lines.push({t, s:sc, pts}),
+    label:(text, x, y, size = 24, italic = false, color = '#3b2f1e') => S.labels.push({text, x, y, size, italic, color}),
+    patch:(pts, color) => S.patches.push({pts, c: color || sampleGrass(180, 480, 330, 540)}),
+    lake:(cx, cy, rx, ry, rot = 0) => { const ph = rg()*7; lctx.save(); lctx.fillStyle = '#3f95c4'; lctx.beginPath(); for (let i = 0; i <= 48; i++){ const a = i/48*Math.PI*2, k = 1 + 0.09*Math.sin(3*a + ph) + 0.05*Math.sin(5*a + ph*2), px = Math.cos(a)*rx*k, py = Math.sin(a)*ry*k; const X = cx + px*Math.cos(rot) - py*Math.sin(rot), Y = cy + px*Math.sin(rot) + py*Math.cos(rot); i ? lctx.lineTo(X, Y) : lctx.moveTo(X, Y); } lctx.closePath(); lctx.fill(); lctx.restore(); },
+  };
+  window.PRESET_FN(A); dirtyG = dirtyL = true; cacheDirty = true; fastMode = false; needDraw = true; hist = []; hi = -1; pushHist();
+}
+function mulberryP(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* ───────────── старт ───────────── */
+async function start(){
+  resize(); fit(); sync(); pick(tool);
+  if (KARTA){
+    try { await loadScript('karta-data/underlay.js'); await loadScript('karta-data/' + KARTA + '.js'); UNDER = await loadImg(window.UNDERLAY); }
+    catch (e){ toast('Не найдены файлы подробной карты'); }
+    $('vGround').checked = false; $('presetRow').style.display = 'flex'; $('hint').textContent = 'Подробная карта архипелага. Всё, что добавишь, сохраняется само. Дороги — инструмент «Дорога», «Улица», «Маршрут».';
+  }
+  let d = null; try { d = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e){ d = null; }
+  if (d && d.ground){ await loadState(d.meta, d.ground, d.lakes, false); if (!KARTA) $('hint').textContent = 'Открыта твоя прошлая карта (автосохранение).'; }
+  else if (KARTA && window.PRESET_FN) applyPreset(); else pushHist();
+  if (Q.get('z')){ cam.z = +Q.get('z'); cam.x = +Q.get('x'); cam.y = +Q.get('y'); needDraw = true; }
+  window.READY = true;
+}
+$('preset').onclick = () => { if (confirm('Вернуть заготовку? Твои правки на этой карте пропадут.')) applyPreset(); };
+start();
+</script>
+</body>
+</html>

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Осёл — процедурная 3D-модель</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfd6c8;font-family:Georgia,'Times New Roman',serif;color:#3b3228}
+  canvas{display:block}
+  #ui{position:fixed;left:0;right:0;top:0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+      background:linear-gradient(#f3eee2ee,#f3eee200);pointer-events:none}
+  #ui>*{pointer-events:auto}
+  h1{margin:0 18px 0 0;font-size:26px;letter-spacing:.5px}
+  button{font:inherit;font-size:14px;padding:6px 12px;border:1px solid #8a7a66;border-radius:6px;background:#efe6d3;color:#3b3228;cursor:pointer}
+  button:hover{background:#e3d6ba}
+  button.on{background:#7b6a52;color:#fff;border-color:#5d4f3c}
+  label{font-size:14px;display:flex;align-items:center;gap:6px}
+  #hint{position:fixed;bottom:8px;left:16px;font-size:12px;opacity:.7}
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>Осёл</h1>
+  <span id="clips"></span>
+  <label>Скорость <input id="speed" type="range" min="0.1" max="2.5" step="0.05" value="1"><span id="sv">1.0×</span></label>
+  <button id="pp">Пауза</button>
+  <button id="reset">Сброс</button>
+</div>
+<div id="hint">Мышь: вращение / масштаб / сдвиг камеры</div>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+
+const TAU = Math.PI*2;
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfd6c8);
+scene.fog = new THREE.Fog(0xcfd6c8, 9, 22);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.1, 60);
+const CAM0 = new THREE.Vector3(2.6,1.35,3.0), TGT0 = new THREE.Vector3(0,0.62,0);
+camera.position.copy(CAM0);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(TGT0); controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI*0.495; controls.minDistance = 1.2; controls.maxDistance = 9;
+
+// ---------- lights ----------
+const key = new THREE.DirectionalLight(0xfff1dc, 2.4);
+key.position.set(3.5,5,3); key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+Object.assign(key.shadow.camera,{left:-2.2,right:2.2,top:2.2,bottom:-2.2,near:1,far:14});
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = 4;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xc8d8ff, 0.7); fill.position.set(-4,2.5,2); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 1.1); rim.position.set(-2,3,-4); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xdfe8ff,0x8a7a5a,0.35));
+
+// ---------- textures ----------
+function noiseTex(base, var1, scale, seed, blotch=true){
+  const c = document.createElement('canvas'); c.width=c.height=256; const g=c.getContext('2d');
+  let s=seed; const rnd=()=>{s=(s*16807)%2147483647;return s/2147483647;};
+  g.fillStyle=base; g.fillRect(0,0,256,256);
+  if(blotch) for(let i=0;i<60;i++){
+    const x=rnd()*256,y=rnd()*256,r=10+rnd()*34, v=Math.floor(128+(rnd()-.5)*var1*2);
+    for(const ox of [-256,0,256]) for(const oy of [-256,0,256]){
+      const gr=g.createRadialGradient(x+ox,y+oy,0,x+ox,y+oy,r);
+      gr.addColorStop(0,`rgba(${v},${v},${v},0.25)`); gr.addColorStop(1,'rgba(128,128,128,0)');
+      g.fillStyle=gr; g.fillRect(x+ox-r,y+oy-r,r*2,r*2);
+    }
+  }
+  // fur strokes
+  for(let i=0;i<2600;i++){
+    const x=rnd()*256,y=rnd()*256,l=3+rnd()*7,v=Math.floor(128+(rnd()-.5)*var1*3);
+    g.strokeStyle=`rgba(${v},${v},${v},0.35)`; g.lineWidth=1;
+    g.beginPath(); g.moveTo(x,y); g.lineTo(x+(rnd()-.5)*2,y+l); g.stroke();
+  }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(scale,scale);
+  t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; return t;
+}
+const furTex = noiseTex('#cfcfcf',60,2.5,12345);
+const furBump = noiseTex('#808080',70,2.5,777); furBump.colorSpace=THREE.NoColorSpace;
+const manTex = noiseTex('#bdbdbd',70,2,4242);
+const groundTex = noiseTex('#b8b8b8',50,18,999); groundTex.anisotropy=8;
+
+const PAL = {coat:0x7d6e60, leg:0x6a5c50, light:0xd9cfbd, dark:0x2d2722};
+const mCoat = new THREE.MeshStandardMaterial({color:0xffffff, vertexColors:true, map:furTex, bumpMap:furBump, bumpScale:1.2, roughness:0.88, envMapIntensity:0.5});
+const mLeg  = new THREE.MeshStandardMaterial({color:PAL.leg, map:furTex, bumpMap:furBump, bumpScale:1.0, roughness:0.9, envMapIntensity:0.5});
+const mNeck = new THREE.MeshStandardMaterial({color:PAL.coat, map:furTex, bumpMap:furBump, bumpScale:1.0, roughness:0.9, envMapIntensity:0.5});
+const mLight= new THREE.MeshStandardMaterial({color:PAL.light, map:furTex, roughness:0.85, envMapIntensity:0.5});
+const mDark = new THREE.MeshStandardMaterial({color:PAL.dark, map:manTex, roughness:0.8, envMapIntensity:0.4});
+const mHoof = new THREE.MeshStandardMaterial({color:0x2a2420, roughness:0.45, envMapIntensity:0.6});
+const mEye  = new THREE.MeshStandardMaterial({color:0x100c0a, roughness:0.15, metalness:0.1, envMapIntensity:1.0});
+const mEarIn= new THREE.MeshStandardMaterial({color:0xc9b4a2, map:furTex, roughness:0.9, envMapIntensity:0.4, side:THREE.DoubleSide});
+
+// ---------- helpers ----------
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+function G(name,parent,x=0,y=0,z=0){const g=new THREE.Group(); g.name=name; g.position.set(x,y,z); parent&&parent.add(g); parts[name]=g; return g;}
+function shadow(m){m.castShadow=true; m.receiveShadow=true; return m;}
+function ball(parent,c,r,mat,sc=[1,1,1],seg=18){
+  const m=shadow(new THREE.Mesh(new THREE.SphereGeometry(1,seg,Math.round(seg*0.75)),mat));
+  m.scale.set(r*sc[0],r*sc[1],r*sc[2]); m.position.copy(c); parent.add(m); return m;
+}
+function tube(parent,a,b,r1,r2,mat,{caps=true,sx=1,sz=1,seg=16}={}){
+  const d=b.clone().sub(a), len=d.length();
+  const grp=new THREE.Group(); grp.position.copy(a.clone().add(b).multiplyScalar(.5));
+  grp.quaternion.setFromUnitVectors(V(0,1,0),d.clone().normalize());
+  const m=shadow(new THREE.Mesh(new THREE.CylinderGeometry(r2,r1,len,seg,1,true),mat));
+  m.scale.set(sx,1,sz); grp.add(m);
+  if(caps){
+    for(const [y,r] of [[-len/2,r1],[len/2,r2]]){
+      const s=shadow(new THREE.Mesh(new THREE.SphereGeometry(r,seg,10),mat)); s.position.y=y; s.scale.set(sx,1,sz); grp.add(s);
+    }
+  }
+  parent.add(grp); return grp;
+}
+const sstep=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
+const cCoat=new THREE.Color(PAL.coat), cLight=new THREE.Color(PAL.light), cDark=new THREE.Color(PAL.dark);
+function bodyBlob(parent,c,r,seg=44){
+  const geo=new THREE.SphereGeometry(1,seg,Math.round(seg*0.7));
+  const p=geo.attributes.position, col=new Float32Array(p.count*3), tmp=new THREE.Color();
+  for(let i=0;i<p.count;i++){
+    const x=p.getX(i)*r.x+c.x, y=p.getY(i)*r.y+c.y, z=p.getZ(i)*r.z+c.z;
+    tmp.copy(cCoat);
+    // belly lightening
+    tmp.lerp(cLight, 0.9*sstep(0.62,0.52,y));
+    // slight lighter flank/rump variation
+    tmp.lerp(cLight, 0.12*sstep(0.7,0.55,y));
+    // dorsal stripe
+    const d=sstep(0.05,0.022,Math.abs(x))*sstep(0.74,0.86,y);
+    tmp.lerp(cDark,0.88*d);
+    // shoulder cross
+    const sh=sstep(0.055,0.025,Math.abs(z-0.34))*sstep(0.68,0.82,y);
+    tmp.lerp(cDark,0.8*sh);
+    col[i*3]=tmp.r;col[i*3+1]=tmp.g;col[i*3+2]=tmp.b;
+  }
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const m=shadow(new THREE.Mesh(geo,mCoat)); m.position.copy(c); m.scale.set(r.x,r.y,r.z); parent.add(m); return m;
+}
+
+// ---------- model ----------
+const parts={};
+const root=new THREE.Group(); root.name='root'; scene.add(root); parts.root=root;
+const body=G('body',root,0,0.78,0);          // pivot at barrel centre
+const ribs=G('ribs',body,0,0,0);             // breathing scale
+bodyBlob(ribs,V(0,0,0),V(0.245,0.285,0.52));
+bodyBlob(body,V(0,0.0,0.36),V(0.215,0.275,0.29));        // chest / shoulders
+bodyBlob(body,V(0,0.03,-0.38),V(0.235,0.265,0.31));      // rump
+// withers hump
+bodyBlob(body,V(0,0.22,0.3),V(0.1,0.1,0.18),20);
+
+// ----- neck -----
+const neck=G('neck',body,0,0.17,0.42);
+neck.userData.rest=[0.92,0,0];
+tube(neck,V(0,-0.12,0),V(0,0.56,0),0.15,0.095,mNeck,{sx:0.78,sz:1.0,seg:20});
+// mane (stiff, upright)
+const mane=G('mane',neck);
+for(let i=0;i<9;i++){
+  const y=0.0+i*0.065, r=0.14-(0.045*i/8);
+  const c=shadow(new THREE.Mesh(new THREE.ConeGeometry(0.035,0.12-0.01*i,6),mDark));
+  c.scale.set(0.55,1,1.2); c.position.set(0,y,-r*0.9); c.rotation.x=-0.92-0.1; mane.add(c);
+}
+// ----- head -----
+const head=G('head',neck,0,0.56,0);
+head.userData.rest=[-0.42,0,0];
+// skull and face
+ball(head,V(0,0.0,0.07),0.12,mNeck,[0.92,1.05,1.35],22);
+tube(head,V(0,0.0,0.12),V(0,-0.045,0.32),0.095,0.07,mNeck,{sx:0.9,sz:1,seg:18});
+// muzzle (light)
+ball(head,V(0,-0.055,0.335),0.07,mLight,[1.0,0.95,1.35],20);
+ball(head,V(0,-0.03,0.30),0.062,mLight,[1.0,0.95,1.2],16);
+// nostrils
+for(const s of [-1,1]) ball(head,V(s*0.032,-0.04,0.42),0.014,mDark,[0.8,1.2,0.8],8);
+// cheeks
+for(const s of [-1,1]) ball(head,V(s*0.07,-0.06,0.07),0.085,mNeck,[0.7,1,1.1],14);
+// jaw
+const jaw=G('jaw',head,0,-0.055,0.05);
+tube(jaw,V(0,-0.02,0.03),V(0,-0.065,0.3),0.07,0.045,mLight,{sx:0.9,seg:14});
+ball(jaw,V(0,-0.075,0.325),0.047,mLight,[1,0.7,1.1],12);
+// lower inside mouth dark
+ball(jaw,V(0,-0.02,0.2),0.035,mDark,[1,0.3,3],8);
+// eyes
+for(const s of [-1,1]){
+  const eg=G(s>0?'eyeL':'eyeR',head,s*0.098,0.045,0.14);
+  ball(eg,V(0,0,0),0.036,mLight,[0.55,0.9,1.0],14);
+  const e=ball(eg,V(s*0.012,0,0),0.027,mEye,[0.7,1,1],14);
+}
+// ears
+function makeEar(s){
+  const ear=G(s>0?'earL':'earR',head,s*0.06,0.115,-0.045);
+  ear.userData.rest=[0.12,0,-0.32*s];
+  const geo=new THREE.ConeGeometry(0.06,0.34,16,6,true);
+  geo.translate(0,0.17,0);
+  // flatten and bend tip slightly
+  const p=geo.attributes.position;
+  for(let i=0;i<p.count;i++){
+    const y=p.getY(i); p.setZ(i,p.getZ(i)*0.5); p.setX(i,p.getX(i)*(1-0.12*y/0.34));
+    p.setZ(i,p.getZ(i)+0.03*(y/0.34)*(y/0.34));
+  }
+  geo.computeVertexNormals();
+  const outer=shadow(new THREE.Mesh(geo,mNeck)); ear.add(outer);
+  const inner=shadow(new THREE.Mesh(geo,mEarIn)); inner.scale.set(0.72,0.93,0.72); inner.position.set(0,0.004,0.022); ear.add(inner);
+  const tip=ball(ear,V(0,0.325,0.016),0.03,mDark,[0.85,1.5,0.5],10);
+  ear.add(shadow(new THREE.Mesh(new THREE.SphereGeometry(0.05,12,8),mNeck))).scale.setScalar(1);
+  ear.children[ear.children.length-1].scale.set(1,0.5,0.7);
+  return ear;
+}
+makeEar(1); makeEar(-1);
+// forelock
+for(let i=0;i<3;i++){const c=shadow(new THREE.Mesh(new THREE.ConeGeometry(0.03,0.11,6),mDark)); c.position.set((i-1)*0.025,0.1,0.09+0.01*i); c.rotation.x=0.9; c.scale.set(0.6,1,1); head.add(c);}
+
+// ----- legs -----
+function makeLeg(name,x,y,z,front){
+  const s=Math.sign(x);
+  const up=G(name+'_upper',body,x,y,z);
+  const lowY=-0.28;
+  if(front){
+    tube(up,V(0,0.03,0),V(0,lowY,0),0.075,0.05,mLeg,{sx:0.85});
+  }else{
+    tube(up,V(0,0.06,0.0),V(0,lowY,0),0.105,0.052,mLeg,{sx:0.82,sz:1.15});
+  }
+  const low=G(name+'_lower',up,0,lowY,0);
+  ball(low,V(0,0,0),front?0.05:0.048,mLeg,[0.9,1,1],12);
+  const cannonLen=0.34;
+  tube(low,V(0,0,0),V(0,-cannonLen,0),0.04,0.033,mLeg,{caps:false,sx:0.9,sz:1.1});
+  const hoof=G(name+'_hoof',low,0,-cannonLen,0);
+  ball(hoof,V(0,0,0),0.04,mLeg,[1,1,1],12);
+  tube(hoof,V(0,0,0),V(0,-0.085,0.03),0.032,0.036,mLeg,{caps:false});
+  // hoof: dark tapered
+  const h=shadow(new THREE.Mesh(new THREE.CylinderGeometry(0.042,0.056,0.085,14),mHoof));
+  h.position.set(0,-0.12,0.045); h.rotation.x=0.45; hoof.add(h);
+  // keep bottom flat on ground: add a flattening via rotation compensation below
+  h.userData.hoof=true;
+  return up;
+}
+makeLeg('legFL', 0.145,-0.02,0.40,true);
+makeLeg('legFR',-0.145,-0.02,0.40,true);
+makeLeg('legHL', 0.15,-0.02,-0.42,false);
+makeLeg('legHR',-0.15,-0.02,-0.42,false);
+for(const n of ['legHL','legHR']){ parts[n+'_upper'].userData.rest=[0.26,0,0]; parts[n+'_lower'].userData.rest=[-0.26,0,0]; }
+for(const n of ['legFL','legFR']){ parts[n+'_upper'].userData.rest=[0,0,0]; }
+
+// ----- tail -----
+const tail=G('tail',body,0,0.1,-0.66);
+tail.userData.rest=[0.18,0,0];
+tube(tail,V(0,0.02,0.03),V(0,-0.26,0),0.035,0.024,mNeck,{});
+const tail2=G('tail2',tail,0,-0.26,0);
+tube(tail2,V(0,0,0),V(0,-0.2,0),0.024,0.02,mNeck,{});
+const tail3=G('tail3',tail2,0,-0.2,0);
+for(let i=0;i<5;i++){
+  const a=i/5*TAU;
+  const c=shadow(new THREE.Mesh(new THREE.ConeGeometry(0.03,0.2,6),mDark));
+  c.position.set(Math.cos(a)*0.018,-0.09,Math.sin(a)*0.018); c.rotation.x=Math.PI; c.scale.set(1,1,1);
+  c.rotation.z=Math.cos(a)*0.12; tail3.add(c);
+}
+ball(tail3,V(0,-0.05,0),0.04,mDark,[1,2.2,1],10);
+
+// ground
+const ground=new THREE.Mesh(new THREE.CircleGeometry(14,64),new THREE.MeshStandardMaterial({color:0x8f9b6d,map:groundTex,roughness:1,envMapIntensity:0.2}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+// shadow-catcher feel: soft contact blob
+const blobC=document.createElement('canvas'); blobC.width=blobC.height=128; const bg=blobC.getContext('2d');
+const gr=bg.createRadialGradient(64,64,0,64,64,64); gr.addColorStop(0,'rgba(0,0,0,.35)'); gr.addColorStop(1,'rgba(0,0,0,0)'); bg.fillStyle=gr; bg.fillRect(0,0,128,128);
+const blob=new THREE.Mesh(new THREE.PlaneGeometry(1.7,1.9),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(blobC),transparent:true,depthWrite:false}));
+blob.rotation.x=-Math.PI/2; blob.position.y=0.003; scene.add(blob);
+
+// ---------- animation ----------
+const s=(f,k=1,ph=0)=>Math.sin(TAU*(k*f+ph));
+const wrap=x=>x-Math.round(x);
+const bump=(f,c,w)=>Math.exp(-Math.pow(wrap(f-c)/w,2));
+const clamp01=x=>Math.min(1,Math.max(0,x));
+// pose keys -> [rx,ry,rz] offsets; plus 'bodyY','chest'
+const JOINTS=['body','neck','head','jaw','earL','earR','tail','tail2','tail3',
+  'legFL_upper','legFL_lower','legFL_hoof','legFR_upper','legFR_lower','legFR_hoof',
+  'legHL_upper','legHL_lower','legHL_hoof','legHR_upper','legHR_lower','legHR_hoof'];
+function newPose(){const P={bodyY:0,chest:0}; for(const j of JOINTS)P[j]=[0,0,0]; return P;}
+
+function walkLeg(P,name,front,ph,f){
+  const A=front?0.36:0.34, c=Math.cos(TAU*(f+ph)), flex=Math.max(0,c);
+  P[name+'_upper'][0]=-A*Math.sin(TAU*(f+ph));
+  P[name+'_lower'][0]=flex*(front?1.15:0.95);
+  P[name+'_hoof'][0]=-0.25*flex+0.12*Math.sin(TAU*(f+ph));
+}
+
+const clips={
+  idle:{label:'Покой',duration:8,fn(t){
+    const f=t/8,P=newPose(), b=s(f,4);
+    P.chest=b; P.bodyY=0.002*b;
+    P.neck[0]=0.012*b+0.03*s(f,1,0.1); P.neck[1]=0.18*s(f,1,0.0)+0.07*s(f,2,0.3);
+    P.head[0]=-0.03*s(f,2,0.2)+0.04*s(f,1,0.5); P.head[1]=0.12*s(f,1,-0.08); P.head[2]=0.04*s(f,1,0.2);
+    P.jaw[0]=0.02*Math.max(0,s(f,4,0.25));
+    const gL=bump(f,0.30,0.025), gR=bump(f,0.72,0.03), gB=bump(f,0.52,0.06);
+    P.earL[0]=-0.1*s(f,1,0.1)-0.5*gL; P.earL[2]=-0.08*s(f,2,0.1)+0.25*gL*s(f,24); P.earL[1]=0.1*s(f,1);
+    P.earR[0]=-0.1*s(f,1,0.4)-0.45*gR; P.earR[2]=0.08*s(f,2,0.3)+0.25*gR*s(f,20); P.earR[1]=-0.1*s(f,1,0.2);
+    P.earL[2]+=-0.12*bump(f,0.86,0.05); P.earR[2]+=0.12*bump(f,0.86,0.05); // both out at once
+    P.tail[2]=0.1*s(f,2,0)+0.55*gB*s(f,12); P.tail[0]=0.05*s(f,1);
+    P.tail2[2]=0.14*s(f,2,-0.1)+0.45*gB*s(f,12,-0.08); P.tail3[2]=0.2*s(f,2,-0.2)+0.4*gB*s(f,12,-0.16);
+    P.tail2[0]=0.06*s(f,1,-0.1); P.tail3[0]=0.08*s(f,1,-0.2);
+    P.body[2]=0.006*s(f,1); P.body[0]=0.004*b;
+    // weight shift: rest left hind hoof
+    const rest=sstep(0.15,0.3,f)*(1-sstep(0.6,0.75,f));
+    P.legHL_upper[0]=0.05*rest; P.legHL_lower[0]=-0.08*rest; P.legHL_hoof[0]=0.12*rest;
+    P.body[2]+=0.012*rest;
+    return P;
+  }},
+  walk:{label:'Шаг',duration:1.3,fn(t){
+    const f=t/1.3,P=newPose();
+    walkLeg(P,'legHL',false,0,f); walkLeg(P,'legFL',true,0.25,f);
+    walkLeg(P,'legHR',false,0.5,f); walkLeg(P,'legFR',true,0.75,f);
+    P.bodyY=0.012*Math.cos(TAU*2*f+0.4);
+    P.body[2]=0.03*s(f,1,0.12); P.body[0]=0.015*s(f,2,0.2); P.body[1]=0.025*s(f,1,0.3);
+    P.chest=0.5*s(f,2);
+    P.neck[0]=0.06*s(f,2,0.35)+0.04; P.neck[1]=0.05*s(f,1,0.1);
+    P.head[0]=-0.08*s(f,2,0.25)-0.04; P.head[1]=-0.04*s(f,1,0.2);
+    P.jaw[0]=0.02;
+    P.earL[0]=0.08*s(f,2,0.4); P.earL[2]=-0.05*s(f,1,0.1); P.earR[0]=0.08*s(f,2,0.45); P.earR[2]=0.05*s(f,1,0.2);
+    P.tail[2]=0.2*s(f,1,-0.1); P.tail2[2]=0.28*s(f,1,-0.22); P.tail3[2]=0.32*s(f,1,-0.34);
+    P.tail[0]=0.1*s(f,2,0.1); P.tail2[0]=0.1*s(f,2,0); P.tail3[0]=0.1*s(f,2,-0.1);
+    return P;
+  }},
+  bray:{label:'Рёв (иа-иа)',duration:5,fn(t){
+    const f=t/5,P=newPose();
+    const env=sstep(0.04,0.26,f)-sstep(0.78,0.96,f);
+    const pulse=0.5+0.5*s(f,7,-0.25);            // 7 "hee-haw" pulses
+    const inh=sstep(0.0,0.1,f)*(1-sstep(0.1,0.26,f)); // pre-breath
+    P.chest=-0.4*inh*0+ (0.9*env*pulse - 0.6*env*(1-pulse))+1.2*inh;
+    P.neck[0]=-0.5*env+0.08*inh; P.head[0]=-0.42*env-0.06*inh;
+    P.neck[1]=0.04*s(f,3)*env; P.head[2]=0.03*s(f,14)*env;
+    P.jaw[0]=env*(0.04+0.34*pulse);
+    P.earL[0]=-0.55*env; P.earR[0]=-0.55*env; P.earL[2]=-0.25*env*0+0.1*env; P.earR[2]=-0.1*env;
+    P.earL[1]=-0.2*env; P.earR[1]=0.2*env;
+    P.bodyY=0.006*env*pulse; P.body[0]=-0.045*env; P.body[2]=0.012*s(f,14)*env;
+    P.tail[0]=0.5*env; P.tail2[0]=0.3*env; P.tail3[0]=0.2*env;
+    P.tail[2]=0.1*s(f,7,-0.1)*env; P.tail2[2]=0.2*s(f,7,-0.2)*env; P.tail3[2]=0.25*s(f,7,-0.3)*env;
+    P.legFL_upper[0]=-0.1*env; P.legFR_upper[0]=-0.1*env; P.legFL_hoof[0]=0.1*env; P.legFR_hoof[0]=0.1*env;
+    P.legHL_upper[0]=0.06*env; P.legHR_upper[0]=0.06*env;
+    return P;
+  }},
+  graze:{label:'Пастьба',duration:8,fn(t){
+    const f=t/8,P=newPose();
+    const g=sstep(0.0,0.16,f)-sstep(0.84,1.0,f);
+    const ch=Math.max(0,s(f,10));
+    P.neck[0]=1.5*g+0.04*s(f,5)*g; P.head[0]=-0.62*g+0.05*s(f,5,0.3)*g;
+    P.neck[1]=0.12*s(f,1)*g; P.head[1]=0.1*s(f,2,0.1)*g;
+    P.jaw[0]=0.02*g+0.1*ch*g;
+    P.body[0]=0.07*g; P.bodyY=-0.02*g;
+    P.legFL_upper[0]=0.16*g; P.legFR_upper[0]=0.1*g; P.legFL_lower[0]=0.15*g; P.legFR_lower[0]=0.1*g;
+    P.legFL_hoof[0]=-0.2*g; P.legFR_hoof[0]=-0.15*g;
+    P.chest=s(f,4)*0.6;
+    const e=bump(f,0.5,0.03);
+    P.earL[0]=-0.1*s(f,2,0.1)-0.5*e; P.earL[2]=0.2*e*s(f,22); P.earR[0]=-0.12*s(f,2,0.3); P.earR[2]=0.06*s(f,1);
+    P.earL[1]=0.1*s(f,1); P.earR[1]=-0.1*s(f,1,0.2);
+    const sw=bump(f,0.3,0.05)+bump(f,0.7,0.05);
+    P.tail[2]=0.15*s(f,2)+0.5*sw*s(f,12); P.tail2[2]=0.2*s(f,2,-0.1)+0.4*sw*s(f,12,-0.08); P.tail3[2]=0.25*s(f,2,-0.2)+0.4*sw*s(f,12,-0.16);
+    P.tail[0]=0.05*s(f,1);
+    return P;
+  }}
+};
+
+// state
+const state={clip:'idle',t:0,playing:true,speed:1,blendFrom:null,blend:1};
+let lastPose=newPose();
+function clonePose(P){const o={bodyY:P.bodyY,chest:P.chest}; for(const j of JOINTS)o[j]=P[j].slice(); return o;}
+function lerpPose(A,B,k){const o={bodyY:A.bodyY+(B.bodyY-A.bodyY)*k,chest:A.chest+(B.chest-A.chest)*k};
+  for(const j of JOINTS)o[j]=[0,1,2].map(i=>A[j][i]+(B[j][i]-A[j][i])*k); return o;}
+function applyPose(P){
+  parts.body.position.y=0.78+P.bodyY;
+  for(const j of JOINTS){
+    const g=parts[j], r=g.userData.rest||[0,0,0];
+    let x=r[0]+P[j][0], y=r[1]+P[j][1], z=r[2]+P[j][2];
+    if(j.startsWith('leg')&&j.endsWith('upper')) x-=P.body[0]*0.9; // keep feet planted when body pitches
+    g.rotation.set(x,y,z);
+  }
+  // keep hooves flat: world pitch compensation
+  for(const n of ['legFL','legFR','legHL','legHR']){
+    // hoof compensates sum of upper+lower rotations (approx) so it stays roughly level when planted
+    const u=parts[n+'_upper'].rotation.x,l=parts[n+'_lower'].rotation.x, h=parts[n+'_hoof'];
+    const ur=parts[n+'_upper'].userData.rest||[0,0,0], lr=parts[n+'_lower'].userData.rest||[0,0,0];
+    h.rotation.x=P[n+'_hoof'][0]-0.35*(u+l-ur[0]-lr[0]);
+  }
+  parts.ribs.scale.set(1+0.012*P.chest,1+0.02*P.chest,1+0.006*P.chest);
+  parts.body.scale.set(1,1,1);
+}
+// fix: hoof leveling uses rest values safely
+parts.legFL_lower.userData.rest ||= [0,0,0]; parts.legFR_lower.userData.rest ||= [0,0,0];
+function evalClip(name,t){const c=clips[name]; return c.fn(((t%c.duration)+c.duration)%c.duration);}
+function update(dt){
+  if(state.playing) state.t+=dt*state.speed;
+  let P=evalClip(state.clip,state.t);
+  if(state.blendFrom&&state.blend<1){
+    if(state.playing) state.blend=Math.min(1,state.blend+dt*state.speed/0.45);
+    const k=sstep(0,1,state.blend); P=lerpPose(state.blendFrom,P,k);
+  }
+  lastPose=P; applyPose(P);
+}
+function setClip(name,t=0){
+  if(name!==state.clip||t!==0){state.blendFrom=clonePose(lastPose); state.blend=0;}
+  state.clip=name; state.t=t;
+  document.querySelectorAll('#clips button').forEach(b=>b.classList.toggle('on',b.dataset.c===name));
+}
+// UI
+const clipsEl=document.getElementById('clips');
+for(const k of Object.keys(clips)){
+  const b=document.createElement('button'); b.textContent=clips[k].label; b.dataset.c=k; b.style.marginRight='4px';
+  b.onclick=()=>setClip(k); clipsEl.appendChild(b);
+}
+const sp=document.getElementById('speed'), sv=document.getElementById('sv');
+sp.oninput=()=>{state.speed=+sp.value; sv.textContent=state.speed.toFixed(1)+'×';};
+const pp=document.getElementById('pp');
+pp.onclick=()=>{state.playing=!state.playing; pp.textContent=state.playing?'Пауза':'Играть';};
+document.getElementById('reset').onclick=()=>{
+  setClip('idle'); state.blendFrom=null; state.blend=1; state.t=0; state.playing=true; pp.textContent='Пауза';
+  sp.value=1; sp.oninput(); camera.position.copy(CAM0); controls.target.copy(TGT0); controls.update();
+};
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+window.animal={root,parts,clips,state,setClip,camera,controls,
+  pose:(name,t)=>{state.playing=false; state.blendFrom=null; state.blend=1; setClip(name,t); update(0);}};
+setClip('idle'); state.blendFrom=null; state.blend=1;
+update(0);
+let last=performance.now();
+renderer.setAnimationLoop(()=>{
+  const n=performance.now(), dt=Math.min(0.05,(n-last)/1000); last=n;
+  update(dt); controls.update(); renderer.render(scene,camera);
+  // soft contact shadow follows the body
+  blob.position.x=0; blob.position.z=-0.02;
+});
+window.__ready=true;
+</script>
+</body>
+</html>

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Утка (домашняя кряква) — процедурная 3D-модель</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfd8c8;font-family:Georgia,'Times New Roman',serif;color:#2b2418}
+  canvas{display:block}
+  #ui{position:fixed;left:14px;top:12px;background:rgba(246,238,220,.86);border:1px solid #8b7a55;border-radius:8px;padding:10px 14px;box-shadow:0 2px 10px rgba(0,0,0,.25);max-width:340px}
+  #ui h1{font-size:19px;margin:0 0 6px}
+  #ui .row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;align-items:center}
+  button{font:inherit;font-size:13px;padding:4px 10px;border:1px solid #6b5a38;background:#e8dcb8;border-radius:5px;cursor:pointer;color:#2b2418}
+  button:hover{background:#f3e8c8} button.on{background:#7a5a2a;color:#fff}
+  label{font-size:13px}
+  #info{font-size:11px;opacity:.7;margin-top:4px}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="ui">
+  <h1>Утка домашняя (кряква)</h1>
+  <div class="row" id="clips"></div>
+  <div class="row"><label>Скорость <input id="speed" type="range" min="0.1" max="2.5" step="0.05" value="1" style="width:120px"> <span id="sv">1.0×</span></label></div>
+  <div class="row"><button id="pp">Пауза</button><button id="reset">Сброс</button></div>
+  <div id="info">Мышь: вращение / масштаб / сдвиг</div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfd8c8);
+scene.fog = new THREE.Fog(0xcfd8c8, 6, 14);
+const pm = new THREE.PMREMGenerator(renderer);
+scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.45;
+
+const camera = new THREE.PerspectiveCamera(35, innerWidth/innerHeight, 0.05, 50);
+const CAM0 = new THREE.Vector3(1.9, 0.8, 2.5), TGT0 = new THREE.Vector3(0,0.38,0);
+camera.position.copy(CAM0);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(TGT0); controls.enableDamping = true;
+controls.minDistance = 0.8; controls.maxDistance = 8; controls.maxPolarAngle = Math.PI*0.495;
+
+// 3-point lights
+const key = new THREE.DirectionalLight(0xfff0d8, 2.4);
+key.position.set(2.5,4,2.5); key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+Object.assign(key.shadow.camera,{left:-2,right:2,top:2,bottom:-2,near:0.5,far:12});
+key.shadow.radius = 5; key.shadow.bias = -0.0004; key.shadow.normalBias = 0.01;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xbcd0ff, 0.7); fill.position.set(-3,1.8,1.5); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 1.0); rim.position.set(-1,2.5,-3.5); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xdfeeff,0x4a5a3a,0.35));
+
+/* ---------- canvas textures ---------- */
+function noiseTex(size, base, amp, streak, repeat, seed){
+  const c = document.createElement('canvas'); c.width=c.height=size;
+  const g = c.getContext('2d'); let s = seed||1;
+  const rnd = ()=>{ s = (s*16807)%2147483647; return s/2147483647; };
+  g.fillStyle = `rgb(${base},${base},${base})`; g.fillRect(0,0,size,size);
+  const id = g.getImageData(0,0,size,size);
+  for(let i=0;i<id.data.length;i+=4){ const n=(rnd()-0.5)*amp; id.data[i]+=n; id.data[i+1]+=n; id.data[i+2]+=n; }
+  g.putImageData(id,0,0);
+  for(let i=0;i<size*streak;i++){
+    const x=rnd()*size,y=rnd()*size,l=4+rnd()*12,a=(rnd()-0.5)*0.4;
+    g.strokeStyle = `rgba(${rnd()>0.5?255:0},${rnd()>0.5?255:0},${rnd()>0.5?255:0},0.06)`;
+    g.strokeStyle = rnd()>0.5?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.09)';
+    g.beginPath(); g.moveTo(x,y); g.lineTo(x+Math.sin(a)*l,y+Math.cos(a)*l); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(repeat,repeat);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+const featherTex = noiseTex(256,236,40,3.0,1,7);
+const bumpTex = noiseTex(256,128,90,3.0,1,11); bumpTex.colorSpace = THREE.NoColorSpace;
+const skinTex = noiseTex(128,230,30,0.5,1,5);
+const groundTex = noiseTex(512,200,70,1.5,24,3);
+
+/* ---------- materials (palette: green, chestnut, grey, orange-yellow, white/black accents) ---------- */
+const M = {
+  feather: new THREE.MeshStandardMaterial({vertexColors:true,map:featherTex,bumpMap:bumpTex,bumpScale:0.8,roughness:0.82,metalness:0}),
+  head: new THREE.MeshStandardMaterial({color:0x1f6a42,map:featherTex,bumpMap:bumpTex,bumpScale:0.5,roughness:0.42,metalness:0.12}),
+  white: new THREE.MeshStandardMaterial({color:0xf1ede0,map:featherTex,roughness:0.8}),
+  bill: new THREE.MeshStandardMaterial({color:0xd9b53a,map:skinTex,roughness:0.38}),
+  orange: new THREE.MeshStandardMaterial({color:0xe0781c,map:skinTex,roughness:0.5,side:THREE.DoubleSide}),
+  black: new THREE.MeshStandardMaterial({color:0x1a1c22,roughness:0.5,metalness:0.1}),
+  blue: new THREE.MeshStandardMaterial({color:0x2a49a8,roughness:0.3,metalness:0.35}),
+  eye: new THREE.MeshStandardMaterial({color:0x0b0a08,roughness:0.08,metalness:0}),
+  curl: new THREE.MeshStandardMaterial({color:0x14161c,roughness:0.35,metalness:0.2}),
+};
+
+/* ---------- geometry helpers ---------- */
+const sstep=(a,b,x)=>{x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x);};
+const lerp=(a,b,t)=>a+(b-a)*t;
+function blob(rx,ry,rz,opts={}){
+  const {w=32,h=22,deform,color}=opts;
+  let g = new THREE.SphereGeometry(1,w,h);
+  g.deleteAttribute('uv'); g.deleteAttribute('normal');
+  const p = g.attributes.position, col = new Float32Array(p.count*3), c = new THREE.Color();
+  const v = new THREE.Vector3();
+  for(let i=0;i<p.count;i++){
+    v.set(p.getX(i)*rx,p.getY(i)*ry,p.getZ(i)*rz);
+    if(deform) deform(v, rx,ry,rz);
+    p.setXYZ(i,v.x,v.y,v.z);
+    if(color) color(v,c); else c.set(0xffffff);
+    c.toArray(col,i*3);
+  }
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  g = mergeVertices(g,1e-5); g.computeVertexNormals();
+  const q=g.attributes.position, uv=new Float32Array(q.count*2);
+  for(let i=0;i<q.count;i++){ uv[i*2]=(q.getX(i)+q.getZ(i)*0.5)*2.6; uv[i*2+1]=(q.getY(i)+q.getZ(i)*0.5)*2.6; }
+  g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  return g;
+}
+const mesh=(g,m,x=0,y=0,z=0)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;return o;};
+const grp=(name,x=0,y=0,z=0,parent)=>{const o=new THREE.Group();o.name=name;o.position.set(x,y,z);if(parent)parent.add(o);return o;};
+function limb(rTop,rBot,len,mat,seg=14){
+  const g=new THREE.CylinderGeometry(rTop,rBot,len,seg,1); g.translate(0,-len/2,0); return mesh(g,mat);
+}
+
+/* ---------- build the duck (faces +Z, Y up) ---------- */
+const root = grp('root');
+scene.add(root);
+const parts = {root};
+const BODY_Y = 0.38;
+const body = parts.body = grp('body',0,BODY_Y,0,root);
+
+// body (mallard drake: chestnut breast, grey flanks, black rear)
+const C = {chest:new THREE.Color(0x6b3a26), back:new THREE.Color(0x857d6d), flank:new THREE.Color(0xb4b1a6), belly:new THREE.Color(0xd0ccbd), rear:new THREE.Color(0x16181d)};
+const bodyGeo = blob(0.29,0.26,0.52,{w:44,h:30,
+  deform:(v,rx,ry,rz)=>{
+    if(v.z<0){ const t=Math.pow(-v.z/rz,1.6); v.x*=1-0.5*t; v.y*=1-0.4*t; v.y+=0.2*t; }
+    else { const t=v.z/rz; v.x*=1-0.22*t*t; v.y*=1-0.1*t*t; }
+    if(v.y<0) v.y*=0.9;
+  },
+  color:(v,c)=>{
+    c.copy(C.flank);
+    const k=sstep(-0.1,0.4,v.y); c.lerp(C.back,k*0.8);                  // back darker
+    c.lerp(C.belly, sstep(-0.05,-0.2,v.y)*0.8);                          // pale belly
+    c.lerp(C.chest, sstep(0.14,0.3,v.z)*(0.9));                          // breast
+    c.lerp(C.rear, sstep(-0.3,-0.45,v.z));                               // black rear
+  }});
+const bodyMesh = mesh(bodyGeo,M.feather); bodyMesh.name='bodyMesh'; body.add(bodyMesh);
+
+// neck chain (S-curve)
+const neck = parts.neck = grp('neck',0,0.10,0.33,body);       // base pivot
+const neck1 = parts.neck1 = grp('neck1',0,0,0,neck);
+{
+  const g=new THREE.CylinderGeometry(0.066,0.098,0.15,20,1); g.translate(0,0.075,0);
+  const cs=new Float32Array(g.attributes.position.count*3); const c=new THREE.Color();
+  for(let i=0;i<g.attributes.position.count;i++){ c.copy(C.chest); c.lerp(C.back,0.15); c.toArray(cs,i*3);}
+  g.setAttribute('color',new THREE.BufferAttribute(cs,3));
+  neck1.add(mesh(g,M.feather));
+  neck1.add(mesh(new THREE.SphereGeometry(0.092,20,14),M.feather));
+}
+const neck2 = parts.neck2 = grp('neck2',0,0.15,0,neck1);
+{
+  const g=new THREE.CylinderGeometry(0.055,0.066,0.12,20,1); g.translate(0,0.06,0);
+  neck2.add(mesh(g,M.head));
+  neck2.add(mesh(new THREE.SphereGeometry(0.066,20,14),M.head));
+  const ring=mesh(new THREE.TorusGeometry(0.066,0.013,10,28),M.white); ring.rotation.x=Math.PI/2; ring.position.y=0.005; ring.name='neckRing'; neck2.add(ring);
+}
+const head = parts.head = grp('head',0,0.12,0,neck2);
+head.add(mesh(blob(0.078,0.080,0.105,{w:28,h:20,deform:(v)=>{ if(v.y<0) v.y*=0.9; }}),M.head,0,0.015,0.02));
+// cheek highlight / white stripe under ring is the ring; bill:
+const billGeo = (hy,tipW)=>blob(0.04,hy,0.085,{w:24,h:14,deform:(v,rx,ry,rz)=>{
+  const t=(v.z/rz+1)/2; v.x*=lerp(0.85,tipW,t); if(v.z>0) v.y*=1-0.25*(v.z/rz);
+}});
+const upper = parts.upperBill = grp('upperBill',0,-0.005,0.14,head);
+upper.add(mesh(billGeo(0.018,1.2),M.bill));
+const nail = mesh(blob(0.022,0.008,0.016,{w:10,h:8}),M.black,0,0.0,0.082); upper.add(nail);
+for(const s of [-1,1]) upper.add(mesh(blob(0.004,0.003,0.01,{w:6,h:5}),M.black,0.016*s,0.015,-0.01));
+const jaw = parts.jaw = grp('jaw',0,-0.025,0.055,head);
+jaw.add(mesh(billGeo(0.012,1.1),M.bill,0,-0.004,0.085));
+// eyes
+parts.eyes=[];
+for(const s of [-1,1]){
+  const e=grp(s<0?'eyeR':'eyeL',0.063*s,0.04,0.04,head);
+  e.add(mesh(new THREE.SphereGeometry(0.017,14,10),M.eye));
+  const hl=new THREE.Mesh(new THREE.SphereGeometry(0.0045,6,6),new THREE.MeshBasicMaterial({color:0xffffff})); hl.position.set(0.006*s,0.007,0.012); e.add(hl);
+  parts.eyes.push(e); parts[e.name]=e;
+}
+
+// tail
+const tail = parts.tail = grp('tail',0,0.1,-0.46,body);
+{
+  const f=blob(0.1,0.018,0.17,{w:20,h:10,deform:(v,rx,ry,rz)=>{ const t=(v.z/rz+1)/2; v.x*=lerp(1.0,0.45,t*t); }});
+  const m=mesh(f,M.black,0,0,-0.12); m.material=new THREE.MeshStandardMaterial({color:0x4a4a48,map:featherTex,roughness:0.8}); tail.add(m);
+  m.rotation.x=-0.22;
+  const m2=mesh(blob(0.07,0.016,0.14,{w:16,h:8}),M.white,0,0.012,-0.14); m2.rotation.x=-0.22; tail.add(m2);
+  // drake curl: two black arcs
+  const curlG=new THREE.TorusGeometry(0.04,0.012,8,20,Math.PI*1.35);
+  for(const s of [-1,1]){ const cu=mesh(curlG,M.curl,0.012*s,0.05,-0.19); cu.rotation.y=Math.PI/2; cu.rotation.z=0.5; cu.scale.set(1,1,1); cu.name='curl'; tail.add(cu); cu.rotation.order='YXZ'; cu.rotation.set(0.3,Math.PI/2,0.35*s); }
+}
+
+// wings (folded)
+for(const s of [-1,1]){
+  const w = grp(s<0?'wingR':'wingL',0.19*s,0.1,0.13,body);
+  const wg=blob(0.05,0.15,0.38,{w:24,h:16,
+    deform:(v,rx,ry,rz)=>{ const t=Math.max(0,-v.z/rz); v.y*=1-0.55*t*t; v.x*=1-0.3*t; v.y+=0.03*t; if(v.z>0){ v.y*=1-0.5*(v.z/rz)**2; } },
+    color:(v,c)=>{ c.set(0x8d8472); c.lerp(new THREE.Color(0xa9a392),sstep(0.0,0.1,-v.y)); c.lerp(new THREE.Color(0x2c2a28),sstep(-0.22,-0.38,v.z)); }});
+  const wm=mesh(wg,M.feather,0,-0.04,-0.28); wm.name='wingMesh'; w.add(wm);
+  const sp=mesh(blob(0.01,0.034,0.09,{w:12,h:8}),M.blue,0.04*s,-0.06,-0.26); sp.rotation.y=0; w.add(sp);
+  for(const k of [-1,1]){ w.add(mesh(blob(0.012,0.034,0.025,{w:8,h:6}),M.white,0.041*s,-0.06,-0.26+k*0.07)); }
+  w.rotation.set(0,0.1*s,-0.1*s); // lean into body, tips converge
+  w.userData.rest=[0,0.1*s,-0.1*s];
+  parts[w.name]=w;
+}
+
+// legs with webbed feet
+function footGeo(){
+  const sh=new THREE.Shape(); sh.moveTo(-0.014,0);
+  sh.lineTo(-0.085,0.15); sh.quadraticCurveTo(-0.05,0.115,-0.005,0.185);
+  sh.quadraticCurveTo(0.045,0.115,0.085,0.15); sh.lineTo(0.014,0); sh.closePath();
+  const g=new THREE.ExtrudeGeometry(sh,{depth:0.008,bevelEnabled:true,bevelSize:0.004,bevelThickness:0.003,bevelSegments:1,curveSegments:6});
+  g.rotateX(Math.PI/2); g.translate(0,0.004,0); return g;
+}
+const FOOT = footGeo();
+for(const s of [-1,1]){
+  const n = s<0?'R':'L';
+  const hip = grp('leg'+n,0.125*s,-0.17,-0.04,body); hip.userData.rest=[-0.25,0,0.06*s];
+  const thigh = mesh(blob(0.058,0.075,0.07,{w:16,h:12,color:(v,c)=>c.set(0xb4b1a6).lerp(C.back,0.3)}),M.feather,0.0,-0.04,0); hip.add(thigh);
+  const knee = grp('knee'+n,0,-0.1,0,hip); knee.userData.rest=[0.55,0,0];
+  knee.add(mesh(new THREE.SphereGeometry(0.024,12,10),M.orange));
+  knee.add(limb(0.02,0.015,0.11,M.orange));
+  const ankle = grp('ankle'+n,0,-0.11,0,knee); ankle.userData.rest=[-0.3,0,0];
+  ankle.add(mesh(new THREE.SphereGeometry(0.019,12,10),M.orange));
+  const foot = mesh(FOOT,M.orange,0,-0.012,-0.015); foot.name='foot'+n; foot.rotation.y=0.18*-s*-1; ankle.add(foot);
+  parts['leg'+n]=hip; parts['knee'+n]=knee; parts['ankle'+n]=ankle; parts['foot'+n]=foot;
+}
+
+// ground
+const ground = new THREE.Mesh(new THREE.CircleGeometry(12,64), new THREE.MeshStandardMaterial({color:0x6f8a52,map:groundTex,bumpMap:groundTex,bumpScale:1.2,roughness:0.95}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+
+/* ---------- rest pose bookkeeping ---------- */
+const names = ['body','neck','neck1','neck2','head','upperBill','jaw','tail','wingL','wingR','legL','legR','kneeL','kneeR','ankleL','ankleR','eyeL','eyeR'];
+const rest = {};
+for(const n of names){ const o=parts[n]; const r=o.userData.rest||[0,0,0]; rest[n]={p:o.position.clone(),r:[...r]}; }
+// rest tweaks for neck / head carriage
+rest.neck1.r=[0.62,0,0]; rest.neck2.r=[-0.85,0,0]; rest.head.r=[0.45,0,0];
+rest.upperBill.r=[0.06,0,0];
+parts.neck1.rotation.x=0.62;
+
+/* ---------- animation system ---------- */
+const clips = {};
+const zeroPose=()=>{const p={}; for(const n of names) p[n]=[0,0,0,0,0,0]; return p;};
+const smooth=(x)=>x*x*(3-2*x);
+const TAU=Math.PI*2;
+function env(u,a,b,c,d){ // 0->1 between a..b, hold to c, back to 0 by d
+  if(u<a||u>d) return 0; if(u<b) return smooth((u-a)/(b-a)); if(u<=c) return 1; return smooth(1-(u-c)/(d-c)); }
+
+clips.idle = {duration:6, loop:true, fn(t,P){
+  const u=t/6, ph=u*TAU;
+  const br=Math.sin(ph*3);
+  P.body[4]=0.004*br; P.body[0]=0.012*br;
+  // look around: slow yaw of neck & head, with head following slightly later
+  const look=Math.sin(ph)*0.5+Math.sin(ph*2+0.6)*0.12;
+  const lookLate=Math.sin(ph-0.5)*0.5+Math.sin(ph*2+0.1)*0.12;
+  P.neck1[1]=look*0.45; P.neck2[1]=look*0.35; P.head[1]=lookLate*0.5;
+  P.head[2]=Math.sin(ph-0.9)*0.12;
+  P.neck1[0]=0.04*Math.sin(ph*3-0.4); P.neck2[0]=-0.05*Math.sin(ph*3-0.4);
+  // beak nibble twice per loop, tail flick, wing shrug
+  const nib=Math.max(0,Math.sin(ph*4+1))**3; P.jaw[0]=0.16*nib*sstep(0.1,0.2,(u%0.5));
+  P.upperBill[0]=-0.03*nib;
+  const flick=env(u,0.55,0.6,0.62,0.7)*Math.sin(ph*22);
+  P.tail[1]=flick*0.2; P.tail[0]=0.05*Math.sin(ph*3-0.8)+0.1*env(u,0.55,0.6,0.62,0.7);
+  const shr=env(u,0.78,0.84,0.88,0.95);
+  for(const n of ['wingL','wingR']){ const s=n==='wingL'?1:-1; P[n][2]=s*0.28*shr; P[n][0]=-0.08*shr; }
+  P.body[0]+=-0.02*shr; P.tail[0]-=0.12*shr;
+  // blink
+  const bl=Math.max(env(u,0.28,0.29,0.295,0.31),env(u,0.7,0.71,0.715,0.73)); P.eyeL[3]=P.eyeR[3]=bl; // handled as scale
+  // feet planted: undo thigh pose effect none
+}};
+
+clips.walk = {duration:0.95, loop:true, fn(t,P){
+  const ph=t/0.95*TAU;
+  const wagBody=Math.cos(ph);
+  P.body[2]=0.13*wagBody;                // waddle roll
+  P.body[1]=0.1*Math.sin(ph);            // yaw
+  P.body[3]=0.025*Math.sin(ph+Math.PI/2)*-1; // sway x
+  P.body[4]=0.018*Math.abs(Math.sin(ph))*-1+0.01;
+  P.body[0]=0.05;
+  for(const s of [0,1]){
+    const n=s?'L':'R'; const p=ph+(s?0:Math.PI);
+    const swing=Math.sin(p), vel=Math.cos(p);
+    const hip=-0.5*swing;
+    const lift=Math.max(0,vel);
+    const knee=0.7*lift**0.8;
+    P['leg'+n][0]=hip; P['leg'+n][2]=0.05*(s?1:-1)*lift;
+    P['knee'+n][0]=knee;
+    P['ankle'+n][0]=-(hip+knee)+0.25*lift*0 - (rest['leg'+n].r[0]+rest['knee'+n].r[0]+rest['ankle'+n].r[0])*0 + 0.35*lift;
+    P['ankle'+n][1]=0;
+  }
+  // head & neck: counter-roll, bob with follow-through
+  P.neck1[2]=-0.1*Math.cos(ph-0.4); P.neck2[2]=-0.08*Math.cos(ph-0.8); P.head[2]=-0.06*Math.cos(ph-1.1);
+  P.neck1[1]=-0.09*Math.sin(ph-0.3); P.neck2[1]=-0.08*Math.sin(ph-0.7); P.head[1]=-0.06*Math.sin(ph-1.1);
+  P.neck1[0]=0.08*Math.sin(2*ph-0.5); P.neck2[0]=-0.1*Math.sin(2*ph-1.0);P.head[0]=0.05*Math.sin(2*ph-1.5);
+  P.tail[1]=-0.28*Math.sin(ph-0.5); P.tail[0]=0.05*Math.sin(2*ph-1);
+  P.wingL[2]=0.03*Math.sin(ph-0.8)+0.03; P.wingR[2]=-0.03*Math.sin(ph-0.8)-0.03;
+  P.jaw[0]=0.02;
+}};
+
+clips.dabble = {duration:5, loop:true, fn(t,P){
+  const u=t/5, ph=u*TAU;
+  const d=env(u,0.05,0.3,0.68,0.85);
+  const hold=sstep(0.25,0.35,u)*(1-sstep(0.66,0.75,u));
+  const pitch=0.85*d;
+  P.body[0]=pitch;
+  // neck stretches down along the pitched body, head reaches ground
+  P.neck1[0]=0.6*d; P.neck2[0]=0.75*d; P.head[0]=-0.3*d;
+  P.upperBill[0]=0.0; P.jaw[0]=0.12*hold*(0.5+0.5*Math.sin(ph*14));
+  // legs counter-rotate to stay under the duck, feet flat; paddle while head is down
+  for(const s of [0,1]){
+    const n=s?'L':'R'; const k=Math.sin(ph*8+(s?0:Math.PI));
+    const lg=-pitch+hold*0.12*k, kn=0.1*d+hold*0.12*(0.5+0.5*k);
+    P['leg'+n][0]=lg; P['knee'+n][0]=kn;
+    P['ankle'+n][0]=-(pitch+lg+kn);
+    P['leg'+n][2]=(s?1:-1)*0.05*hold;
+  }
+  // tail up with wiggle
+  P.tail[0]=-0.3*d; P.tail[1]=0.28*hold*Math.sin(ph*8+0.8);
+  P.body[1]=0.04*hold*Math.sin(ph*8+0.4); P.body[2]=0.03*hold*Math.sin(ph*8+2);
+  P.neck1[1]=0.12*hold*Math.sin(ph*8-0.2); P.head[1]=0.2*hold*Math.sin(ph*8-0.8);
+  // wing flap on recovery and head shake
+  const fl=env(u,0.86,0.9,0.9,0.98); const fp=Math.sin((u-0.86)*TAU*8);
+  for(const n of ['wingL','wingR']){ const sd=n==='wingL'?1:-1; P[n][2]=sd*(0.7*fl*(0.6+0.4*fp)+0.25*d*0.0); P[n][0]=-0.15*fl; }
+  const shake=env(u,0.84,0.86,0.93,0.97)*Math.sin((u-0.84)*TAU*10);
+  P.head[1]+=0.45*shake; P.neck2[1]+=0.2*shake; P.head[2]+=0.15*shake;
+  P.tail[1]+=0.4*fl*fp;
+}};
+
+/* spring for tail / head secondary motion */
+class Spring{ constructor(k,c){this.k=k;this.c=c;this.x=0;this.v=0;this.init=false;}
+  step(target,dt){ if(!this.init){this.x=target;this.init=true;} const sub=Math.ceil(dt/0.004); const h=dt/sub;
+    for(let i=0;i<sub;i++){ const a=this.k*(target-this.x)-this.c*this.v; this.v+=a*h; this.x+=this.v*h; } return this.x; }
+  reset(){this.init=false;this.v=0;} }
+const springs={tailX:new Spring(180,14),tailY:new Spring(160,12),headX:new Spring(220,16)};
+
+/* state */
+let current='idle', time=0, paused=false, speed=1, blend=1, snapshot=zeroPose(), lastPose=zeroPose();
+function evalPose(name,t){ const P=zeroPose(); clips[name].fn(((t%clips[name].duration)+clips[name].duration)%clips[name].duration,P); return P; }
+const HIP=new THREE.Vector3(0,-0.17,-0.04), _h=new THREE.Vector3();
+function applyPose(P){
+  for(const n of names){
+    const o=parts[n], r=rest[n], d=P[n];
+    o.rotation.set(r.r[0]+d[0],r.r[1]+d[1],r.r[2]+d[2]);
+    o.position.set(r.p.x+d[3],r.p.y+d[4],r.p.z+d[5]);
+  }
+  // pitch body about the hip line so planted feet stay put
+  _h.copy(HIP).applyEuler(parts.body.rotation); parts.body.position.add(HIP).sub(_h);
+}
+function applyEyes(P){ for(const e of parts.eyes){ e.scale.y = 1-0.9*P[e.name][3]; e.position.copy(rest[e.name].p); e.rotation.set(0,0,0);} }
+function setClip(name){
+  if(name===current) return; snapshot=JSON.parse(JSON.stringify(lastPose)); current=name; time=0; blend=0;
+  document.querySelectorAll('#clips button').forEach(b=>b.classList.toggle('on',b.dataset.c===name));
+}
+function update(dt){
+  const clip=clips[current];
+  time+=dt; if(clip.loop) time%=clip.duration;
+  let P=evalPose(current,time);
+  if(blend<1){ blend=Math.min(1,blend+dt/0.35); const k=smooth(blend); const Q=zeroPose();
+    for(const n of names) for(let i=0;i<6;i++) Q[n][i]=lerp(snapshot[n][i],P[n][i],k); P=Q; }
+  lastPose=JSON.parse(JSON.stringify(P));
+  // secondary springs: tail and head lag behind animated targets
+  const sx=springs.tailX.step(P.tail[0],dt), sy=springs.tailY.step(P.tail[1],dt);
+  const hx=springs.headX.step(P.head[0],dt);
+  const Pa=JSON.parse(JSON.stringify(P)); Pa.tail[0]=sx; Pa.tail[1]=sy; Pa.head[0]=hx;
+  applyPose(Pa); applyEyes(Pa);
+  // ground: walk treadmill
+  if(current==='walk'){ groundTex.offset.y += dt*0.0; }
+  // feet height correction: keep lowest foot on ground approx
+  root.position.y=0;
+  const wl=parts.wingL, wr=parts.wingR; // wings keep their rest lean via rest[]
+}
+let groundScroll=0;
+function groundMove(dt){ if(current==='walk'){ groundScroll+=dt*0.55; groundTex.offset.y=-groundScroll*0.5; } }
+
+/* ---------- UI ---------- */
+const labels={idle:'Покой',walk:'Ходьба вперевалку',dabble:'Кормится (кверху хвостом)'};
+const cbox=document.getElementById('clips');
+for(const k of Object.keys(clips)){ const b=document.createElement('button'); b.textContent=labels[k]; b.dataset.c=k; b.onclick=()=>setClip(k); cbox.appendChild(b); }
+cbox.firstChild.classList.add('on');
+document.getElementById('speed').oninput=e=>{speed=+e.target.value;document.getElementById('sv').textContent=speed.toFixed(1)+'×';};
+const pp=document.getElementById('pp');
+pp.onclick=()=>{paused=!paused;pp.textContent=paused?'Играть':'Пауза';};
+document.getElementById('reset').onclick=()=>{ time=0; blend=1; for(const s of Object.values(springs)) s.reset(); camera.position.copy(CAM0); controls.target.copy(TGT0); controls.update(); setClip('idle'); paused=false; pp.textContent='Пауза'; };
+
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+/* ---------- expose ---------- */
+window.animal = {root, parts, clips, camera, controls, scene, renderer, setClip,
+  seek(name,t){ current=name; blend=1; time=t; for(const s of Object.values(springs)) s.reset(); update(0.0001); update(0.0001); renderer.render(scene,camera); },
+  get tris(){ return renderer.info.render.triangles; } };
+
+let last=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt=Math.min(0.05,(now-last)/1000); last=now;
+  if(!paused){ dt*=speed; update(dt); groundMove(dt); }
+  controls.update(); renderer.render(scene,camera);
+}
+update(0.0001);
+requestAnimationFrame(frame);
+window.__ready = true;
+</script>
+</body>
+</html>

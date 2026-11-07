@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Деревенская кошка-крысолов — 3D модель</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#25231f;color:#eadfc8;font-family:Georgia,'Times New Roman',serif;overflow:hidden}
+  canvas{display:block}
+  #ui{position:fixed;left:0;right:0;top:0;padding:12px 18px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;
+       background:linear-gradient(#1b1915ee,#1b191500);pointer-events:none}
+  #ui *{pointer-events:auto}
+  h1{font-size:20px;margin:0 14px 0 0;font-weight:normal;letter-spacing:.5px}
+  button{background:#3b362d;color:#eadfc8;border:1px solid #6b604c;border-radius:4px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer}
+  button:hover{background:#4b4437} button.on{background:#8a6a35;border-color:#c9a25a;color:#fff}
+  label{font-size:14px;display:flex;align-items:center;gap:6px}
+  input[type=range]{width:120px}
+  #info{position:fixed;left:18px;bottom:10px;font-size:12px;opacity:.65}
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>Деревенская кошка-крысолов</h1>
+  <span id="clips"></span>
+  <button id="pp">Пауза</button>
+  <button id="rs">Сброс</button>
+  <label>Скорость <input id="sp" type="range" min="0.1" max="2.5" step="0.05" value="1"><span id="spv">1.0×</span></label>
+</div>
+<div id="info"></div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+"three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+
+const Q = new URLSearchParams(location.search);
+
+/* ---------------- renderer / scene ---------------- */
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2c2a25);
+scene.fog = new THREE.Fog(0x2c2a25, 9, 22);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(36, innerWidth/innerHeight, 0.05, 60);
+camera.position.set(3.1, 1.7, 3.4);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.62, 0.05);
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI*0.495;
+controls.minDistance = 1.2; controls.maxDistance = 9;
+controls.update();
+
+// 3-point light
+const key = new THREE.DirectionalLight(0xfff0d8, 2.6);
+key.position.set(3.5, 5, 3); key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+Object.assign(key.shadow.camera,{left:-3,right:3,top:3,bottom:-3,near:1,far:14});
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = 5;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xbcd0ff, 0.7); fill.position.set(-4,2.5,2); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffd9a8, 1.4); rim.position.set(-1.5,3,-4.5); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0x4a3f2c, 0.25));
+
+/* ---------------- procedural textures ---------------- */
+function hash(x,y){let h=x*374761393+y*668265263;h=(h^(h>>13))*1274126177;return ((h^(h>>16))>>>0)/4294967295;}
+function noiseCanvas(size, base, amp, cells, seed=0){
+  const c=document.createElement('canvas'); c.width=c.height=size; const g=c.getContext('2d');
+  const img=g.createImageData(size,size);
+  const vn=(x,y,cs)=>{const gx=x/cs,gy=y/cs,ix=Math.floor(gx),iy=Math.floor(gy);let fx=gx-ix,fy=gy-iy;fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy);
+    const n=cells(size/cs)|0;const w=(a,b)=>hash(((a%n)+n)%n+seed,((b%n)+n)%n);
+    return (w(ix,iy)*(1-fx)+w(ix+1,iy)*fx)*(1-fy)+(w(ix,iy+1)*(1-fx)+w(ix+1,iy+1)*fx)*fy;};
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    let v=vn(x,y,32)*.5+vn(x,y,8)*.3+vn(x,y,2)*.2;
+    const o=base+(v-.5)*amp; const i=(y*size+x)*4; img.data[i]=img.data[i+1]=img.data[i+2]=Math.max(0,Math.min(255,o)); img.data[i+3]=255;
+  }
+  g.putImageData(img,0,0); return c;
+}
+const furNoise = new THREE.CanvasTexture(noiseCanvas(256,170,90,c=>c)); furNoise.wrapS=furNoise.wrapT=THREE.RepeatWrapping; furNoise.colorSpace=THREE.NoColorSpace;
+function groundTexture(){
+  const s=1024,c=document.createElement('canvas');c.width=c.height=s;const g=c.getContext('2d');
+  g.fillStyle='#6b5a3c';g.fillRect(0,0,s,s);
+  for(let i=0;i<26000;i++){const x=Math.random()*s,y=Math.random()*s;const t=Math.random();
+    g.fillStyle=t<.35?'rgba(90,100,48,.55)':t<.6?'rgba(150,125,72,.5)':t<.8?'rgba(60,48,30,.5)':'rgba(176,152,98,.4)';
+    g.save();g.translate(x,y);g.rotate(Math.random()*6.28);g.fillRect(0,0,1+Math.random()*7,1+Math.random()*1.6);g.restore();}
+  const tx=new THREE.CanvasTexture(c);tx.wrapS=tx.wrapT=THREE.RepeatWrapping;tx.repeat.set(5,5);tx.colorSpace=THREE.SRGBColorSpace;tx.anisotropy=8;return tx;
+}
+
+/* ---------------- fur material (tabby pattern in shader, object space) ---------------- */
+const COL = {
+  base:new THREE.Color('#8c7552'), dark:new THREE.Color('#2f2720'), cream:new THREE.Color('#d9cfba'),
+  pink:new THREE.Color('#b88580'), eye:new THREE.Color('#b4b63a')
+};
+function fur(o={}){
+  const m = new THREE.MeshStandardMaterial({color:0xffffff, roughness:.92, metalness:0, roughnessMap:furNoise, bumpMap:furNoise, bumpScale:.6, envMapIntensity:.55});
+  const U = {
+    uAxis:{value:new THREE.Vector3(...(o.axis||[0,0,1]))}, uRing:{value:o.ring??5}, uWarp:{value:o.warp??1.4},
+    uStripe:{value:o.stripe??1}, uDorsal:{value:o.dorsal??0}, uRad:{value:o.rad??.3}, uWhiteY:{value:o.whiteY??-9},
+    uBibZ:{value:o.bibZ??9}, uAllWhite:{value:o.white??0}, uSharp:{value:new THREE.Vector2(.1,.4)}, uBelly:{value:o.belly??1}
+  };
+  m.userData.U=U;
+  m.onBeforeCompile = sh=>{
+    Object.assign(sh.uniforms,U);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vObjP;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvObjP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>',`#include <common>
+varying vec3 vObjP;
+uniform vec3 uAxis; uniform float uRing,uWarp,uStripe,uDorsal,uRad,uWhiteY,uBibZ,uAllWhite,uBelly; uniform vec2 uSharp;
+const vec3 cBase=vec3(${COL.base.r.toFixed(4)},${COL.base.g.toFixed(4)},${COL.base.b.toFixed(4)});
+const vec3 cDark=vec3(${COL.dark.r.toFixed(4)},${COL.dark.g.toFixed(4)},${COL.dark.b.toFixed(4)});
+const vec3 cCream=vec3(${COL.cream.r.toFixed(4)},${COL.cream.g.toFixed(4)},${COL.cream.b.toFixed(4)});
+float h31(vec3 p){p=fract(p*0.3183099+.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float vn(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);
+ return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),
+            mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){return vn(p)*.55+vn(p*2.03)*.3+vn(p*4.1)*.15;}`)
+    .replace('#include <color_fragment>',`#include <color_fragment>
+{
+  vec3 p=vObjP;
+  float t=dot(p,uAxis);
+  float n=fbm(p*5.0);
+  float s=sin((t*uRing+(n-.5)*uWarp*2.0)*6.2831853);
+  float stripe=smoothstep(uSharp.x,uSharp.y,s)*uStripe;
+  float up=clamp(p.y/uRad,-1.,1.);
+  stripe*=mix(1.0,smoothstep(-.75,-.05,up),uBelly);
+  float dors=(1.0-smoothstep(.02,.07+n*.04,abs(p.x)))*smoothstep(.2,.6,up)*uDorsal;
+  float mott=fbm(p*14.0);
+  vec3 col=mix(cBase*(.82+.5*n),cBase*1.18,smoothstep(.4,.9,mott)*.5);
+  col=mix(col,cDark,clamp(max(stripe,dors),0.,1.)*.92);
+  float fine=vn(p*90.0);
+  col*=.9+.2*fine;
+  float w=smoothstep(uWhiteY+.04,uWhiteY-.04,p.y+(n-.5)*.08);
+  w=max(w,smoothstep(uBibZ-.05,uBibZ+.06,p.z+(n-.5)*.1)*(1.0-smoothstep(.08,.2,abs(p.x))));
+  w=max(w,uAllWhite);
+  col=mix(col,cCream*(.9+.15*fine),clamp(w,0.,1.));
+  diffuseColor.rgb=col;
+}`);
+  };
+  m.customProgramCacheKey=()=> 'fur';
+  return m;
+}
+const plain=(hex,r=.7,extra={})=>new THREE.MeshStandardMaterial({color:hex,roughness:r,metalness:0,envMapIntensity:.6,...extra});
+
+/* ---------------- geometry helpers ---------------- */
+let TRIS=0;
+function addMesh(parent, geo, mat, pos=[0,0,0], name){
+  const m=new THREE.Mesh(geo,mat); m.position.set(...pos); m.castShadow=m.receiveShadow=true; if(name)m.name=name;
+  parent.add(m);
+  TRIS += (geo.index?geo.index.count:geo.attributes.position.count)/3;
+  return m;
+}
+function ell(rx,ry,rz,ws=24,hs=16){const g=new THREE.SphereGeometry(1,ws,hs);g.scale(rx,ry,rz);return g;}
+function limb(rt,rb,len,seg=12){const g=new THREE.CylinderGeometry(rt,rb,len,seg,1);g.translate(0,-len/2,0);return g;}
+function grp(name,parent,pos=[0,0,0]){const g=new THREE.Group();g.name=name;g.position.set(...pos);if(parent)parent.add(g);return g;}
+
+/* ---------------- build cat ---------------- */
+// units: 1.0 ≈ 25 cm (shoulder height ~1.0). Cat faces +Z, +Y up.
+const root = new THREE.Group(); root.name='cat'; scene.add(root);
+const parts = {};
+
+const matBody = fur({axis:[0,0,1], ring:3.4, warp:.3, dorsal:1, rad:.27, whiteY:-.2, belly:1});
+const matChest = fur({axis:[0,0,1], ring:3.4, warp:.3, dorsal:1, rad:.29, whiteY:-.2, bibZ:.2});
+const matLimb = fur({axis:[0,1,0], ring:5.5, warp:.3, stripe:.9, rad:1, belly:0});
+const matPaw = fur({axis:[0,1,0], ring:3, stripe:0, white:1, rad:1, belly:0});
+const matHead = fur({axis:[0,0,1], ring:7, warp:.5, dorsal:1, rad:.16, whiteY:-.11, belly:0, stripe:.8});
+const matTail = fur({axis:[0,0,1], ring:7, warp:.8, stripe:1, rad:1, belly:0});
+const matHipThigh = fur({axis:[0,1,0], ring:5, warp:.35, stripe:.9, rad:1, belly:0});
+const matCream = fur({white:1});
+const matPink = plain(COL.pink,.6);
+const matEar = fur({axis:[0,1,0], ring:3, stripe:.6, rad:1, belly:0});
+const matIris = plain(COL.eye,.25,{emissive:0x303400, emissiveIntensity:.4});
+const matBlack = plain(0x0a0908,.4);
+const matWhisk = plain(0xe8e2d2,.5);
+
+// --- body (pelvis) ---
+const body = grp('body',root,[0,.74,-.35]); parts.body=body;
+addMesh(body, ell(.25,.27,.4,36,24), matBody, [0,0,0], 'hips');
+addMesh(body, ell(.23,.25,.42,36,24), matBody, [0,-.01,.3], 'belly');
+const chest = grp('chest',body,[0,0,.6]); parts.chest=chest;
+addMesh(chest, ell(.25,.29,.38,36,24), matChest, [0,.01,.1], 'chestMesh');
+// shoulder blades bump
+for(const s of[-1,1]) addMesh(chest, ell(.07,.12,.2,12,8), matChest, [s*.12,.2,.08],'scapula');
+
+// --- neck & head ---
+const neck = grp('neck',chest,[0,.1,.28]); parts.neck=neck; neck.rotation.x=-.55;
+addMesh(neck, (()=>{const g=new THREE.CylinderGeometry(.13,.17,.4,16,1);g.rotateX(Math.PI/2);g.translate(0,0,.14);return g;})(), matHead, [0,0,0], 'neckMesh');
+const head = grp('head',neck,[0,0,.32]); parts.head=head; head.scale.setScalar(1.15);
+addMesh(head, ell(.175,.15,.165,32,22), matHead, [0,0,.08], 'skull');
+for(const s of[-1,1]) addMesh(head, ell(.07,.09,.09,14,10), matHead, [s*.12,-.06,.05],'cheek');
+addMesh(head, ell(.085,.07,.1,20,14), matCream, [0,-.055,.225], 'muzzle');
+addMesh(head, ell(.034,.024,.024,12,8), matPink, [0,-.03,.325], 'nose');
+const jaw = grp('jaw',head,[0,-.085,.1]); parts.jaw=jaw;
+addMesh(jaw, ell(.06,.03,.1,16,10), matCream, [0,-.012,.1], 'jawMesh');
+const eyes={};
+for(const [n,s] of [['eyeL',1],['eyeR',-1]]){
+  const e=grp(n,head,[s*.078,.035,.205]); e.rotation.y=s*.45; eyes[n]=e; parts[n]=e;
+  addMesh(e, ell(.036,.036,.036,16,12), matIris, [0,0,0],'iris');
+  addMesh(e, ell(.009,.028,.006,8,8), matBlack, [0,0,.033],'pupil');
+  addMesh(e, ell(.042,.012,.042,12,6), matHead, [0,.03,0],'brow');
+}
+const ears={};
+for(const [n,s] of [['earL',1],['earR',-1]]){
+  const e=grp(n,head,[s*.1,.115,.03]); ears[n]=e; parts[n]=e;
+  const og=new THREE.ConeGeometry(.09,.18,14,1); og.translate(0,.09,0); og.scale(1,1,.5);
+  addMesh(e, og, matEar, [0,0,0],'earOuter');
+  const ig=new THREE.ConeGeometry(.058,.13,12,1); ig.translate(0,.065,0); ig.scale(1,1,.3);
+  addMesh(e, ig, matPink, [0,.0,.02],'earInner');
+  addMesh(e, ell(.092,.03,.05,12,8), matEar, [0,.0,0],'earBase');
+  e.rotation.z=-s*.32; e.rotation.x=-.1; e.scale.setScalar(1.3);
+}
+// whiskers
+const whiskers=grp('whiskers',head,[0,-.06,.25]); parts.whiskers=whiskers;
+for(const s of[-1,1]) for(let i=0;i<3;i++){
+  const g=new THREE.CylinderGeometry(.0035,.0012,.24,4,1); g.translate(0,.12,0); g.rotateZ(-s*Math.PI/2);
+  const m=addMesh(whiskers,g,matWhisk,[s*.045,(i-1)*.016,0]); m.castShadow=false;
+  m.rotation.y=s*(.25+i*.28)*-1+0; m.rotation.z=(i-1)*.18*s;
+}
+
+// --- legs ---
+const legs={};
+function buildLeg(id, parent, pos, hind){
+  const side = pos[0]>0?1:-1;
+  const up = grp(id+'_upper',parent,pos);
+  const dims = hind ? {a:.36,b:.38,c:.3, rt:.13, rm:.065, rb:.05} : {a:.38,b:.38,c:.1, rt:.1, rm:.07, rb:.045};
+  const upMat = hind? matHipThigh: matLimb;
+  addMesh(up, limb(dims.rt,dims.rm,dims.a,14), upMat, [0,0,0],'upperMesh');
+  addMesh(up, ell(dims.rt*1.02,dims.rt*1.02,dims.rt*1.05,14,10), upMat, [0,0,0],'joint');
+  if(hind) addMesh(up, ell(.11,.2,.15,16,12), matHipThigh, [side*.015,-.15,-.02],'thighMuscle');
+  const lo = grp(id+'_lower',up,[0,-dims.a,0]);
+  addMesh(lo, limb(dims.rm,dims.rb,dims.b,12), matLimb, [0,0,0],'lowerMesh');
+  addMesh(lo, ell(dims.rm,dims.rm,dims.rm,10,8), matLimb, [0,0,0],'knee');
+  const paw = grp(id+'_paw',lo,[0,-dims.b,0]);
+  addMesh(paw, limb(dims.rb,dims.rb*.95,dims.c,10), matLimb, [0,0,0],'pasternMesh');
+  addMesh(paw, ell(dims.rb,dims.rb,dims.rb,8,6), hind? matLimb: matPaw, [0,0,0],'ankle');
+  addMesh(paw, ell(.058,.04,.09,16,10), matPaw, [0,-dims.c+.04,.035],'toes');
+  legs[id]={upper:up,lower:lo,paw,dims,hind,side};
+  parts[id]=legs[id];
+  return legs[id];
+}
+buildLeg('FL',chest,[.15,-.06,.12],false);
+buildLeg('FR',chest,[-.15,-.06,.12],false);
+buildLeg('HL',body,[.15,-.03,-.12],true);
+buildLeg('HR',body,[-.15,-.03,-.12],true);
+parts.legs=legs;
+
+// --- tail: chain of segments ---
+const tail = grp('tail',body,[0,.1,-.37]); parts.tail=tail; tail.rotation.y=Math.PI;
+const NT=8, TSEG=.115;
+const tailSegs=[]; let tp=tail;
+for(let i=0;i<NT;i++){
+  const g=grp('tail'+i,tp,[0,0,i?TSEG:0]);
+  const r0=.066-.0045*i, r1=.066-.0045*(i+1);
+  const geo=new THREE.CylinderGeometry(r1,r0,TSEG,12,1); geo.rotateX(Math.PI/2); geo.translate(0,0,TSEG/2);
+  addMesh(g,geo,i>=NT-1?matTail:matTail,[0,0,0],'tailMesh');
+  addMesh(g,ell(r0,r0,r0,12,8),matTail,[0,0,0],'tailJoint');
+  if(i===NT-1){ const tip=addMesh(g,ell(r1*1.05,r1*1.05,r1*1.4,12,8),matBlack.clone(),[0,0,TSEG],'tailTip'); tip.material.color.set(0x2a221b);}
+  tailSegs.push(g); tp=g;
+}
+parts.tailSegments=tailSegs;
+const tailRest=[]; for(let i=0;i<NT;i++) tailRest.push(i===0?-.15:(.02-i*.035+(i>5?-.03*(i-5):0))*-1);
+// tail rest pose: starts low-back then curls up at the tip (+x rotation points toward -y)
+for(let i=0;i<NT;i++){ tailRest[i] = i===0 ? .45 : -.1 - (i>4? .06:0); }
+
+// --- ground ---
+const ground = new THREE.Mesh(new THREE.CircleGeometry(14,64), new THREE.MeshStandardMaterial({map:groundTexture(),roughness:1,envMapIntensity:.3}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+
+info: {
+  document.getElementById('info').textContent = `Треугольников: ${Math.round(TRIS).toLocaleString('ru')} · ЛКМ — вращать, колесо — масштаб, ПКМ — сдвиг`;
+}
+
+/* ---------------- spring helper ---------------- */
+class Spring{
+  constructor(k=60,c=7){this.x=0;this.v=0;this.k=k;this.c=c;}
+  step(target,dt){const n=Math.max(1,Math.ceil(dt/.008));const h=dt/n;for(let i=0;i<n;i++){this.v+=((target-this.x)*this.k-this.v*this.c)*h;this.x+=this.v*h;}return this.x;}
+  reset(){this.x=0;this.v=0;}
+}
+const sEarL=new Spring(120,9), sEarR=new Spring(120,9);
+const sTail=tailSegs.map((_,i)=>({yaw:new Spring(40+i*4,5),pit:new Spring(50,6)}));
+const sHeadY=new Spring(35,8);
+
+/* ---------------- animation ---------------- */
+const smooth=x=>{x=Math.min(1,Math.max(0,x));return x*x*(3-2*x);};
+const TAU=Math.PI*2;
+function keyed(t,keys){ // keys: [[t,v],...] smoothstep interpolation
+  if(t<=keys[0][0])return keys[0][1];
+  for(let i=1;i<keys.length;i++){ if(t<=keys[i][0]){const a=keys[i-1],b=keys[i];return a[1]+(b[1]-a[1])*smooth((t-a[0])/(b[0]-a[0]));}}
+  return keys[keys.length-1][1];
+}
+function pulse(t,c,w){const x=(t-c)/w;return Math.exp(-x*x*4)*Math.sin(x*14);}  // quick wiggle
+function bump(t,c,w){const x=(t-c)/w;return Math.abs(x)<1?smooth(1-Math.abs(x)):0;}
+
+const REST = {
+  FL:{x:.15,z:.4, pawA:-.1}, FR:{x:-.15,z:.4, pawA:-.1},
+  HL:{x:.15,z:-.45, pawA:-.45}, HR:{x:-.15,z:-.45, pawA:-.45}
+};
+const newPose=()=>({
+  bodyY:0,bodyZ:0,bodyX:0,bodyPitch:0,bodyRoll:0,bodyYaw:0, chestPitch:0,chestYaw:0,chestRoll:0, chestScale:1,
+  neckPitch:0,neckYaw:0,neckRoll:0, headPitch:0,headYaw:0,headRoll:0, jaw:0, blink:0,
+  earL:0,earR:0, tailYaw:0,tailLift:0,tailWave:0,tailTip:0,tailSpeed:0,
+  feet:{FL:{z:0,y:0,pawA:0},FR:{z:0,y:0,pawA:0},HL:{z:0,y:0,pawA:0},HR:{z:0,y:0,pawA:0}}
+});
+
+function blinkAt(t,period,times){ let b=0; for(const c of times){const x=(t%period-c); if(Math.abs(x)<.09) b=Math.max(b,1-Math.abs(x)/.09);} return b; }
+
+const clips={
+  idle:{name:'Покой', label:'Покой', duration:8, apply(t,P){
+    const w=TAU/8, br=Math.sin(w*t*3);
+    P.chestScale=1+.012*br; P.bodyY=.004*br;
+    P.chestPitch=.012*br;
+    P.headYaw = .45*Math.sin(w*t)+.12*Math.sin(w*t*3+1); P.neckYaw=P.headYaw*.35; P.headYaw*=.65;
+    P.headPitch=.1*Math.sin(w*t*2+.7)+.04; P.headRoll=.1*Math.sin(w*t+.5);
+    P.neckPitch=.04*Math.sin(w*t*2+1.2);
+    P.bodyYaw=.015*Math.sin(w*t);
+    P.blink=blinkAt(t,8,[1.2,3.1,6.3,6.62]);
+    P.earL=.9*pulse(t,2.2,.5)*.35+.12*Math.sin(w*t*2); P.earR=.9*pulse(t,5.4,.5)*.35+.1*Math.sin(w*t*2+1);
+    P.earR+=.5*pulse(t,3.9,.35)*.0;
+    P.tailYaw=.22*Math.sin(w*t*2);P.tailWave=.5; P.tailTip=.5*bump(t,4.8,.9)*Math.sin(w*t*14);
+    P.tailLift=.05*Math.sin(w*t*2+1);
+    P.jaw=.02*Math.max(0,Math.sin(w*t*3-.5));
+  }},
+  walk:{name:'Шаг', label:'Шаг', duration:1.0, apply(t,P){
+    const ph=t/1.0, S=.72, duty=.64;
+    const offs={HL:0,FL:.25,HR:.5,FR:.75};
+    for(const k in offs){
+      const p=((ph-offs[k])%1+1)%1, hind=k[0]==='H';
+      const f=P.feet[k]; const lift=hind?.15:.17, sw=S*(hind?1.05:.95);
+      if(p<duty){ const u=p/duty; f.z=sw/2-sw*u; f.y=0; f.pawA=.12*smooth((u-.6)/.4)*(hind?1.3:1); }
+      else { const q=(p-duty)/(1-duty); f.z=-sw/2+sw*smooth(q); f.y=lift*Math.pow(Math.sin(Math.PI*Math.min(1,q*1.05)),.8); f.pawA=.55*Math.sin(Math.PI*q)*(hind?1:.9)+.12*(1-q)*(1-q); }
+    }
+    const a=TAU*ph;
+    P.bodyY=.018*Math.cos(2*a+.4)-.004; P.bodyRoll=.035*Math.sin(a); P.bodyYaw=.04*Math.sin(a);
+    P.chestYaw=-.09*Math.sin(a+.3); P.chestRoll=-.03*Math.sin(a); P.chestPitch=.02*Math.sin(2*a);
+    P.neckPitch=.06*Math.sin(2*a+1.2)+.05; P.headYaw=.06*Math.sin(a+.8); P.headPitch=.05*Math.sin(2*a+.9)-.05;
+    P.headRoll=.03*Math.sin(a);
+    P.tailYaw=.3*Math.sin(a+1.6); P.tailWave=1; P.tailLift=-.05+.04*Math.sin(2*a); P.tailTip=.2*Math.sin(a*2);
+    P.earL=.06*Math.sin(2*a); P.earR=.06*Math.sin(2*a+.4);
+    P.blink=0;
+  }},
+  hunt:{name:'Охота', label:'Охота', duration:7, apply(t,P){
+    const w=TAU/7;
+    const crouch=keyed(t,[[0,0],[1.8,1],[3.9,1],[4.25,.35],[4.7,.55],[5.2,.85],[6.9,0],[7,0]]);
+    const wig=keyed(t,[[0,0],[1.8,0],[2.2,1],[3.5,1],[3.9,0],[7,0]]);
+    // phases of the pounce
+    const air=keyed(t,[[3.9,0],[4.0,0],[4.25,1],[4.65,0],[7,0]]);
+    const jumpH=Math.sin(Math.PI*Math.min(1,Math.max(0,(t-4.0)/.65)))*(t>4&&t<4.65?1:0);
+    const lunge=keyed(t,[[0,0],[3.9,0],[4.65,.22],[5.4,.22],[6.9,0],[7,0]]);
+    P.bodyY=-.34*crouch*(1-.0)+.5*jumpH; P.bodyZ=lunge*.9; P.bodyPitch=.16*crouch-.18*jumpH-.06*air;
+    P.chestPitch=.1*crouch;
+    const wg=Math.sin(TAU*7*(t-2.2)/ (1.0) )*wig; // wiggle ~7 Hz equivalent for 1s blocks
+    P.bodyYaw=.11*Math.sin(t*TAU*1.3*1.0)*wig; P.bodyX=.04*Math.sin(t*TAU*1.3)*wig; P.bodyRoll=.05*Math.sin(t*TAU*1.3+1.2)*wig;
+    P.chestYaw=-.05*Math.sin(t*TAU*1.3)*wig;
+    P.neckPitch=-.35*crouch+.5*keyed(t,[[4.25,0],[4.7,1],[6.5,1],[6.9,0],[7,0]])*(1)-.2*air; P.headPitch=.22*crouch+.05*Math.sin(w*t*3);
+    P.headYaw=.05*Math.sin(w*t*3)*crouch;
+    P.jaw=.18*bump(t,4.8,.5);
+    P.blink=blinkAt(t,7,[1.0,6.4]);
+    P.earL=-.1*crouch+.25*pulse(t,3.2,.4); P.earR=-.1*crouch;
+    P.tailLift=-.08*crouch+.2*air; P.tailYaw=.45*Math.sin(t*TAU*1.3-.5)*(.4+crouch*.6)+.1*Math.sin(w*t*7); P.tailWave=1.2; P.tailTip=.8*crouch*Math.sin(t*TAU*2.6);
+    P.chestScale=1+.01*Math.sin(w*t*7);
+    // feet
+    const f=P.feet;
+    const stepIn=.12*crouch;
+    f.FL.z=stepIn+lunge*.9; f.FR.z=stepIn+lunge*.9; f.HL.z=.1*crouch+lunge*.2; f.HR.z=.1*crouch+lunge*.2;
+    // hind push / front reach in air
+    f.FL.y=f.FR.y=.55*jumpH+.12*jumpH; f.HL.y=f.HR.y=.4*jumpH;
+    f.FL.pawA=f.FR.pawA=.4*air-.1*crouch; f.HL.pawA=f.HR.pawA=.5*air;
+    // front paw patting before pounce (alt), subtle
+    const pat=bump(t,3.0,.3)*Math.sin((t-3.0)*30)*0;
+    f.FL.y+= .1*bump(t,2.95,.35); f.FL.z+=.1*bump(t,2.95,.35);
+    f.FR.y+= .1*bump(t,3.55,.3);
+  }},
+  wash:{name:'Умывание', label:'Умывание', duration:6, apply(t,P){
+    const w=TAU/6;
+    const sit=keyed(t,[[0,0],[1,1],[5,1],[6,0]]);
+    const lick=keyed(t,[[0,0],[1.2,0],[1.8,1],[4.4,1],[5,0],[6,0]]);
+    const L=Math.sin(TAU*5*(t-1.2)/6)*lick, S2=Math.sin(TAU*2.5*(t-1.2)/6)*lick;
+    P.bodyPitch=-.62*sit; P.bodyY=-.2*sit; P.bodyZ=-.08*sit; P.chestPitch=.1*sit;
+    P.neckPitch=.5*sit+.55*lick+.05*S2; P.headPitch=.35*lick+.08*L; P.headYaw=-.15*lick; P.headRoll=.1*lick;
+    P.bodyRoll=.03*lick*Math.sin(TAU*2*t/6); P.chestRoll=0; P.chestScale=1+.01*Math.sin(w*t*9);
+    P.blink=Math.max(lick*.85,blinkAt(t,6,[.5,5.5]));
+    P.jaw=.05*lick*Math.max(0,L);
+    P.earL=-.2*lick; P.earR=-.2*lick;
+    P.tailLift=-.1*sit; P.tailYaw=.25*sit*Math.sin(w*t*2); P.tailWave=.6; P.tailTip=0;
+    const f=P.feet;
+    f.HL.z=f.HR.z=.3*sit; f.HL.pawA=f.HR.pawA=.3*sit; f.HL.y=f.HR.y=0;
+    f.FR.z=.05*sit; f.FL.z=.04*sit; f.FR.pawA=0;
+    f.FL.y=.5*lick*0+.52*lick+.02*L; f.FL.z+=.1*lick+.015*L; f.FL.pawA=.9*lick;
+  }}
+};
+let current='idle', time=0, playing=true, speed=1;
+const WALK_BODY_REST=0;
+
+// IK: 2-bone planar solve in parent-local coordinates
+const _v=new THREE.Vector3();
+function solveLeg(id, tgt, P){
+  const L=legs[id], d=L.dims, par=L.upper.parent;
+  const rest=REST[id], fo=P.feet[id];
+  const pawA=rest.pawA+fo.pawA;
+  const wx=rest.x, wy=fo.y, wz=rest.z+fo.z;
+  // ankle target in world
+  const pc=d.c+(L.hind?0:0);
+  const az=wz+pc*Math.sin(pawA), ay=wy+pc*Math.cos(pawA);
+  _v.set(wx,ay,az); par.worldToLocal(_v);
+  let dz=_v.z-L.upper.position.z, dy=_v.y-L.upper.position.y;
+  let len=Math.hypot(dz,dy); const a=d.a,b=d.b;
+  const lmax=a+b-.005, lmin=Math.abs(a-b)+.02; const lc=Math.min(lmax,Math.max(lmin,len));
+  const phi=Math.atan2(-dz,-dy);
+  const ca=Math.min(1,Math.max(-1,(a*a+lc*lc-b*b)/(2*a*lc)));
+  const al=Math.acos(ca);
+  const t1 = L.hind ? phi-al : phi+al;
+  const kz=-Math.sin(t1)*a, ky=-Math.cos(t1)*a;
+  const t2=Math.atan2(-(dz-kz),-(dy-ky));
+  L.upper.rotation.x=t1; L.lower.rotation.x=t2-t1;
+  // paw: absolute angle in parent frame relative to world-ish (parent pitch compensated approx)
+  L.paw.rotation.x=pawA-t2 - (par.userData.pitchComp||0);
+}
+
+function applyPose(P, dt){
+  // body
+  body.position.set(P.bodyX, .74+P.bodyY, -.35+P.bodyZ);
+  body.rotation.set(P.bodyPitch, P.bodyYaw, P.bodyRoll);
+  chest.rotation.set(P.chestPitch, P.chestYaw, P.chestRoll);
+  chest.scale.set(1,P.chestScale,P.chestScale);
+  neck.rotation.set(-.55+P.neckPitch, P.neckYaw, P.neckRoll*0+P.headRoll*.3);
+  head.rotation.set(.45+P.headPitch, P.headYaw, P.headRoll*.7);
+  // head-yaw velocity drives ears
+  const hy = P.headYaw+P.neckYaw;
+  const vel = (hy-(applyPose.prevHY??hy))/Math.max(dt,1e-3); applyPose.prevHY=hy;
+  const vcl=Math.max(-3,Math.min(3,vel));
+  const eL=sEarL.step(P.earL - vcl*.05, dt), eR=sEarR.step(P.earR + vcl*.05, dt);
+  ears.earL.rotation.z=-.32+eL*1.0; ears.earR.rotation.z=.32-eR*1.0;
+  ears.earL.rotation.y=eL*.4; ears.earR.rotation.y=-eR*.4;
+  jaw.rotation.x=P.jaw;
+  for(const e of Object.values(eyes)) e.scale.y=1-.92*P.blink;
+  // tail with spring-chain follow-through
+  tail.rotation.set(0, Math.PI, 0);
+  for(let i=0;i<NT;i++){
+    const g=tailSegs[i], f=(i+1)/NT;
+    const tgtYaw=P.tailYaw*(i===0?.5:.55)*(0.4+f)*P.tailWave + (i>=NT-3?P.tailTip*(i-NT+4)*.5:0);
+    const yaw=sTail[i].yaw.step(tgtYaw,dt);
+    const pit=sTail[i].pit.step(tailRest[i]*(1-.0)+(i===0?P.tailLift*2.0:P.tailLift*.5)+ (i===0?-.02:0) + (-P.bodyPitch*.5*(i?0:1)) ,dt);
+    g.rotation.set(pit,yaw,0);
+  }
+  body.updateMatrixWorld(true);
+  chest.userData.pitchComp=0;
+  for(const id of Object.keys(legs)) solveLeg(id,null,P);
+}
+
+function setClip(n){
+  current=n; time=0; sEarL.reset();sEarR.reset(); sTail.forEach(s=>{s.yaw.reset();s.pit.reset();});
+  document.querySelectorAll('#clips button').forEach(b=>b.classList.toggle('on',b.dataset.c===n));
+  stepSim(0);
+}
+function stepSim(dt){
+  const P=newPose(); clips[current].apply(((time%clips[current].duration)+clips[current].duration)%clips[current].duration,P);
+  applyPose(P,Math.max(dt,1e-4));
+}
+function update(dt){ if(playing){ time+=dt*speed; } stepSim(playing?Math.min(dt,1/30)*speed:0.0001); }
+
+/* ---------------- UI ---------------- */
+const clipsEl=document.getElementById('clips');
+for(const k of Object.keys(clips)){const b=document.createElement('button');b.textContent=clips[k].label;b.dataset.c=k;b.onclick=()=>setClip(k);clipsEl.appendChild(b);clipsEl.appendChild(document.createTextNode(' '));}
+const pp=document.getElementById('pp'), sp=document.getElementById('sp'), spv=document.getElementById('spv');
+pp.onclick=()=>{playing=!playing;pp.textContent=playing?'Пауза':'Играть';};
+sp.oninput=()=>{speed=+sp.value;spv.textContent=speed.toFixed(1)+'×';};
+document.getElementById('rs').onclick=()=>{setClip(current);camera.position.set(3.1,1.7,3.4);controls.target.set(0,.62,.05);controls.update();playing=true;pp.textContent='Пауза';speed=1;sp.value=1;spv.textContent='1.0×';};
+
+window.animal={root,parts,clips,play:setClip,setSpeed:v=>speed=v,get time(){return time;},update,camera,controls,tris:()=>TRIS};
+
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+/* ---------------- deterministic test params ---------------- */
+const camPresets={side:[4.2,1.1,0.1],front:[0.4,1.2,4.2],back:[-0.4,1.3,-4.2],top:[0.1,5.4,1.2],three:[3.1,1.7,3.4],threeb:[-3.2,1.5,-3.0],close:[1.6,1.3,2.2]};
+if(Q.get('cam')&&camPresets[Q.get('cam')]){camera.position.set(...camPresets[Q.get('cam')]); if(Q.get('cam')==='close')controls.target.set(0,.85,.7); controls.update();}
+if(Q.get('clip')) setClip(Q.get('clip')); else setClip('idle');
+if(Q.get('t')){const T=+Q.get('t');for(let t=0;t<T;t+=1/60){time+=1/60;stepSim(1/60);} playing=false; pp.textContent='Играть';}
+if(Q.get('ui')==='0') document.getElementById('ui').style.display='none';
+
+window.__f=0; let last=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  if(Q.get('t')===null) update(dt); else stepSim(.0001);
+  controls.update(); renderer.render(scene,camera); if(Q.get('t')!==null&&++window.__f>3) return; requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+window.__ready=true;
+</script>
+</body>
+</html>

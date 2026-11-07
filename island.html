@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Остров — 3D</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--ink:#2a2723;--mute:#7a746b;--accent:#b8861b;--card:rgba(255,255,255,.82)}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#bfe3f2}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  .hud{position:fixed;left:16px;top:16px;width:230px;padding:14px;border-radius:14px;background:var(--card);
+       backdrop-filter:blur(10px);box-shadow:0 6px 24px rgba(0,0,0,.12)}
+  .hud h1{font-size:15px;margin:0 0 2px}
+  .hud small{color:var(--mute)}
+  .row{display:flex;gap:6px;margin-top:10px}
+  button{flex:1;font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:7px 8px;cursor:pointer;color:var(--ink)}
+  button:hover{border-color:var(--accent)}
+  .chk{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px}
+  body.nohud .hud{display:none}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;color:#fff;font-size:16px;background:#5aa6c4}
+</style>
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="loading">Загрузка острова…</div>
+<div class="hud">
+  <h1>Остров</h1>
+  <small>Домик, гора, пальмы, причал · перетащи мышью, колесо — зум</small>
+  <div class="chk"><input id="rot" type="checkbox"><label for="rot" style="margin:0">Авто-вращение камеры</label></div>
+  <div class="chk"><input id="waves" type="checkbox" checked><label for="waves" style="margin:0">Волны и дым</label></div>
+  <div class="row"><button id="reset">Сброс камеры</button><button id="top">Сверху</button></div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('nohud');
+
+/* ───────────── renderer / scene ───────────── */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const SKY = new THREE.Color(0xbfe3f2);
+scene.background = SKY;
+scene.fog = new THREE.Fog(SKY, 110, 260);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.5, 600);
+const CAM_HOME = new THREE.Vector3(52, 30, 58);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 4, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = 18; controls.maxDistance = 160;
+controls.maxPolarAngle = Math.PI*0.49;
+controls.autoRotateSpeed = 0.7;
+const home = () => { camera.position.copy(CAM_HOME); controls.target.set(0, 4, 0); controls.update(); };
+home();
+
+scene.add(new THREE.HemisphereLight(0xdff2ff, 0x6a7a55, 0.9));
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+sun.position.set(40, 60, 25);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, {left:-46, right:46, top:46, bottom:-46, near:10, far:150});
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.05;
+scene.add(sun);
+
+/* ───────────── utils ───────────── */
+function rng(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(7);
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a)/(b - a))); return t*t*(3 - 2*t); };
+const lerp = (a, b, t) => a + (b - a)*t;
+// value noise
+const hash = (x, y) => { const s = Math.sin(x*127.1 + y*311.7)*43758.5453; return s - Math.floor(s); };
+function vnoise(x, y){
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf*xf*(3 - 2*xf), v = yf*yf*(3 - 2*yf);
+  return lerp(lerp(hash(xi, yi), hash(xi+1, yi), u), lerp(hash(xi, yi+1), hash(xi+1, yi+1), u), v);
+}
+const fbm = (x, y) => vnoise(x, y)*0.55 + vnoise(x*2.1, y*2.1)*0.3 + vnoise(x*4.3, y*4.3)*0.15;
+
+/* ───────────── рельеф ───────────── */
+const HUT = {x: 11, z: 7, y: 1.7, flatR: 7.5};
+const MTN = {x: -10, z: -9};
+function heightAt(x, z){
+  const r = Math.hypot(x, z);
+  let h = 3.0*(1 - (r/31)*(r/31));                          // плоский купол острова
+  h += (fbm(x*0.11 + 3, z*0.11 + 9) - 0.5)*2.2;             // холмистость
+  const dm = Math.hypot(x - MTN.x, z - MTN.z);
+  const m = Math.exp(-(dm*dm)/(2*8.2*8.2));                 // гора
+  h += m*(17 + (fbm(x*0.22, z*0.22) - 0.5)*7);
+  const hd = Math.hypot(x - HUT.x, z - HUT.z);              // ровная площадка под домик
+  h = lerp(h, HUT.y, 1 - sstep(HUT.flatR - 3.2, HUT.flatR, hd));
+  return Math.max(h, -4);
+}
+
+const SIZE = 96, SEG = 160;
+const tGeo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); tGeo.rotateX(-Math.PI/2);
+{
+  const p = tGeo.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)));
+  tGeo.computeVertexNormals();
+  const col = new Float32Array(p.count*3), n = tGeo.attributes.normal, c = new THREE.Color();
+  const sand = new THREE.Color(0xe6d29a), wet = new THREE.Color(0xc9b27a), grass = new THREE.Color(0x6ea848), grass2 = new THREE.Color(0x4f8a3b),
+        rock = new THREE.Color(0x8b8680), rock2 = new THREE.Color(0x6f6a66), snow = new THREE.Color(0xf4f7fa), seabed = new THREE.Color(0x4f98a4);
+  for (let i = 0; i < p.count; i++){
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), slope = 1 - n.getY(i), nz = fbm(x*0.5, z*0.5);
+    if (y < -0.2) c.copy(seabed).lerp(wet, sstep(-1.6, -0.2, y));
+    else if (y < 0.55) c.copy(wet).lerp(sand, sstep(-0.1, 0.5, y));
+    else if (y < 1.1) c.copy(sand).lerp(grass, sstep(0.55, 1.1, y + nz*0.3));
+    else c.copy(grass).lerp(grass2, nz);
+    if (y > 5.5 || slope > 0.32){ const k = Math.max(sstep(5.5, 9, y), sstep(0.28, 0.5, slope)); c.lerp(nz > 0.5 ? rock : rock2, k); }
+    if (y > 13.5 + nz*2.2 && slope < 0.55) c.lerp(snow, sstep(13.5, 15.5, y + nz*2));
+    col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+  }
+  tGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+const terrain = new THREE.Mesh(tGeo, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.95, flatShading:true}));
+terrain.receiveShadow = true; terrain.castShadow = true; scene.add(terrain);
+
+/* ───────────── вода ───────────── */
+const waterMat = new THREE.MeshStandardMaterial({color:0x2f9ec4, roughness:0.22, metalness:0.05, transparent:true, opacity:0.82, flatShading:true});
+const waterGeo = new THREE.PlaneGeometry(110, 110, 64, 64); waterGeo.rotateX(-Math.PI/2);
+const water = new THREE.Mesh(waterGeo, waterMat); water.position.y = 0; water.receiveShadow = true; scene.add(water);
+const wBase = Float32Array.from(waterGeo.attributes.position.array);
+const sea = new THREE.Mesh(new THREE.RingGeometry(54, 400, 48, 1), new THREE.MeshStandardMaterial({color:0x2a93b8, roughness:0.3, transparent:true, opacity:0.9}));
+sea.rotation.x = -Math.PI/2; sea.position.y = -0.05; scene.add(sea);
+const wp = waterGeo.attributes.position;
+function waves(t){
+  for (let i = 0; i < wp.count; i++){
+    const x = wBase[i*3], z = wBase[i*3+2];
+    wp.setY(i, Math.sin(x*0.22 + t*1.1)*0.16 + Math.sin(z*0.31 - t*0.9)*0.13 + Math.sin((x + z)*0.15 + t*0.6)*0.1);
+  }
+  wp.needsUpdate = true;
+}
+
+/* ───────────── материалы объектов ───────────── */
+const std = (color, o = {}) => new THREE.MeshStandardMaterial({color, roughness:0.85, ...o});
+const M = {
+  wood: std(0x9a6a3e), woodDark: std(0x6b4527), plank: std(0xb98550), roof: std(0xa8412e), thatch: std(0xd0a64f),
+  stone: std(0x9b958c, {flatShading:true}), trunk: std(0x8a6038), leaf: std(0x3f9a45, {side:THREE.DoubleSide}), leaf2: std(0x58b24d, {side:THREE.DoubleSide}),
+  pine: std(0x2f6b3a, {flatShading:true}), coco: std(0x5a3a22), glass: std(0xcfe9f5, {emissive:0x335566, roughness:0.2}),
+  door: std(0x5a3720), white: std(0xffffff, {transparent:true, opacity:0.7, roughness:1, depthWrite:false}), rope: std(0xcaa96a), red: std(0xb83a32),
+};
+const add = (parent, geo, mat, x = 0, y = 0, z = 0, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; };
+
+/* ───────────── домик ───────────── */
+const hut = new THREE.Group(); hut.position.set(HUT.x, HUT.y, HUT.z);
+hut.rotation.y = Math.atan2(-HUT.x, -HUT.z) + Math.PI*0.5 - 0.25;   // дверью к морю, немного вбок
+scene.add(hut);
+{
+  const W = 6, D = 5, H = 3.2;
+  add(hut, new THREE.BoxGeometry(W + 1.2, 0.5, D + 1.2), M.stone, 0, -0.15, 0);               // фундамент
+  add(hut, new THREE.BoxGeometry(W, H, D), M.plank, 0, 0.1 + H/2, 0);                          // стены
+  for (let i = -2; i <= 2; i++) add(hut, new THREE.BoxGeometry(0.1, H, 0.06), M.wood, i*1.15, 0.1 + H/2, D/2 + 0.02, false);   // доски
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(hut, new THREE.BoxGeometry(0.4, H + 0.1, 0.4), M.woodDark, sx*W/2, 0.1 + H/2, sz*D/2);   // угловые столбы
+  // крыша: призма из треугольного профиля
+  const s = new THREE.Shape(); s.moveTo(-D/2 - 0.7, 0); s.lineTo(D/2 + 0.7, 0); s.lineTo(0, 2.6); s.closePath();
+  const rg = new THREE.ExtrudeGeometry(s, {depth:W + 1.4, bevelEnabled:false}); rg.translate(0, 0, -(W + 1.4)/2); rg.rotateY(Math.PI/2);
+  add(hut, rg, M.roof, 0, 0.1 + H, 0);
+  const ridge = add(hut, new THREE.BoxGeometry(W + 1.6, 0.18, 0.28), M.woodDark, 0, 0.1 + H + 2.6, 0);
+  // дверь и окна на стороне +z
+  add(hut, new THREE.BoxGeometry(1.2, 2.2, 0.12), M.door, -1.2, 0.1 + 1.1, D/2 + 0.05, false);
+  add(hut, new THREE.SphereGeometry(0.07, 8, 6), M.thatch, -0.8, 0.1 + 1.1, D/2 + 0.14, false);
+  for (const wx of [1.4]){
+    add(hut, new THREE.BoxGeometry(1.3, 1.1, 0.1), M.glass, wx, 0.1 + 1.9, D/2 + 0.04, false);
+    add(hut, new THREE.BoxGeometry(1.5, 0.12, 0.2), M.woodDark, wx, 0.1 + 1.3, D/2 + 0.1, false);
+    add(hut, new THREE.BoxGeometry(0.08, 1.1, 0.14), M.woodDark, wx, 0.1 + 1.9, D/2 + 0.06, false);
+    add(hut, new THREE.BoxGeometry(1.3, 0.08, 0.14), M.woodDark, wx, 0.1 + 1.9, D/2 + 0.06, false);
+  }
+  add(hut, new THREE.BoxGeometry(1.1, 1.0, 0.1), M.glass, W/2 + 0.04, 0.1 + 1.9, 0.2, false).rotation.y = Math.PI/2;
+  // крыльцо
+  add(hut, new THREE.BoxGeometry(2.6, 0.2, 1.6), M.woodDark, -1.2, -0.12, D/2 + 1.0);
+  add(hut, new THREE.BoxGeometry(2.0, 0.16, 0.8), M.woodDark, -1.2, -0.3, D/2 + 1.9);
+  for (const px of [-2.4, 0.0]) add(hut, new THREE.CylinderGeometry(0.09, 0.09, 2.6, 8), M.woodDark, px, 1.1, D/2 + 1.6);
+  // труба
+  add(hut, new THREE.BoxGeometry(0.8, 2.4, 0.8), M.stone, -W/2 + 1.3, 0.1 + H + 1.2, -0.7);
+  // бочка и ящики
+  const barrel = add(hut, new THREE.CylinderGeometry(0.5, 0.45, 1.0, 14), M.wood, W/2 + 0.2, 0.4, D/2 + 0.7);
+  for (const by of [0.15, 0.65]) add(hut, new THREE.TorusGeometry(0.49, 0.03, 6, 16), M.woodDark, W/2 + 0.2, by - 0.1, D/2 + 0.7, false).rotation.x = Math.PI/2;
+  add(hut, new THREE.BoxGeometry(0.9, 0.8, 0.9), M.plank, W/2 + 1.2, 0.3, D/2 - 0.2).rotation.y = 0.3;
+  add(hut, new THREE.BoxGeometry(0.7, 0.6, 0.7), M.wood, W/2 + 1.1, 1.0, D/2 - 0.15).rotation.y = -0.2;
+  // фонарь над дверью
+  add(hut, new THREE.SphereGeometry(0.16, 10, 8), std(0xffd27a, {emissive:0xffa733, emissiveIntensity:0.8}), -1.2, 0.1 + 2.55, D/2 + 0.3, false);
+}
+// дым из трубы
+const smoke = [];
+const chimneyTop = new THREE.Vector3();
+{
+  const local = new THREE.Vector3(-3 + 1.3, 0.1 + 3.2 + 2.4, -0.7);
+  hut.updateMatrixWorld(true); chimneyTop.copy(local).applyMatrix4(hut.matrixWorld);
+  for (let i = 0; i < 7; i++){
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 1), M.white.clone());
+    m.userData.ph = i/7; scene.add(m); smoke.push(m);
+  }
+}
+
+/* ───────────── пальмы ───────────── */
+function palm(x, z, scale, lean){
+  const y = heightAt(x, z), g = new THREE.Group(); g.position.set(x, y - 0.1, z); g.scale.setScalar(scale);
+  const dir = R()*Math.PI*2, hgt = 9 + R()*3.5, pts = [];
+  const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0,0,0), new THREE.Vector3(Math.cos(dir)*lean*0.2, hgt*0.55, Math.sin(dir)*lean*0.2), new THREE.Vector3(Math.cos(dir)*lean, hgt, Math.sin(dir)*lean));
+  const N = 7;
+  for (let i = 0; i < N; i++){
+    const a = curve.getPoint(i/N), b = curve.getPoint((i + 1)/N), len = a.distanceTo(b);
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.34*(1 - (i + 1)/N*0.45), 0.34*(1 - i/N*0.45), len*1.04, 8), M.trunk);
+    seg.position.copy(a).add(b).multiplyScalar(0.5);
+    seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), b.clone().sub(a).normalize());
+    seg.castShadow = true; g.add(seg);
+  }
+  const top = curve.getPoint(1);
+  for (let i = 0; i < 8; i++){
+    const fg = new THREE.PlaneGeometry(1.5, 6.2, 1, 8); fg.translate(0, 3.1, 0);
+    const pp = fg.attributes.position;
+    for (let k = 0; k < pp.count; k++){ const t = pp.getY(k)/6.2; pp.setZ(k, t*t*3.4); pp.setX(k, pp.getX(k)*(1 - t*0.7)); }
+    fg.computeVertexNormals();
+    const f = new THREE.Mesh(fg, i % 2 ? M.leaf : M.leaf2);
+    f.position.copy(top); f.rotation.order = 'YXZ'; f.rotation.y = i/8*Math.PI*2 + R()*0.3; f.rotation.x = 1.15 + R()*0.3;
+    f.castShadow = true; g.add(f);
+  }
+  for (let i = 0; i < 3; i++) add(g, new THREE.SphereGeometry(0.32, 8, 6), M.coco, top.x + Math.cos(i*2.1)*0.45, top.y - 0.35, top.z + Math.sin(i*2.1)*0.45, false);
+  scene.add(g); return g;
+}
+{
+  let placed = 0, tries = 0;
+  while (placed < 9 && tries++ < 400){
+    const a = R()*Math.PI*2, r = 12 + R()*16, x = Math.cos(a)*r, z = Math.sin(a)*r, h = heightAt(x, z);
+    if (h < 0.5 || h > 2.4) continue;
+    if (Math.hypot(x - HUT.x, z - HUT.z) < 8.5 || Math.hypot(x - MTN.x, z - MTN.z) < 14) continue;
+    palm(x, z, 0.8 + R()*0.35, 2 + R()*2.5); placed++;
+  }
+}
+
+/* ───────────── ёлки на склонах горы ───────────── */
+{
+  let placed = 0, tries = 0;
+  while (placed < 26 && tries++ < 900){
+    const x = MTN.x + (R() - 0.5)*30, z = MTN.z + (R() - 0.5)*30, h = heightAt(x, z);
+    if (h < 2.8 || h > 9.5) continue;
+    if (Math.hypot(x - HUT.x, z - HUT.z) < 9) continue;
+    const e = 0.6; const sl = Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e))/(2*e);
+    if (sl > 0.75) continue;
+    const g = new THREE.Group(), s = 0.8 + R()*0.7; g.position.set(x, h - 0.1, z); g.scale.setScalar(s);
+    add(g, new THREE.CylinderGeometry(0.22, 0.3, 1.4, 6), M.trunk, 0, 0.7, 0);
+    for (let i = 0; i < 3; i++) add(g, new THREE.ConeGeometry(1.7 - i*0.42, 2.3, 7), M.pine, 0, 2.0 + i*1.3, 0);
+    scene.add(g); placed++;
+  }
+}
+
+/* ───────────── камни ───────────── */
+{
+  let placed = 0, tries = 0;
+  while (placed < 16 && tries++ < 600){
+    const a = R()*Math.PI*2, r = 10 + R()*24, x = Math.cos(a)*r, z = Math.sin(a)*r, h = heightAt(x, z);
+    if (h < -0.8 || h > 4.5) continue;
+    if (Math.hypot(x - HUT.x, z - HUT.z) < 7.5) continue;
+    const s = 0.5 + R()*1.4, rk = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), M.stone);
+    rk.scale.set(s*(1 + R()*0.5), s*(0.6 + R()*0.4), s*(1 + R()*0.4)); rk.position.set(x, h + s*0.1, z);
+    rk.rotation.set(R()*3, R()*3, R()*3); rk.castShadow = rk.receiveShadow = true; scene.add(rk); placed++;
+  }
+}
+
+/* ───────────── причал и лодка ───────────── */
+{
+  const dx = 16.5; let z0 = 9; while (z0 < 40 && heightAt(dx, z0) > 0.35) z0 += 0.5;
+  const dock = new THREE.Group(), len = 11; dock.position.set(dx, 0, z0 - 3);
+  for (let i = 0; i < len; i++) add(dock, new THREE.BoxGeometry(3.0, 0.16, 0.8), i % 2 ? M.plank : M.wood, 0, 0.62, i*0.88);
+  for (const sx of [-1.3, 1.3]) for (let i = 0; i <= 3; i++) add(dock, new THREE.CylinderGeometry(0.16, 0.16, 3.2, 8), M.woodDark, sx, -0.5, i*3.1);
+  for (const sx of [-1.45, 1.45]) add(dock, new THREE.BoxGeometry(0.1, 0.12, len*0.88), M.woodDark, sx, 0.78, len*0.44 - 0.4, false);
+  dock.rotation.y = 0; scene.add(dock);
+  // лодка у причала: парусный шлюп с настоящим обводом корпуса
+  const boat = new THREE.Group(); boat.position.set(dx + 3.4, 0.2, z0 + 6.5); boat.rotation.y = -Math.PI/2 + 0.07; scene.add(boat);
+  const L = 8, ST = 28, PR = 10, rows = [];
+  const lerp2 = (a, b, t) => a + (b - a)*t;
+  // корпус по шпангоутам: x от кормы (-L/2) к носу (+L/2)
+  const hullPos = [], hullCol = [], hullIdx = [];
+  const cW = new THREE.Color(0xf4efe3), cR = new THREE.Color(0xb23a30), cB = new THREE.Color(0x2c4a6b);
+  for (let i = 0; i <= ST; i++){
+    const u = i/ST, x = -L/2 + u*L;
+    const beam = 1.45*Math.pow(Math.sin(Math.PI*Math.min(1, 0.12 + u*0.92)*(1 - 0.0)), 0.55)*(1 - Math.pow(Math.max(0, u - 0.55)/0.45, 2.1)*0.98) + 0.02;
+    const sheer = 0.95 + Math.pow(u, 3)*0.55 + Math.pow(1 - u, 4)*0.12;              // борт задирается к носу
+    const keel = -(0.55 + 0.35*Math.sin(Math.PI*u)) * (1 - Math.pow(u, 6)*0.7);
+    const row = [];
+    for (let j = 0; j <= PR; j++){                     // от левого борта через киль к правому
+      const a = -1 + 2*j/PR, side = Math.sign(a) || 1, k = Math.abs(a);
+      const yy = lerp2(keel, sheer, Math.pow(k, 1.6)), zz = side*beam*Math.pow(k, 0.85)*(0.55 + 0.45*Math.sin(Math.min(1, k)*Math.PI/2));
+      hullPos.push(x, yy, zz);
+      const c = yy > 0.35 ? cW : (yy > 0.12 ? cB : cR); hullCol.push(c.r, c.g, c.b);
+    }
+  }
+  for (let i = 0; i < ST; i++) for (let j = 0; j < PR; j++){ const a = i*(PR + 1) + j, b2 = a + 1, c = a + PR + 1, d = c + 1; hullIdx.push(a, c, b2, b2, c, d); }
+  const hGeo = new THREE.BufferGeometry();
+  hGeo.setAttribute('position', new THREE.Float32BufferAttribute(hullPos, 3)); hGeo.setAttribute('color', new THREE.Float32BufferAttribute(hullCol, 3));
+  hGeo.setIndex(hullIdx); hGeo.computeVertexNormals();
+  const hullMesh = new THREE.Mesh(hGeo, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.45, side:THREE.DoubleSide}));
+  hullMesh.castShadow = hullMesh.receiveShadow = true; boat.add(hullMesh);
+  // палуба и планширь
+  const deckPos = [], deckIdx = [];
+  for (let i = 0; i <= ST; i++){ const u = i/ST, x = -L/2 + u*L, h = hullPos[(i*(PR + 1))*3 + 1], zl = hullPos[(i*(PR + 1))*3 + 2], zr = hullPos[(i*(PR + 1) + PR)*3 + 2];
+    const dz = 0.1; deckPos.push(x, h - 0.12 + Math.sin(u*Math.PI)*0.06, zl*0.97 + dz*0, x, h - 0.12 + Math.sin(u*Math.PI)*0.06, zr*0.97); }
+  for (let i = 0; i < ST; i++){ const a = i*2, b2 = a + 1, c = a + 2, d = a + 3; deckIdx.push(a, c, b2, b2, c, d); }
+  const dGeo = new THREE.BufferGeometry(); dGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckPos, 3)); dGeo.setIndex(deckIdx); dGeo.computeVertexNormals();
+  const deck = new THREE.Mesh(dGeo, new THREE.MeshStandardMaterial({color:0xc58a4e, roughness:0.8, side:THREE.DoubleSide})); deck.receiveShadow = true; boat.add(deck);
+  for (const side of [0, PR]){                              // планширь вдоль бортов
+    const pts = []; for (let i = 0; i <= ST; i++) pts.push(new THREE.Vector3(hullPos[(i*(PR + 1) + side)*3], hullPos[(i*(PR + 1) + side)*3 + 1] + 0.03, hullPos[(i*(PR + 1) + side)*3 + 2]));
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.055, 6, false), M.woodDark); tube.castShadow = true; boat.add(tube);
+  }
+  // кокпит и рубка
+  add(boat, new THREE.BoxGeometry(1.7, 0.55, 1.5), M.plank, 0.4, 1.12, 0);
+  add(boat, new THREE.BoxGeometry(1.8, 0.08, 1.6), M.woodDark, 0.4, 1.42, 0);
+  for (const sz of [-0.76, 0.76]) add(boat, new THREE.BoxGeometry(0.7, 0.2, 0.04), M.glass, 0.45, 1.15, sz, false);
+  // мачта, гик, стаксель
+  add(boat, new THREE.CylinderGeometry(0.07, 0.1, 7.3, 8), M.woodDark, 0.9, 4.45, 0);
+  add(boat, new THREE.CylinderGeometry(0.05, 0.05, 3.4, 8), M.woodDark, -0.8, 1.75, 0).rotation.z = Math.PI/2;
+  function sailGeo(pts, bulge, n = 8){          // pts: тройка [x,y] — галс, топ, шкотовый угол; z — выпуклость паруса
+    const pos = [], idx = [];
+    for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++){
+      const s = i/n, t = j/n, ax = lerp2(pts[0][0], pts[1][0], s), ay = lerp2(pts[0][1], pts[1][1], s), bx = lerp2(pts[2][0], pts[1][0], s), by = lerp2(pts[2][1], pts[1][1], s);
+      pos.push(lerp2(ax, bx, t), lerp2(ay, by, t), bulge*Math.sin(Math.PI*t)*(1 - s*0.6)*Math.sin(Math.PI*Math.min(1, 0.15 + s*0.85)));
+    }
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++){ const a = i*(n + 1) + j, c = a + n + 1; idx.push(a, c, a + 1, a + 1, c, c + 1); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  }
+  const sailMat = new THREE.MeshStandardMaterial({color:0xf6f0e0, roughness:0.9, side:THREE.DoubleSide});
+  const main = new THREE.Mesh(sailGeo([[0.78, 1.9], [0.78, 7.6], [-2.4, 1.9]], 0.55), sailMat); main.castShadow = true; boat.add(main);
+  const jib = new THREE.Mesh(sailGeo([[0.98, 1.6], [0.98, 7.2], [3.7, 1.5]].map(p => [p[0], p[1]]), -0.4), std(0xeee3c8, {side:THREE.DoubleSide, roughness:0.9})); jib.castShadow = true; boat.add(jib);
+  // штаги и стоячий такелаж
+  const rig = (a, b) => { const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]); boat.add(new THREE.Line(g, new THREE.LineBasicMaterial({color:0x3a2a1a}))); };
+  rig([0.9, 7.9, 0], [4.0, 1.35, 0]); rig([0.9, 7.9, 0], [-4.0, 1.2, 0]); rig([0.9, 6.0, 0], [0.4, 1.3, 0.78]); rig([0.9, 6.0, 0], [0.4, 1.3, -0.78]);
+  // руль, румпель, носовой флажок, кранцы
+  add(boat, new THREE.BoxGeometry(0.08, 0.9, 0.4), M.woodDark, -L/2 - 0.12, 0.1, 0);
+  add(boat, new THREE.CylinderGeometry(0.035, 0.035, 1.3, 6), M.woodDark, -L/2 + 0.55, 1.1, 0).rotation.z = Math.PI/2.2;
+  const flag = add(boat, new THREE.PlaneGeometry(0.9, 0.5), std(0xb23a30, {side:THREE.DoubleSide}), 0.9 + 0.45, 7.7, 0, false);
+  for (const sz of [-1, 1]) for (const fx of [-1.4, 0.8, 2.3]) add(boat, new THREE.SphereGeometry(0.13, 8, 6), M.rope, fx, 0.42, sz*(1.38 - Math.abs(fx)*0.06), false);
+  boat.userData.y0 = 0.2; globalThis.__boat = boat; globalThis.__flag = flag;
+}
+
+/* ───────────── облака ───────────── */
+const clouds = [];
+for (let i = 0; i < 6; i++){
+  const c = new THREE.Group(), n = 4 + Math.floor(R()*3);
+  for (let k = 0; k < n; k++){ const m = new THREE.Mesh(new THREE.IcosahedronGeometry(2.2 + R()*2, 1), std(0xffffff, {roughness:1, flatShading:true})); m.position.set(k*2.6 - n*1.3, R()*1.2, (R() - 0.5)*2.5); m.scale.y = 0.6; c.add(m); }
+  c.position.set((R() - 0.5)*160, 38 + R()*12, (R() - 0.5)*160); c.userData.sp = 0.6 + R()*0.8; scene.add(c); clouds.push(c);
+}
+
+/* ───────────── UI / цикл ───────────── */
+const $ = id => document.getElementById(id);
+$('rot').onchange = e => controls.autoRotate = e.target.checked;
+$('reset').onclick = home;
+$('top').onclick = () => { camera.position.set(0.01, 95, 0.01); controls.target.set(0, 0, 0); controls.update(); };
+let animate = true; $('waves').onchange = e => animate = e.target.checked;
+addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+$('loading').remove();
+waves(0);
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const t = clock.getElapsedTime();
+  if (animate){
+    waves(t);
+    for (const s of smoke){ const k = (t*0.12 + s.userData.ph) % 1; s.position.set(chimneyTop.x + k*3.5, chimneyTop.y + k*7, chimneyTop.z + Math.sin(k*6 + s.userData.ph*9)*0.6); s.scale.setScalar(0.5 + k*1.9); s.material.opacity = 0.55*(1 - k); }
+    if (globalThis.__boat){ const b = globalThis.__boat; b.position.y = b.userData.y0 + Math.sin(t*1.4)*0.07; b.rotation.x = Math.sin(t*1.1)*0.025; if (globalThis.__flag) globalThis.__flag.rotation.y = Math.sin(t*3)*0.4; }
+  }
+  for (const c of clouds){ c.position.x += c.userData.sp*0.01; if (c.position.x > 100) c.position.x = -100; }
+  controls.update(); renderer.render(scene, camera); window.READY = true;
+});
+</script>
+</body>
+</html>

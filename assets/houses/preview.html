@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Дома — превью</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#cfe8f2;font:13px system-ui,sans-serif}
+canvas{display:block}
+#hud{position:fixed;top:8px;left:8px;background:#fffd;padding:6px 10px;border-radius:8px;z-index:5}
+#hud button{margin-right:4px;cursor:pointer}
+.lb{position:fixed;transform:translate(-50%,0);background:#fffe;padding:1px 6px;border-radius:6px;font-size:11px;white-space:nowrap;pointer-events:none}
+#err{position:fixed;bottom:8px;left:8px;color:#b00;background:#fffe;padding:4px 8px;display:none;z-index:9}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<div id="hud"><b>Дома</b>
+ <button id="bSeed">seed: <span id="sv">0</span> (перемешать)</button>
+ <button id="bRoof">крыши: вкл</button><button id="bDoor">двери: закрыты</button>
+ <span style="opacity:.7">?only=id &nbsp;?hud=0 &nbsp;?roof=0 &nbsp;?open=1 &nbsp;?seed=N &nbsp;?ids=a,b &nbsp;?cam=x,y,z,tx,ty,tz</span></div>
+<div id="err"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+const Q = new URLSearchParams(location.search);
+const errBox = document.getElementById('err');
+window.addEventListener('error', e => { errBox.style.display = 'block'; errBox.textContent += e.message + ' '; });
+const { MODELS } = await import('./models.js');
+if (Q.get('hud') === '0') document.getElementById('hud').style.display = 'none';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xcfe8f2); scene.fog = new THREE.Fog(0xcfe8f2, 600, 1600);
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 3000);
+const controls = new OrbitControls(camera, renderer.domElement); controls.maxPolarAngle = Math.PI * .495;
+scene.add(new THREE.HemisphereLight(0xfff4e0, 0x7a8a60, 1.15));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.6); scene.add(sun, sun.target);
+sun.castShadow = true; sun.shadow.bias = -0.0006;
+
+let ids = Q.get('ids') ? Q.get('ids').split(',') : null;
+const only = Q.get('only');
+let list = MODELS.filter(m => only ? m.id === only : (!ids || ids.includes(m.id)));
+let seed = +(Q.get('seed') || 0), roofsOn = Q.get('roof') !== '0', doorOpen = Q.get('open') === '1';
+const holder = new THREE.Group(); scene.add(holder);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshLambertMaterial({ color: 0x6ea848 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const labels = document.createElement('div'); document.body.appendChild(labels);
+let items = [], stats = [];
+const cols = only ? 1 : Math.ceil(Math.sqrt(list.length * 1.4)), SP = 78;
+
+function build() {
+  holder.clear(); labels.innerHTML = ''; items = []; stats = [];
+  list.forEach((m, i) => {
+    let g, err = '';
+    try { g = m.make(THREE, seed, { doorOpen }); } catch (e) { err = e.message; console.log('Uncaught MODELERR ' + m.id + ' ' + e.stack); g = new THREE.Group(); }
+    const col = i % cols, row = Math.floor(i / cols);
+    g.position.set((col - (cols - 1) / 2) * SP, 0, (row - (Math.ceil(list.length / cols) - 1) / 2) * SP);
+    holder.add(g); g.userData.setRoofVisible && g.userData.setRoofVisible(roofsOn);
+    const bb = new THREE.Box3().setFromObject(g), sz = bb.getSize(new THREE.Vector3()); let tris = 0;
+    g.traverse(o => { if (o.isMesh && o.visible) { const gg = o.geometry; tris += (gg.index ? gg.index.count : gg.attributes.position.count) / 3; } });
+    const door = g.getObjectByName('Door') ? 1 : 0, roof = g.getObjectByName('Roof') ? 1 : 0;
+    const lb = document.createElement('div'); lb.className = 'lb'; lb.textContent = m.id + ' — ' + m.name; labels.appendChild(lb);
+    items.push({ g, lb, top: bb.max.y });
+    const rel = bb.min.clone().sub(g.position);
+    stats.push({ id: m.id, w: +sz.x.toFixed(1), h: +sz.y.toFixed(1), d: +sz.z.toFixed(1), minY: +bb.min.y.toFixed(2), cx: +((bb.min.x + bb.max.x) / 2 - g.position.x).toFixed(1), cz: +((bb.min.z + bb.max.z) / 2 - g.position.z).toFixed(1), tris, door, roof, anim: g.userData.animate ? 1 : 0, err });
+  });
+  console.log('STATS ' + JSON.stringify(stats));
+}
+function frame() {
+  const R = cols * SP / 2, rows = Math.ceil(list.length / cols);
+  if (only && items[0]) {
+    const s = stats[0], r = Math.max(s.w, s.d, s.h) * 1.3;
+    camera.position.set(r * .9, s.h * .9 + r * .25, r * 1.3); controls.target.set(0, s.h * .4, 0);
+  } else {
+    const r = Math.max(cols, rows) * SP * .62; camera.position.set(0, r * 1.15, r * 1.25); controls.target.set(0, 0, 0);
+  }
+  if (Q.get('cam')) { const v = Q.get('cam').split(',').map(Number); camera.position.set(v[0], v[1], v[2]); controls.target.set(v[3] ?? 0, v[4] ?? 0, v[5] ?? 0); }
+  const sr = Math.max(cols, rows) * SP * .75 + 40;
+  sun.position.set(sr * .6, sr * .9, sr * .5); sun.shadow.camera.left = -sr; sun.shadow.camera.right = sr; sun.shadow.camera.top = sr; sun.shadow.camera.bottom = -sr;
+  sun.shadow.camera.far = sr * 4; sun.shadow.camera.updateProjectionMatrix(); const ms = only ? 2048 : 4096; sun.shadow.mapSize.set(ms, ms);
+  controls.update();
+}
+build(); frame();
+document.getElementById('sv').textContent = seed;
+document.getElementById('bSeed').onclick = () => { seed = Math.floor(Math.random() * 9999); document.getElementById('sv').textContent = seed; build(); };
+document.getElementById('bRoof').onclick = e => { roofsOn = !roofsOn; items.forEach(i => i.g.userData.setRoofVisible && i.g.userData.setRoofVisible(roofsOn)); e.target.textContent = 'крыши: ' + (roofsOn ? 'вкл' : 'выкл'); };
+document.getElementById('bDoor').onclick = e => { doorOpen = !doorOpen; items.forEach(i => i.g.userData.setDoorOpen && i.g.userData.setDoorOpen(doorOpen)); e.target.textContent = 'двери: ' + (doorOpen ? 'открыты' : 'закрыты'); };
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+const v = new THREE.Vector3(), clock = new THREE.Clock();
+function loop() {
+  const t = clock.getElapsedTime();
+  items.forEach(i => { i.g.userData.animate && i.g.userData.animate(t); v.set(i.g.position.x, 0, i.g.position.z + 0).project(camera); i.lb.style.left = (v.x * .5 + .5) * innerWidth + 'px'; i.lb.style.top = (-v.y * .5 + .5) * innerHeight + 4 + 'px'; i.lb.style.display = v.z < 1 ? '' : 'none'; });
+  controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop);
+}
+loop();
+</script></body></html>

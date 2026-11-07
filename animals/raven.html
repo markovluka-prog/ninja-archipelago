@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Ворон — процедурная 3D-модель</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#c9ced4;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#262b31}
+  canvas{display:block}
+  #title{position:fixed;left:20px;top:14px;pointer-events:none}
+  #title h1{margin:0;font-size:24px;font-weight:650;letter-spacing:.2px}
+  #title p{margin:2px 0 0;font-size:13px;opacity:.65}
+  #ui{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;
+    padding:10px 14px;background:rgba(255,255,255,.72);backdrop-filter:blur(8px);border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.18);max-width:94vw}
+  button{font:inherit;font-size:14px;padding:7px 13px;border:1px solid #9aa4ad;background:#f4f6f8;border-radius:9px;cursor:pointer;color:#262b31}
+  button:hover{background:#fff}
+  button.on{background:#3a3f52;color:#fff;border-color:#3a3f52}
+  .sep{width:1px;height:26px;background:#9aa4ad;opacity:.6}
+  label{font-size:13px;display:flex;align-items:center;gap:6px}
+  input[type=range]{width:120px}
+  #stat{position:fixed;right:14px;top:14px;font-size:12px;opacity:.55;pointer-events:none}
+</style>
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="title"><h1>Ворон (Corvus corax)</h1><p>Процедурная 3D-модель · Three.js · колёсико — масштаб, ЛКМ — вращение</p></div>
+<div id="stat"></div>
+<div id="ui">
+  <button data-clip="idle" class="on">Покой</button>
+  <button data-clip="walk">Шаг</button>
+  <button data-clip="hop">Прыжки</button>
+  <button data-clip="fly">Полёт</button>
+  <button data-clip="caw">Карканье</button>
+  <div class="sep"></div>
+  <label>Скорость <input id="speed" type="range" min="0.1" max="2.5" step="0.05" value="1"><span id="sv">1.0×</span></label>
+  <button id="play">Пауза</button>
+  <button id="reset">Сброс</button>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+
+const TAU=Math.PI*2;
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const sstep=(a,b,x)=>{x=clamp((x-a)/(b-a),0,1);return x*x*(3-2*x)};
+const bump=(t,a,b,c,d)=>sstep(a,b,t)-sstep(c,d,t);
+
+/* ---------- renderer / scene ---------- */
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.0;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xc9ced4);
+scene.fog=new THREE.Fog(0xc9ced4,14,34);
+const pmrem=new THREE.PMREMGenerator(renderer);
+const envTex=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
+scene.environment=envTex;
+const ENV=0.55;
+
+const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,0.1,80);
+const CAM0=new THREE.Vector3(4.6,2.5,5.6), TGT0=new THREE.Vector3(0,1.0,0);
+camera.position.copy(CAM0);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.target.copy(TGT0);controls.enableDamping=true;controls.dampingFactor=.08;
+controls.minDistance=2.5;controls.maxDistance=14;controls.maxPolarAngle=Math.PI*0.495;
+
+const key=new THREE.DirectionalLight(0xfff1dc,2.6);
+key.position.set(5,8,4);key.castShadow=true;
+key.shadow.mapSize.set(2048,2048);
+const sc=key.shadow.camera;sc.left=-6;sc.right=6;sc.top=6;sc.bottom=-6;sc.near=1;sc.far=24;
+key.shadow.bias=-0.0006;key.shadow.normalBias=0.02;key.shadow.radius=4;
+scene.add(key);
+const fill=new THREE.DirectionalLight(0xbcd2ff,0.7);fill.position.set(-6,3,2);scene.add(fill);
+const rim=new THREE.DirectionalLight(0xffffff,1.1);rim.position.set(-2,5,-7);scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xdfe8f0,0x6b5a45,0.35));
+
+/* ---------- procedural textures ---------- */
+let seed=12345;const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+function noiseCanvas(size,base,amp,fn){
+  const c=document.createElement('canvas');c.width=c.height=size;const g=c.getContext('2d');
+  const img=g.createImageData(size,size);
+  for(let i=0;i<size*size;i++){const v=clamp(base+(rnd()-.5)*2*amp,0,255);img.data[i*4]=img.data[i*4+1]=img.data[i*4+2]=v;img.data[i*4+3]=255}
+  g.putImageData(img,0,0);
+  if(fn)fn(g,size);
+  return c;
+}
+function tex(c,rx=1,ry=1,srgb=true){
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx,ry);
+  t.anisotropy=4;if(srgb)t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+const featherCanvas=noiseCanvas(256,225,22,(g,s)=>{
+  g.globalAlpha=.10;g.strokeStyle='#000';
+  for(let i=0;i<260;i++){const x=rnd()*s;g.lineWidth=rnd()*1.4+.3;g.beginPath();g.moveTo(x,0);g.lineTo(x+(rnd()-.5)*10,s);g.stroke()}
+});
+const featherMap=tex(featherCanvas,2,2);
+const featherBump=tex(featherCanvas,2,2,false);
+
+/* ---------- materials ---------- */
+const M={
+  feather:new THREE.MeshStandardMaterial({color:0xffffff,vertexColors:true,map:featherMap,bumpMap:featherBump,bumpScale:.6,roughness:.5,metalness:.0,envMapIntensity:ENV*1.7}),
+  beak:new THREE.MeshStandardMaterial({color:0x15161a,roughness:.38,map:featherMap,envMapIntensity:ENV}),
+  cere:new THREE.MeshStandardMaterial({color:0x1d1d20,roughness:.8,map:featherMap,envMapIntensity:ENV}),
+  skin:new THREE.MeshStandardMaterial({color:0x1b1b1f,roughness:.55,map:featherMap,bumpMap:featherBump,bumpScale:1.2,envMapIntensity:ENV}),
+  eye:new THREE.MeshStandardMaterial({color:0x3a2416,roughness:.2,emissive:0x120804,envMapIntensity:ENV*1.5}),
+  pupil:new THREE.MeshStandardMaterial({color:0x050505,roughness:.1,envMapIntensity:ENV*2}),
+};
+// iridescent neck patch texture (teal -> magenta)
+const irisCanvas=noiseCanvas(256,128,10,(g,s)=>{
+  const gr=g.createLinearGradient(0,0,0,s);
+  gr.addColorStop(0,'rgba(25,35,70,.95)');gr.addColorStop(.45,'rgba(30,50,85,.9)');gr.addColorStop(.7,'rgba(55,30,85,.9)');gr.addColorStop(1,'rgba(30,22,50,.95)');
+  g.globalCompositeOperation='source-over';g.fillStyle=gr;g.globalAlpha=.9;g.fillRect(0,0,s,s);
+  g.globalAlpha=.12;g.strokeStyle='#000';
+  for(let i=0;i<200;i++){const y=rnd()*s;g.lineWidth=rnd()+.3;g.beginPath();g.moveTo(0,y);g.lineTo(s,y+(rnd()-.5)*6);g.stroke()}
+});
+M.iris=new THREE.MeshPhysicalMaterial({color:0xffffff,map:tex(irisCanvas,1,1),roughness:.5,metalness:.05,
+  iridescence:.6,iridescenceIOR:1.7,iridescenceThicknessRange:[150,450],sheen:.4,sheenColor:new THREE.Color(0x5a6fb0),envMapIntensity:ENV*1.2});
+
+/* ---------- geometry helpers ---------- */
+const C=(h)=>{const r=(h>>16&255)/255,g=(h>>8&255)/255,b=(h&255)/255,k=(r+g+b)/3;
+  return new THREE.Color().setRGB(.035+.19*k,.037+.2*k,.05+.26*k,THREE.SRGBColorSpace)};
+function mesh(geo,mat){const m=new THREE.Mesh(geo,mat);m.castShadow=true;m.receiveShadow=true;return m}
+function colorize(geo,fn){
+  const p=geo.attributes.position,n=p.count,col=new Float32Array(n*3),c=new THREE.Color();
+  for(let i=0;i<n;i++){fn(c,p.getX(i),p.getY(i),p.getZ(i));col[i*3]=c.r;col[i*3+1]=c.g;col[i*3+2]=c.b}
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));return geo;
+}
+// ellipsoid body part with vertex-colour function on unit-sphere coords
+function ell(rx,ry,rz,colFn,mat=M.feather,w=28,h=18){
+  const g=colorize(new THREE.SphereGeometry(1,w,h),colFn);
+  const m=mesh(g,mat);m.scale.set(rx,ry,rz);return m;
+}
+const COL={back:C(0x9aa4b0),belly:C(0x838c99),dark:C(0x31343a),rump:C(0xd3d8de),head:C(0x7a8492),pale:C(0xaeb6c0),prim:C(0x4a4e57),primTip:C(0x26282d)};
+const mix=(out,a,b,t)=>out.copy(a).lerp(b,clamp(t,0,1));
+
+// feather plate extending along -Z from its pivot
+const featherCache={};
+function featherGeo(len,wid,base,tip,tipStart,thick=0.014){
+  const k=[len,wid,base.getHex(),tip.getHex(),tipStart].join('_');
+  if(featherCache[k])return featherCache[k];
+  const g=new THREE.SphereGeometry(1,8,6);
+  colorize(g,(c,x,y,z)=>{const f=(1-z)/2;mix(c,base,tip,(f-tipStart)/0.08)});
+  g.scale(wid/2,thick,len/2);g.translate(0,0,-len/2+0.04);
+  return featherCache[k]=g;
+}
+function addFeather(parent,len,wid,base,tip,tipStart,x,y,theta,thick){
+  const piv=new THREE.Group();piv.position.set(x,y,0);piv.rotation.y=theta;
+  piv.add(mesh(featherGeo(len,wid,base,tip,tipStart,thick),M.feather));
+  parent.add(piv);return piv;
+}
+
+/* ---------- build the dove ---------- */
+const root=new THREE.Group();root.name='root';scene.add(root);
+const parts={root};
+const reg=(n,o)=>{o.name=n;parts[n]=o;return o};
+
+const body=reg('body',new THREE.Group());root.add(body);
+// torso: three overlapping ellipsoids -> smooth teardrop
+const torso=ell(.62,.52,1.0,(c,x,y,z)=>{mix(c,C(0x858e9b),COL.back,(y+.6)*.9);if(z<-.45&&y>-.1)mix(c,c,COL.rump,.8)});
+torso.name='torso';body.add(torso);
+const rear=ell(.40,.36,.62,(c,x,y,z)=>{mix(c,C(0x8d96a2),COL.rump,.5+y*.4)});rear.position.set(0,.02,-.62);rear.name='rear';body.add(rear);
+const chest=reg('chest',new THREE.Group());chest.position.set(0,.06,.5);body.add(chest);
+const chestM=ell(.52,.54,.52,(c,x,y,z)=>{mix(c,C(0x6f7885),C(0x8a93a0),(y+1)/2)});chest.add(chestM);
+
+// neck & head
+const neck=reg('neck',new THREE.Group());neck.position.set(0,.3,.64);body.add(neck);
+const neckM=mesh(colorize(new THREE.CapsuleGeometry(.22,.34,6,14),(c)=>c.copy(COL.head)),M.feather);
+neckM.position.set(0,.3,.05);neckM.rotation.x=.22;neck.add(neckM);
+const collar=reg('collar',new THREE.Group());collar.position.set(0,.2,.05);neck.add(collar);
+const collarM=mesh(new THREE.SphereGeometry(1,24,16),M.iris);collarM.scale.set(.255,.3,.29);collar.add(collarM);
+
+const head=reg('head',new THREE.Group());head.position.set(0,.7,.14);neck.add(head);
+const headM=ell(.265,.265,.33,(c,x,y,z)=>c.copy(COL.head).lerp(C(0x6a7380),(1-y)*.15),M.feather,24,16);head.add(headM);
+const beakU=reg('beak',new THREE.Group());beakU.position.set(0,0,0);head.add(beakU);
+function bendBeak(g,z0,len,drop,up){const p=g.attributes.position;
+  for(let i=0;i<p.count;i++){const t=clamp((p.getZ(i)-z0)/len,0,1);p.setY(i,p.getY(i)-drop*t*t+up*t)}
+  g.computeVertexNormals();return g}
+{
+  const g=new THREE.ConeGeometry(.13,.52,18,8);g.rotateX(Math.PI/2);g.translate(0,0,.2+.26);g.scale(.95,1.0,1);
+  bendBeak(g,.2,.52,.1,.0);
+  const m=mesh(g,M.beak);m.position.y=.0;beakU.add(m);
+  // culmen ridge
+  const rg=new THREE.SphereGeometry(1,14,10);bendBeak(rg.translate(0,0,0),0,1,0,0);
+  const ridge=mesh(new THREE.SphereGeometry(1,14,10),M.beak);ridge.scale.set(.05,.05,.27);ridge.position.set(0,.115,.46);ridge.rotation.x=.12;beakU.add(ridge);
+  // nasal bristles
+  for(const s of [1,-1]){const b=mesh(new THREE.SphereGeometry(1,10,8),M.feather);b.scale.set(.05,.07,.15);b.position.set(s*.07,.1,.34);b.rotation.set(-.2,s*.15,0);
+    colorize(b.geometry,(c)=>c.copy(COL.dark));beakU.add(b)}
+  const bs=mesh(new THREE.SphereGeometry(1,10,8),M.feather);colorize(bs.geometry,(c)=>c.copy(COL.dark));bs.scale.set(.1,.07,.14);bs.position.set(0,.1,.3);beakU.add(bs);
+}
+const jaw=reg('jaw',new THREE.Group());jaw.position.set(0,-.07,.2);head.add(jaw);
+{const g=new THREE.ConeGeometry(.095,.42,16,8);g.rotateX(Math.PI/2);g.translate(0,0,.21);g.scale(.95,.8,1);
+ bendBeak(g,0,.42,.0,.05);
+ const m=mesh(g,M.beak);jaw.add(m);}
+// throat hackles (shaggy raven throat)
+const hackles=reg('hackles',new THREE.Group());hackles.position.set(0,-.17,.12);head.add(hackles);
+for(let k=0;k<7;k++){const u=k/6-.5;
+  const h=mesh(colorize(new THREE.SphereGeometry(1,10,8),(c)=>c.copy(COL.head)),M.feather);
+  h.scale.set(.06,.05,.2);h.position.set(u*.28,-.03-.03*(1-Math.abs(u)*2),.02-.1*(1-Math.abs(u)*2)*0);h.rotation.set(.9-Math.abs(u)*.5,-u*.7,0);
+  h.position.z=.0-(1-Math.abs(u)*2)*.04;hackles.add(h)}
+const eyes={};
+for(const s of [1,-1]){
+  const e=reg(s>0?'eyeR':'eyeL',new THREE.Group());e.position.set(s*.205,.075,.16);head.add(e);
+  const ball=mesh(new THREE.SphereGeometry(1,14,10),M.eye);ball.scale.setScalar(.058);e.add(ball);
+  const pup=mesh(new THREE.SphereGeometry(1,10,8),M.pupil);pup.scale.setScalar(.034);pup.position.set(s*.042,.004,.02);e.add(pup);
+  eyes[s]=e;
+}
+
+// tail
+const tail=reg('tail',new THREE.Group());tail.position.set(0,.06,-1.05);body.add(tail);
+const tailF=[];
+for(let i=0;i<9;i++){
+  const o=i-4;
+  const p=addFeather(tail,1.1-Math.abs(o)*.06,.2,C(0x7f8996),COL.dark,.72,0,(4-Math.abs(o))*.005,0,.016);
+  p.userData.o=o;tailF.push(p);
+}
+{const cov=ell(.3,.1,.3,(c)=>c.copy(COL.pale));cov.position.set(0,.0,-.05);tail.add(cov);}
+
+// wings
+const wings={};
+function buildWing(side){
+  const mir=reg(side>0?'wingR':'wingL',new THREE.Group());mir.position.set(side*.46,.34,.25);mir.scale.x=side;body.add(mir);
+  const shoulder=new THREE.Group();shoulder.name='shoulder';mir.add(shoulder);
+  const upper=new THREE.Group();upper.name='upperArm';shoulder.add(upper);
+  const fore=new THREE.Group();fore.name='forearm';fore.position.x=.38;upper.add(fore);
+  const hand=new THREE.Group();hand.name='hand';hand.position.x=.42;fore.add(hand);
+  const armCol=(c)=>c.copy(COL.pale);
+  for(const [seg,l] of [[upper,.38],[fore,.42],[hand,.28]]){
+    const g=colorize(new THREE.CapsuleGeometry(.055,l-.05,4,8),armCol);g.rotateZ(Math.PI/2);g.translate(l/2,0,0);
+    seg.add(mesh(g,M.feather));
+  }
+  const fl=[];
+  const row=(seg,segName,n,x0,x1,len0,len1,wid,fan0,fan1,y,base,tip,ts)=>{
+    for(let i=0;i<n;i++){
+      const u=n>1?i/(n-1):0;
+      const lenI=typeof len0==='function'?len0(u):lerp(len0,len1,u);
+      const p=addFeather(seg,lenI,wid,base,tip,ts,lerp(x0,x1,u),y+i*.0012,0);
+      fl.push({p,seg:segName,fan:lerp(fan0,fan1,u)});
+    }
+  };
+  // primaries (hand), secondaries (forearm), tertials (upper)
+  row(hand,'hand',8,.02,.27,0,0,.115,-.35,-1.02,0,COL.prim,COL.primTip,.7);
+  fl.slice(-8).forEach((f,i)=>{});
+  // adjust lengths of primaries via rebuilding: lengths vary
+  for(let i=0;i<8;i++){const f=fl[fl.length-8+i];f.p.children[0].geometry=featherGeo([.78,.82,.84,.85,.82,.76,.68,.58][i],.115,COL.prim,COL.primTip,.7)}
+  row(fore,'fore',9,.02,.4,.66,.54,.135,.12,-.22,0,C(0x8d97a3),COL.dark,.8);
+  row(upper,'upper',4,.03,.32,.5,.42,.14,.34,.18,-.012,C(0x949ea9),COL.dark,.82);
+  // coverts (two rows -> two dark bars)
+  row(fore,'fore',9,.0,.4,.3,.26,.14,.12,-.22,.028,C(0x9fa8b3),COL.dark,.7);
+  row(fore,'fore',8,.04,.4,.17,.15,.13,.12,-.22,.05,C(0xb1b9c3),C(0x555a63),.62);
+  row(hand,'hand',5,.02,.26,.34,.3,.11,-.4,-.9,.028,C(0x8d97a3),COL.prim,.65);
+  row(upper,'upper',4,.03,.3,.24,.22,.14,.3,.15,.03,C(0xb1b9c3),C(0x555a63),.62);
+  const w={mir,shoulder,upper,fore,hand,fl,side};
+  wings[side]=w;
+  parts[(side>0?'shoulderR':'shoulderL')]=shoulder;parts[(side>0?'forearmR':'forearmL')]=fore;parts[(side>0?'handR':'handL')]=hand;
+  return w;
+}
+buildWing(1);buildWing(-1);
+
+// legs
+const L1=.32,L2=.46;
+const legs=[];
+function buildLeg(side){
+  const hip=reg(side>0?'legR':'legL',new THREE.Group());hip.position.set(side*.23,-.28,.1);body.add(hip);
+  const tg=new THREE.CylinderGeometry(.1,.045,L1,12);tg.translate(0,-L1/2,0);
+  colorize(tg,(c,x,y)=>mix(c,C(0x7f8895),C(0x8a93a0),(y+.16)*3));
+  hip.add(mesh(tg,M.feather));
+  const knee=reg(side>0?'shinR':'shinL',new THREE.Group());knee.position.y=-L1;hip.add(knee);
+  const sg=new THREE.CylinderGeometry(.04,.032,L2,8);sg.translate(0,-L2/2,0);knee.add(mesh(sg,M.skin));
+  const kj=mesh(new THREE.SphereGeometry(.05,10,8),M.feather);knee.add(kj);
+  const foot=reg(side>0?'footR':'footL',new THREE.Group());foot.position.y=-L2;knee.add(foot);
+  const aj=mesh(new THREE.SphereGeometry(.04,8,6),M.skin);foot.add(aj);
+  const toeSpec=[[0,.27],[.42,.22],[-.42,.22],[Math.PI,.15]];
+  for(const [yaw,l] of toeSpec){
+    const tp=new THREE.Group();tp.rotation.y=yaw;foot.add(tp);
+    const g=new THREE.CylinderGeometry(.03,.02,l,6);g.rotateX(Math.PI/2);g.translate(0,-.012,l/2);
+    tp.add(mesh(g,M.skin));
+    const cl=mesh(new THREE.SphereGeometry(.028,6,5),M.beak);cl.position.set(0,-.016,l+.005);cl.scale.z=1.4;tp.add(cl);
+  }
+  const L={hip,knee,foot};legs.push(L);return L;
+}
+buildLeg(-1);buildLeg(1);  // legs[0]=left, legs[1]=right
+
+// ground
+const gc=noiseCanvas(512,120,26,(g,s)=>{
+  for(let i=0;i<600;i++){const r=rnd()*3+.8,x=rnd()*s,y=rnd()*s;const v=70+rnd()*80;g.fillStyle=`rgba(${v+20},${v+8},${v-10},.55)`;g.beginPath();g.ellipse(x,y,r*1.4,r,rnd()*3,0,TAU);g.fill()}
+  for(let i=0;i<40;i++){const x=rnd()*s,y=rnd()*s;g.fillStyle='rgba(70,95,45,.35)';g.beginPath();g.ellipse(x,y,6+rnd()*10,3+rnd()*6,rnd()*3,0,TAU);g.fill()}
+});
+const groundTex=tex(gc,20,20);const groundBump=tex(gc,20,20,false);
+const ground=new THREE.Mesh(new THREE.CircleGeometry(40,64),new THREE.MeshStandardMaterial({color:0xb09a80,map:groundTex,bumpMap:groundBump,bumpScale:1.5,roughness:.95,envMapIntensity:.3}));
+// scale uv by circle radius so repeat=20 over radius 40 -> 2 units per tile
+{const uv=ground.geometry.attributes.uv;for(let i=0;i<uv.count;i++){uv.setXY(i,(uv.getX(i)-.5)*2*1,(uv.getY(i)-.5)*2*1)}}
+ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
+groundTex.repeat.set(20,20);groundBump.repeat.set(20,20);
+
+/* ---------- pose model ---------- */
+const stand=(bodyY,z=.0,lift=0)=>({z,y:.032+lift-bodyY+.28});
+function base(){return{
+  bodyY:.84,bodyPitch:0,bodyRoll:0,bodyYaw:0,chest:1,collar:1,
+  neckPitch:-.05,neckZ:0,neckYaw:0,neckRoll:0,headPitch:0,headYaw:0,headRoll:0,jaw:0,blink:0,
+  tailPitch:.1,tailFan:.5,tailYaw:0,
+  wingFold:1,wingZ:-.5,wingPitch:.06,wingSweep:0,elbowZ:0,handZ:0,handYaw:0,
+  legZ0:0,legY0:stand(.84).y,legZ1:0,legY1:stand(.84).y,footPitch:0,groundSpeed:0};}
+
+const clips={
+  idle:{duration:6,pose(t){
+    const P=base(),w=TAU*t/6,b=Math.sin(w*2);
+    P.bodyY=.84+.006*b;P.chest=1+.02*b;P.collar=1+.015*b;
+    const lookR=bump(t,.8,1.2,1.7,2.1),lookL=bump(t,2.5,2.9,3.5,3.9);
+    P.headYaw=.7*lookR-.6*lookL;P.neckYaw=.25*lookR-.2*lookL;P.headRoll=.18*lookR-.12*lookL;
+    P.headPitch=.08*lookR;
+    const peck=bump(t,4.3,4.45,4.5,4.7)+bump(t,4.8,4.92,4.97,5.12);
+    P.neckPitch=-.05+.62*peck;P.neckZ=.1*peck;P.headPitch+=.25*peck;P.jaw=.25*(bump(t,4.45,4.5,4.52,4.6)+bump(t,4.92,4.95,4.97,5.05));
+    P.blink=bump(t,2.95,3.02,3.06,3.14)+bump(t,5.6,5.66,5.7,5.78)+bump(t,1.4,1.45,1.48,1.55);
+    P.wingZ=-.5+.1*bump(t,3.9,4.1,4.2,4.4)+.012*b;P.wingSweep=.04*bump(t,3.9,4.1,4.2,4.4);
+    P.tailPitch=.1+.03*Math.sin(w*2-1)+.18*bump(t,3.6,3.75,3.9,4.1);
+    P.tailYaw=.07*Math.sin(w*2-.5)+.14*bump(t,5.2,5.3,5.4,5.5)-.14*bump(t,5.5,5.6,5.7,5.8);
+    P.tailFan=.5+.25*bump(t,3.6,3.75,3.9,4.1);
+    P.bodyRoll=.015*Math.sin(w);P.bodyYaw=0;
+    return P;}},
+  walk:{duration:.8,pose(t){
+    const P=base(),ph=t/.8,S=.3,ST=.6;
+    const foot=(i)=>{const p=(ph+i*.5)%1;
+      if(p<ST)return{z:lerp(S,-S,p/ST),lift:0};
+      const q=(p-ST)/(1-ST);return{z:lerp(-S,S,sstep(0,1,q)),lift:.15*Math.sin(Math.PI*q)};};
+    const bob=Math.cos(TAU*2*ph);
+    P.bodyY=.82+.016*bob;P.bodyPitch=.04;P.bodyRoll=.05*Math.sin(TAU*ph);P.bodyYaw=.04*Math.sin(TAU*ph+.6);
+    for(let i=0;i<2;i++){const f=foot(i);const s=stand(P.bodyY,0,f.lift);P['legZ'+i]=f.z;P['legY'+i]=s.y+.0;}
+    // head bob: quick thrust forward, then hold in world space (slides back relative to body)
+    const hb=ph<.3?lerp(-1,1,sstep(0,.3,ph)):lerp(1,-1,(ph-.3)/.7);
+    P.neckZ=.13*hb;P.neckPitch=-.05+.08*hb;P.headPitch=-.04;
+    P.tailPitch=.12-.05*bob;P.tailYaw=.1*Math.sin(TAU*ph-1.0);
+    P.chest=1+.01*bob;
+    P.wingZ=-.5+.03*Math.sin(TAU*2*ph-1.2);
+    P.groundSpeed=2*S/(ST*.8);
+    return P;}},
+  fly:{duration:.8,pose(t){
+    const P=base(),w=TAU*t/.8;
+    P.bodyY=2.3+.1*Math.sin(w-.4);P.bodyPitch=-.2+.04*Math.sin(w);P.bodyRoll=.03*Math.sin(w*1);
+    P.wingFold=0;P.wingZ=.12+.85*Math.cos(w);P.wingPitch=.12*Math.sin(w+.5);
+    P.wingSweep=.12+.14*Math.sin(w+.3);P.elbowZ=.32*Math.cos(w-.7);P.handZ=.5*Math.cos(w-1.4);
+    P.handYaw=.3*(.5+.5*Math.cos(w-.3));
+    P.neckPitch=-.15;P.headPitch=.25;P.neckZ=.05;P.chest=1.02;
+    P.tailFan=1.0;P.tailPitch=-.1+.22*Math.sin(w-1.2);P.tailYaw=0;
+    for(let i=0;i<2;i++){P['legZ'+i]=-.3;P['legY'+i]=-.27;}P.footPitch=.5;
+    P.jaw=0;P.groundSpeed=6;
+    return P;}},
+  hop:{duration:.9,pose(t){
+    const P=base(),ph=t/.9;
+    const q=clamp((ph-.24)/.5,0,1),air=ph>.24&&ph<.74?Math.sin(Math.PI*q):0;
+    const crouch=bump(ph,.04,.16,.2,.26),land=bump(ph,.72,.78,.82,.94);
+    const h=.34*air;
+    P.bodyY=.84-.1*crouch-.06*land+h;
+    P.bodyPitch=.12*crouch-.2*air*(q<.5?-.6:1)+.1*land;
+    P.neckPitch=-.05+.2*crouch-.15*air;P.neckZ=-.05*crouch+.08*air;P.headPitch=-.05+.1*air;
+    const lift=h*.8+.05*air;
+    for(let i=0;i<2;i++){P['legZ'+i]=.05*crouch-.2*air+.08*land;P['legY'+i]=stand(P.bodyY,0,lift).y;}
+    P.footPitch=.5*air;
+    P.wingZ=-.5+.35*air+.08*crouch;P.wingSweep=.08*air;
+    P.tailPitch=.1-.2*air+.18*land;P.tailFan=.5+.3*air;
+    P.chest=1+.02*crouch;
+    P.groundSpeed=air?1.8*Math.sin(Math.PI*q)+.2:0;
+    return P;}},
+  caw:{duration:2.2,pose(t){
+    const P=base(),w=TAU*t/2.2;
+    const a=bump(t,.2,.5,1.7,2.0);
+    const pulse=bump(t,.5,.62,.8,.92)+bump(t,.95,1.07,1.25,1.37)+bump(t,1.4,1.52,1.7,1.82);
+    P.bodyY=.84-.03*a;P.bodyPitch=.2*a-.04*pulse;
+    P.neckPitch=-.05+.35*a;P.neckZ=.06*a;
+    P.headPitch=-.3*a-.28*pulse;
+    P.jaw=.62*pulse;P.collar=1+.08*a+.18*pulse;P.chest=1+.06*a+.06*pulse;
+    P.tailPitch=.1+.3*a+.1*pulse;P.tailFan=.5+.4*a;P.tailYaw=.08*Math.sin(w*2)*a;
+    P.wingZ=-.5+.05*a+.14*pulse;P.wingSweep=.05*pulse;
+    P.bodyRoll=.02*Math.sin(w*2)*a;
+    P.blink=bump(t,.05,.1,.12,.2)+bump(t,1.95,2.0,2.02,2.1);
+    for(let i=0;i<2;i++){P['legZ'+i]=.0;P['legY'+i]=stand(P.bodyY).y;}
+    return P;}},
+};
+
+/* ---------- apply pose ---------- */
+function ik(L,tz,ty){
+  let d=Math.hypot(tz,ty);d=clamp(d,Math.abs(L1-L2)+.02,L1+L2-.005);
+  const phi=Math.atan2(tz,-ty);
+  const A=Math.acos(clamp((L1*L1+d*d-L2*L2)/(2*L1*d),-1,1));
+  const B=Math.acos(clamp((L1*L1+L2*L2-d*d)/(2*L1*L2),-1,1));
+  const al=phi+A,be=al-(Math.PI-B);
+  return{hip:-al,knee:Math.PI-B,foot:be};
+}
+function applyWing(w,P){
+  const f=P.wingFold;
+  w.shoulder.rotation.set(P.wingPitch,0,P.wingZ);
+  const yU=f*1.45+P.wingSweep, yF=-f*2.9, yH=f*2.9+P.handYaw;
+  w.upper.rotation.y=yU;
+  w.fore.rotation.set(0,yF,P.elbowZ);w.fore.position.y=.04*f;
+  w.hand.rotation.set(0,yH,P.handZ);w.hand.position.y=.04*f;
+  for(const o of w.fl){
+    const Y=o.seg==='upper'?yU:o.seg==='fore'?yU+yF:yU+yF+yH;
+    o.p.rotation.y=lerp(o.fan,-Y+o.fan*.12,f);
+  }
+}
+function applyPose(P,sp){
+  body.position.y=P.bodyY;body.rotation.set(P.bodyPitch,P.bodyYaw,P.bodyRoll);
+  chest.scale.setScalar(P.chest);collar.scale.set(P.collar,P.collar,P.collar);
+  neck.rotation.set(P.neckPitch,P.neckYaw,P.neckRoll);neck.position.z=.64+P.neckZ;
+  head.rotation.set(P.headPitch-(P.neckPitch+.05)*.85-P.bodyPitch*.6,P.headYaw,P.headRoll);
+  jaw.rotation.x=P.jaw;
+  const bl=clamp(P.blink,0,1);eyes[1].scale.y=eyes[-1].scale.y=1-.92*bl;
+  tail.rotation.set(sp.tp.x,sp.ty.x,0);
+  for(const p of tailF)p.rotation.y=p.userData.o*(.07+.08*P.tailFan);
+  applyWing(wings[1],P);applyWing(wings[-1],P);
+  for(let i=0;i<2;i++){
+    const r=ik(legs[i],P['legZ'+i],P['legY'+i]);
+    legs[i].hip.rotation.x=r.hip;legs[i].knee.rotation.x=r.knee;legs[i].foot.rotation.x=r.foot+P.footPitch;
+  }
+}
+
+/* ---------- springs (secondary motion) ---------- */
+class Spring{constructor(k,c){this.x=0;this.v=0;this.k=k;this.c=c}
+  step(target,dt){const n=Math.ceil(dt/.008);const h=dt/n;for(let i=0;i<n;i++){const a=this.k*(target-this.x)-this.c*this.v;this.v+=a*h;this.x+=this.v*h}return this.x}}
+const sp={tp:new Spring(90,7),ty:new Spring(70,6)};
+
+/* ---------- state / loop ---------- */
+const state={clip:'idle',time:0,playing:true,speed:1,blend:1,prev:null,last:null};
+function setClip(n){
+  if(!clips[n])return;
+  state.prev=state.last?Object.assign({},state.last):null;
+  state.clip=n;state.time=0;state.blend=state.prev?0:1;
+  document.querySelectorAll('[data-clip]').forEach(b=>b.classList.toggle('on',b.dataset.clip===n));
+}
+function evaluate(dt){
+  const c=clips[state.clip];
+  const raw=c.pose(((state.time%c.duration)+c.duration)%c.duration);
+  let P=raw;
+  if(state.prev&&state.blend<1){const e=sstep(0,1,state.blend);P={};for(const k in raw)P[k]=lerp(state.prev[k],raw[k],e)}
+  state.last=P;
+  sp.tp.step(P.tailPitch,dt);sp.ty.step(P.tailYaw,dt);
+  applyPose(P,sp);
+  return P;
+}
+const statEl=document.getElementById('stat');
+let lastT=performance.now(),fpsA=60;
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt=Math.min((now-lastT)/1000,.05);lastT=now;
+  const sdt=state.playing?dt*state.speed:0;
+  state.time+=sdt;if(state.blend<1)state.blend=Math.min(1,state.blend+sdt/.35);
+  const P=evaluate(Math.max(sdt,1e-4));
+  const off=groundTex.offset;off.y=(off.y-P.groundSpeed*sdt/2)%1;groundBump.offset.y=off.y;
+  controls.target.y=lerp(controls.target.y,TGT0.y+(P.bodyY-.84)*.55,.08);
+  controls.update();
+  renderer.render(scene,camera);
+  fpsA=lerp(fpsA,1/Math.max(dt,1e-3),.05);
+  statEl.textContent=`${state.clip} · ${fpsA.toFixed(0)} fps · ${Math.round(renderer.info.render.triangles)} tris`;
+}
+requestAnimationFrame(frame);
+
+/* ---------- UI ---------- */
+document.querySelectorAll('[data-clip]').forEach(b=>b.onclick=()=>setClip(b.dataset.clip));
+const spd=document.getElementById('speed'),sv=document.getElementById('sv');
+spd.oninput=()=>{state.speed=+spd.value;sv.textContent=state.speed.toFixed(1)+'×'};
+const playBtn=document.getElementById('play');
+const setPlaying=(p)=>{state.playing=p;playBtn.textContent=p?'Пауза':'Играть'};
+playBtn.onclick=()=>setPlaying(!state.playing);
+document.getElementById('reset').onclick=()=>{
+  camera.position.copy(CAM0);controls.target.copy(TGT0);controls.update();
+  spd.value=1;spd.oninput();setPlaying(true);state.prev=null;setClip('idle');state.time=0;state.blend=1;
+};
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+window.animal={root,parts,clips,state,setClip,seek:(t)=>{state.time=t;state.blend=1},pause:(p=true)=>setPlaying(!p),camera,controls,renderer};
+window.__ready=true;
+</script>
+</body>
+</html>

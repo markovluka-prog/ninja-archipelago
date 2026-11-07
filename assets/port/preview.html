@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Порт — превью моделей</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;font:12px -apple-system,"Segoe UI",sans-serif;background:#bfe3f2}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;left:10px;top:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.85);z-index:5}
+  button{font:inherit;padding:4px 8px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
+  .lb{position:fixed;transform:translate(-50%,0);pointer-events:none;text-align:center;font-size:11px;line-height:1.2;color:#222;text-shadow:0 0 3px #fff,0 0 3px #fff;white-space:nowrap}
+  .lb b{display:block}
+  body.nohud #hud{display:none}
+  #report{display:none}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="hud"><b>Порт</b> · seed <span id="sv">0</span> <button id="shuf">Перемешать</button> <label><input type="checkbox" id="an" checked> анимация</label><br>
+<small>?only=id · ?from=0&amp;to=12 · ?hud=0 · ?seed=N</small></div>
+<pre id="report"></pre>
+<div id="err" style="position:fixed;left:10px;bottom:10px;color:#a00;background:#fff;padding:6px;display:none"></div>
+<script>addEventListener('error',e=>{const d=document.getElementById('err');d.style.display='block';d.textContent='Ошибка: '+(e.message||'не загрузился models.js (Chrome блокирует ES-модули с file:// — откройте в Safari/Firefox или запустите Chrome с --allow-file-access-from-files)');});</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {MODELS} from './models.js';
+const Q=new URLSearchParams(location.search);
+if(Q.get('hud')==='0')document.body.classList.add('nohud');
+let seed=+(Q.get('seed')||0);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#bfe3f2');
+scene.add(new THREE.HemisphereLight(0xdff2ff,0x6a7a55,.9));
+const sun=new THREE.DirectionalLight(0xfff1d6,2.4);sun.position.set(60,120,80);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);scene.add(sun);scene.add(sun.target);
+const cam=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.5,3000);
+const ctl=new OrbitControls(cam,renderer.domElement);ctl.enableDamping=true;
+const root=new THREE.Group();scene.add(root);
+const labels=document.createElement('div');document.body.appendChild(labels);
+let items=[];
+function build(){
+  root.clear();labels.innerHTML='';items=[];
+  const only=Q.get('only');
+  let list=MODELS.filter(m=>!only||m.id===only);
+  if(!only){const f=+(Q.get('from')||0),t=+(Q.get('to')||list.length);list=list.slice(f,t);}
+  const cols=only?1:Math.ceil(Math.sqrt(list.length*1.3)),CELL=only?0:34;
+  const rep=[];let maxd=0;
+  list.forEach((m,i)=>{
+    const g=m.make(THREE,seed);
+    const bb=new THREE.Box3().setFromObject(g),sz=bb.getSize(new THREE.Vector3());
+    let tris=0;g.traverse(o=>{if(o.isMesh){const ge=o.geometry;tris+=ge.index?ge.index.count/3:ge.attributes.position.count/3;}});
+    rep.push(`${m.id}\t${m.name}\t${sz.x.toFixed(1)}x${sz.y.toFixed(1)}x${sz.z.toFixed(1)}\tminY=${bb.min.y.toFixed(2)}\ttris=${Math.round(tris)}`);
+    const md=Math.max(sz.x,sz.y,sz.z),k=only?1:Math.min(1,CELL*.8/md);
+    const cell=new THREE.Group();g.scale.setScalar(k);cell.add(g);
+    const cx=(i%cols)*CELL,cz=Math.floor(i/cols)*CELL;cell.position.set(cx,0,cz);
+    if(!only){
+      const wet=bb.min.y<-.3;
+      const pad=new THREE.Mesh(new THREE.CylinderGeometry(CELL*.48,CELL*.48,.4,32),new THREE.MeshStandardMaterial({color:wet?'#2f9ec4':'#e6d29a'}));
+      pad.position.y=wet?-.2:-.2;pad.receiveShadow=true;cell.add(pad);
+    }
+    root.add(cell);maxd=Math.max(maxd,md);
+    const d=document.createElement('div');d.className='lb';d.innerHTML=`<b>${m.id}</b>${m.name}<br>${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`;
+    if(Q.get('hud')==='0'&&only)d.style.display='none';
+    labels.appendChild(d);items.push({g,cell,d,h:sz.y*k});
+  });
+  document.getElementById('report').textContent=rep.join('\n');window.__report=rep;
+  const rows=Math.ceil(list.length/cols),W=(cols-1)*CELL,D=(rows-1)*CELL;
+  const c=new THREE.Vector3(W/2,0,D/2);
+  if(only){const r=maxd;cam.position.set(r*.9,r*.7,r*1.5);ctl.target.set(0,r*.2,0);}
+  else{const r=Math.max(W,D)*.5+CELL;cam.position.set(c.x,r*1.5,c.z+r*1.25);ctl.target.copy(c);}
+  ctl.update();
+  const s=only?maxd*3:Math.max(W,D)+CELL*2;
+  Object.assign(sun.shadow.camera,{left:-s,right:s,top:s,bottom:-s,near:1,far:s*6});sun.shadow.camera.updateProjectionMatrix();
+  sun.position.set(c.x+s*.5,s*1.5,c.z+s*.6);sun.target.position.copy(c);
+  document.getElementById('sv').textContent=seed;
+}
+build();
+document.getElementById('shuf').onclick=()=>{seed=Math.floor(Math.random()*9999);build();};
+addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();});
+const an=document.getElementById('an'),clock=new THREE.Clock(),v=new THREE.Vector3();
+const fixedT=Q.get('t');
+renderer.setAnimationLoop(()=>{
+  const t=fixedT!==null?+fixedT:clock.getElapsedTime();
+  if(an.checked||fixedT!==null)for(const it of items)it.g.userData.animate&&it.g.userData.animate(t);
+  ctl.update();renderer.render(scene,cam);
+  for(const it of items){v.setFromMatrixPosition(it.cell.matrixWorld);v.y=0;v.project(cam);
+    it.d.style.left=((v.x+1)/2*innerWidth)+'px';it.d.style.top=((1-v.y)/2*innerHeight+6)+'px';it.d.style.display=(v.z<1&&!(Q.get('hud')==='0'&&Q.get('only')))?'block':'none';}
+});
+</script>
+</body>
+</html>

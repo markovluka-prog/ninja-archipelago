@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Кабан — процедурная 3D-модель</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#1c1a17;overflow:hidden;font-family:system-ui,sans-serif;color:#eee}
+  #c{display:block;width:100%;height:100%}
+  #ui{position:fixed;left:12px;top:10px;right:12px;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+  h1{margin:0;font-size:20px;font-weight:600;text-shadow:0 1px 4px #000}
+  #bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;pointer-events:auto}
+  button{background:#3a342c;color:#f1e8d8;border:1px solid #6b5d49;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+  button.on{background:#a8744a;border-color:#e0b588}
+  label{font-size:13px;display:flex;gap:6px;align-items:center;background:#2a251f;padding:4px 10px;border-radius:6px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <h1>Дикий кабан: клыки и щетинистый гребень</h1>
+  <div id="bar">
+    <span id="clips" style="display:contents"></span>
+    <button id="pp">Пауза</button>
+    <button id="rs">Сброс</button>
+    <label>Скорость <input id="sp" type="range" min="0.1" max="2.5" step="0.05" value="1"><span id="spv">1.0×</span></label>
+  </div>
+</div>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x3b3a33);
+scene.fog = new THREE.Fog(0x3b3a33, 7, 16);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.45;
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 50);
+camera.position.set(2.6, 1.3, 2.8);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.55, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 1; controls.maxDistance = 8;
+
+// lights: key, fill, rim
+const key = new THREE.DirectionalLight(0xfff0d8, 2.4);
+key.position.set(3, 4.5, 2.5); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, {left:-2.5, right:2.5, top:2.5, bottom:-2.5, near:1, far:12});
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = 4;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xaec4ff, 0.7); fill.position.set(-3, 2, 1.5); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffd9b0, 1.2); rim.position.set(-1, 2.5, -4); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x4a3d2a, 0.3));
+
+// ---------- textures ----------
+function noiseTex(base, amp, scale, repeat = 1, seed = 1, grizzle = false) {
+  const s = 256, c = document.createElement('canvas'); c.width = c.height = s;
+  const g = c.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, s, s);
+  let r = seed * 9301 + 49297; const rnd = () => (r = (r * 9301 + 49297) % 233280) / 233280;
+  const img = g.getImageData(0, 0, s, s), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (rnd() - 0.5) * amp;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+  g.globalAlpha = 0.08;
+  for (let i = 0; i < 160; i++) {
+    g.fillStyle = rnd() > 0.5 ? '#000' : '#fff';
+    g.beginPath(); g.arc(rnd() * s, rnd() * s, 4 + rnd() * scale, 0, 7); g.fill();
+  }
+  if (grizzle) {                          // fine hair strokes
+    g.globalAlpha = 0.22; g.lineWidth = 1;
+    for (let i = 0; i < 1400; i++) {
+      g.strokeStyle = rnd() > 0.5 ? '#c9b08a' : '#100a06';
+      const x = rnd() * s, y = rnd() * s; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 3, y + 4 + rnd() * 7); g.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+function bumpOf(seed, rep) { const t = noiseTex('#808080', 90, 20, rep, seed); t.colorSpace = THREE.NoColorSpace; return t; }
+
+const M = {
+  coat: new THREE.MeshStandardMaterial({color: 0xffffff, vertexColors: true, map: noiseTex('#8a7a68', 34, 20, 3, 2, true), bumpMap: bumpOf(3, 4), bumpScale: 0.7, roughness: 0.92}),
+  coat2: new THREE.MeshStandardMaterial({color: 0x4a3a2e, map: noiseTex('#7a6652', 36, 16, 2, 4, true), bumpMap: bumpOf(5, 3), bumpScale: 0.8, roughness: 0.92}),
+  leg: new THREE.MeshStandardMaterial({color: 0x2b211b, map: noiseTex('#5a4a3c', 30, 12, 2, 7, true), roughness: 0.9}),
+  bristle: new THREE.MeshStandardMaterial({color: 0x2a1f18, map: noiseTex('#6a5a48', 70, 8, 1, 6, true), roughness: 0.95}),
+  tip: new THREE.MeshStandardMaterial({color: 0x8a7658, roughness: 0.95}),
+  snout: new THREE.MeshStandardMaterial({color: 0x6e564a, map: noiseTex('#8a7062', 26, 16, 2, 8), bumpMap: bumpOf(9, 2), bumpScale: 0.6, roughness: 0.7}),
+  nose: new THREE.MeshStandardMaterial({color: 0x2b1f1c, roughness: 0.35, bumpMap: bumpOf(8, 2), bumpScale: 0.5}),
+  hoof: new THREE.MeshStandardMaterial({color: 0x1d1814, roughness: 0.5}),
+  ivory: new THREE.MeshStandardMaterial({color: 0xe6d9b4, roughness: 0.38}),
+  eye: new THREE.MeshStandardMaterial({color: 0x0d0805, roughness: 0.15, metalness: 0.2}),
+  soil: new THREE.MeshStandardMaterial({color: 0x4a3a26, roughness: 1}),
+  ground: new THREE.MeshStandardMaterial({color: 0x6e6446, map: noiseTex('#7d7352', 40, 30, 14, 9), roughness: 1})
+};
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(14, 64), M.ground);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+// ---------- helpers ----------
+const G = (name, parent, x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.name = name; g.position.set(x, y, z); parent && parent.add(g); return g; };
+function mesh(geo, mat, parent, x = 0, y = 0, z = 0, name = '') {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; if (name) m.name = name; parent && parent.add(m); return m;
+}
+function ell(rx, ry, rz, mat, parent, x, y, z, name, seg = 20) {
+  const m = mesh(new THREE.SphereGeometry(1, seg, Math.round(seg * 0.75)), mat, parent, x, y, z, name);
+  m.scale.set(rx, ry, rz); return m;
+}
+function limb(len, rTop, rBot, mat, parent, name) {
+  const geo = new THREE.CylinderGeometry(rTop, rBot, len, 14, 1);
+  geo.translate(0, -len / 2, 0);
+  return mesh(geo, mat, parent, 0, 0, 0, name);
+}
+// pivoted cone tuft (base at pivot, points +y)
+function tuft(parent, name, x, y, z, h, r, mat, rx = 0, ry = 0, rz = 0) {
+  const cone = new THREE.ConeGeometry(r, h, 6); cone.translate(0, h / 2, 0);
+  const piv = G(name, parent, x, y, z); piv.rotation.set(rx, ry, rz); mesh(cone, mat, piv);
+  piv.userData.base = piv.rotation.clone();
+  return piv;
+}
+// tapered curved tusk along a curve
+function tusk(pts, r0, mat, parent, name) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)));
+  const ts = 14, rs = 10, geo = new THREE.TubeGeometry(curve, ts, r0, rs, false);
+  const pos = geo.attributes.position, ring = rs + 1;
+  for (let i = 0; i < pos.count; i++) {
+    const k = Math.floor(i / ring), t = k / ts, c = curve.getPointAt(t);
+    const f = Math.max(0.04, 1 - Math.pow(t, 1.6) * 0.96);
+    pos.setXYZ(i, c.x + (pos.getX(i) - c.x) * f, c.y + (pos.getY(i) - c.y) * f, c.z + (pos.getZ(i) - c.z) * f);
+  }
+  geo.computeVertexNormals();
+  return mesh(geo, mat, parent, 0, 0, 0, name);
+}
+
+// ---------- model ----------
+const root = G('root', scene);
+const parts = {root};
+const body = G('body', root); parts.body = body;
+parts.bristleList = [];
+
+// torso: heavy front, high shoulder hump, lower narrower rump
+{
+  const geo = new THREE.SphereGeometry(1, 44, 32);
+  const p = geo.attributes.position, cols = [];
+  const cDark = new THREE.Color(0x2a1f19), cMid = new THREE.Color(0x5a4636), cBelly = new THREE.Color(0x8a735c), cRump = new THREE.Color(0x4a3a2e), cc = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const u = z;                                       // -1 rump .. +1 chest
+    const wx = 0.19 * (1 + 0.22 * u - 0.10 * u * u);
+    let wy = 0.29 * (1 + 0.2 * u - 0.06 * u * u);
+    if (y < 0) wy *= (u < -0.2 ? 0.78 : u > 0.2 ? 1.0 : 0.8);     // tucked flank
+    const cy = 0.72 + 0.085 * u - 0.03 * u * u;        // hump at shoulders
+    p.setXYZ(i, x * wx, cy + y * wy, z * 0.68);
+    cc.copy(cBelly).lerp(cMid, THREE.MathUtils.smoothstep(y, -0.7, 0.2));
+    cc.lerp(cDark, THREE.MathUtils.smoothstep(y, 0.3, 0.95) * 0.8 + THREE.MathUtils.smoothstep(u, 0.1, 0.9) * 0.45);
+    cc.lerp(cRump, THREE.MathUtils.smoothstep(-u, 0.2, 0.9) * 0.5);
+    cols.push(cc.r, cc.g, cc.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  geo.computeVertexNormals();
+  mesh(geo, M.coat, body, 0, 0, 0, 'torso');
+  parts.torsoGeo = geo;
+}
+// shoulder mass and ham
+ell(0.2, 0.25, 0.26, M.coat2, body, 0, 0.8, 0.34, 'shoulderMass', 20);
+ell(0.2, 0.22, 0.24, M.coat2, body, 0, 0.67, -0.4, 'hamMass', 20);
+
+// bristle ridge along the spine: tall at shoulders, from nape to rump
+const bristles = G('bristles', body); parts.bristles = bristles;
+{
+  const p = parts.torsoGeo.attributes.position;
+  const topAt = z => { let by = 0; for (let i = 0; i < p.count; i++) if (Math.abs(p.getX(i)) < 0.025 && Math.abs(p.getZ(i) - z) < 0.025 && p.getY(i) > by) by = p.getY(i); return by; };
+  const N = 48;
+  for (let i = 0; i < N; i++) {
+    const z = 0.6 - i * (1.2 / (N - 1)), u = i / (N - 1);
+    const y = topAt(z); if (!y) continue;
+    const h = 0.045 + 0.1 * Math.exp(-Math.pow((u - 0.2) / 0.28, 2)) + 0.02;
+    for (const dx of [-0.018, 0.018]) {
+      const t = tuft(bristles, 'bristle' + i, dx, y - 0.015, z, h, 0.02, i % 3 === 0 ? M.tip : M.bristle, -0.45 - 0.2 * u, 0, -dx * 6);
+      parts.bristleList.push(t);
+    }
+  }
+}
+
+// neck + head
+const neck = G('neck', body, 0, 0.88, 0.5); parts.neck = neck;
+{
+  ell(0.15, 0.17, 0.3, M.coat2, neck, 0, -0.02, 0.1, 'neckMesh', 24);
+  const mane = G('mane', neck); parts.mane = mane;
+  for (let i = 0; i < 6; i++) parts.bristleList.push(tuft(mane, 'maneB' + i, 0, 0.13 - i * 0.005, 0.3 - i * 0.07, 0.13 - i * 0.008, 0.026, M.bristle, -0.45, 0, 0));
+}
+const head = G('head', neck, 0, 0, 0.36); parts.head = head;
+{
+  ell(0.13, 0.14, 0.22, M.coat2, head, 0, 0, 0.06, 'skull');
+  // wedge snout
+  const sg = new THREE.CylinderGeometry(0.052, 0.098, 0.36, 18); sg.rotateX(Math.PI / 2);
+  const snout = mesh(sg, M.snout, head, 0, -0.05, 0.31, 'snout'); snout.rotation.x = 0.18; snout.scale.set(1, 0.92, 1);
+  const nose = G('nose', head, 0, -0.088, 0.5); parts.nose = nose; nose.rotation.x = 0.18;
+  const disc = mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.04, 18), M.nose, nose); disc.rotation.x = Math.PI / 2; disc.scale.set(1, 1, 0.9);
+  for (const s of [-1, 1]) ell(0.013, 0.017, 0.01, M.eye, nose, s * 0.024, 0.004, 0.022, 'nostril');
+  // small eyes high on head + brow
+  for (const s of [-1, 1]) {
+    const e = ell(0.017, 0.017, 0.017, M.eye, head, s * 0.128, 0.05, 0.13, s < 0 ? 'eyeL' : 'eyeR', 12);
+    parts[s < 0 ? 'eyeL' : 'eyeR'] = e;
+    ell(0.03, 0.014, 0.04, M.coat2, head, s * 0.12, 0.078, 0.13, 'brow', 10);
+  }
+  // cheek ruff and beard tufts
+  for (let i = 0; i < 5; i++) for (const s of [-1, 1]) {
+    parts.bristleList.push(tuft(head, 'cheek', s * 0.12, -0.04 - i * 0.012, -0.03 + i * 0.045, 0.06, 0.016, M.bristle, -1.9, 0, -s * 0.5));
+  }
+  // jaw
+  const jaw = G('jaw', head, 0, -0.1, 0.12); parts.jaw = jaw;
+  const jg = new THREE.CylinderGeometry(0.036, 0.07, 0.3, 14); jg.rotateX(Math.PI / 2);
+  const jm = mesh(jg, M.snout, jaw, 0, 0.0, 0.14, 'jawMesh'); jm.rotation.x = 0.1; jm.scale.set(1, 0.7, 1);
+  // lower tusks (big, curved up and out)
+  for (const s of [-1, 1]) {
+    const t = tusk([[s * 0.058, 0.01, 0.2], [s * 0.078, 0.03, 0.25], [s * 0.1, 0.09, 0.275], [s * 0.1, 0.17, 0.27], [s * 0.088, 0.23, 0.245]], 0.016, M.ivory, jaw, s < 0 ? 'tuskL' : 'tuskR');
+    parts[s < 0 ? 'tuskL' : 'tuskR'] = t;
+  }
+  // upper tusks (short)
+  for (const s of [-1, 1]) {
+    tusk([[s * 0.075, -0.06, 0.38], [s * 0.095, -0.03, 0.4], [s * 0.1, 0.02, 0.4]], 0.01, M.ivory, head, 'tuskUp');
+  }
+  // ears: small, upright triangles with hair
+  for (const s of [-1, 1]) {
+    const ear = G(s < 0 ? 'earL' : 'earR', head, s * 0.095, 0.13, -0.03);
+    parts[s < 0 ? 'earL' : 'earR'] = ear;
+    const eg = new THREE.ConeGeometry(0.058, 0.15, 12); eg.scale(1, 1, 0.25); eg.translate(0, 0.075, 0);
+    mesh(eg, M.coat2, ear, 0, 0, 0, 'earMesh');
+    const ig = new THREE.ConeGeometry(0.036, 0.1, 10); ig.scale(1, 1, 0.1); ig.translate(0, 0.055, 0.012);
+    mesh(ig, M.tip, ear);
+    ear.userData.base = new THREE.Euler(-0.2, s * 0.15, -s * 0.35);
+    ear.rotation.copy(ear.userData.base);
+  }
+}
+
+// legs: sturdy, dark, slimmer than a pig's
+function makeLeg(name, x, y, z, front) {
+  const up = G(name + 'Upper', body, x, y, z);
+  ell(front ? 0.1 : 0.105, front ? 0.12 : 0.13, front ? 0.13 : 0.15, M.coat2, up, 0, 0.0, 0, 'joint', 14);
+  limb(0.27, front ? 0.085 : 0.09, 0.046, M.leg, up, 'thigh');
+  const lo = G(name + 'Lower', up, 0, -0.27, 0);
+  ell(0.045, 0.045, 0.045, M.leg, lo, 0, 0, 0, 'knee', 10);
+  limb(0.24, 0.04, 0.032, M.leg, lo, 'shin');
+  const hf = G(name + 'Hoof', lo, 0, -0.24, 0);
+  const hg = new THREE.CylinderGeometry(0.034, 0.042, 0.06, 10); hg.translate(0, -0.028, 0.006);
+  mesh(hg, M.hoof, hf, 0, 0, 0, 'hoofMesh');
+  for (const s of [-1, 1]) ell(0.012, 0.014, 0.018, M.hoof, hf, s * 0.028, -0.05, -0.022, 'dew', 8);
+  return {up, lo, hf};
+}
+const legs = {
+  FL: makeLeg('legFL', 0.11, 0.6, 0.4, true),
+  FR: makeLeg('legFR', -0.11, 0.6, 0.4, true),
+  HL: makeLeg('legHL', 0.1, 0.6, -0.46, false),
+  HR: makeLeg('legHR', -0.1, 0.6, -0.46, false)
+};
+parts.legs = legs;
+for (const k in legs) { parts['leg' + k + 'Upper'] = legs[k].up; parts['leg' + k + 'Lower'] = legs[k].lo; parts['leg' + k + 'Hoof'] = legs[k].hf; }
+
+// tail: thin, hangs with a tufted tip
+const tail = G('tail', body, 0, 0.74, -0.66); parts.tail = tail;
+const tailSegs = [tail];
+{
+  let par = tail; const lens = [0.1, 0.09, 0.08, 0.07];
+  lens.forEach((L, i) => {
+    const g = new THREE.CylinderGeometry(0.011 - i * 0.002, 0.017 - i * 0.002, L, 8); g.translate(0, -L / 2, 0);
+    mesh(g, M.coat2, par, 0, 0, 0, 'tailSeg' + i);
+    const nx = G('tail' + (i + 1), par, 0, -L, 0); tailSegs.push(nx); par = nx;
+  });
+  for (let i = 0; i < 5; i++) { const a = i / 5 * 6.283; const tf = tuft(par, 'tailTuft', 0.006 * Math.cos(a), 0.0, 0.006 * Math.sin(a), 0.1, 0.012, M.bristle, 3.14 + 0.25 * Math.sin(a), 0, 0.25 * Math.cos(a)); }
+  parts.tailSegs = tailSegs;
+}
+
+// soil clumps for digging
+const soil = G('soil', root); parts.soil = soil;
+const clods = [];
+for (let i = 0; i < 8; i++) { const c = ell(0.022 + 0.01 * (i % 3), 0.018, 0.022, M.soil, soil, 0, -10, 0, 'clod', 7); c.userData.k = i; clods.push(c); }
+
+// ---------- animation ----------
+const TAU = Math.PI * 2, sin = Math.sin, cos = Math.cos;
+const bump = (t, c, w) => { const d = Math.abs(((t - c + 0.5) % 1 + 1) % 1 - 0.5); return d < w ? 0.5 + 0.5 * cos(Math.PI * d / w) : 0; };
+const sm = x => x * x * (3 - 2 * x);
+
+const neutral = () => {
+  body.position.set(0, 0, 0); body.rotation.set(0, 0, 0); body.scale.set(1, 1, 1);
+  neck.rotation.set(0.1, 0, 0); head.rotation.set(0.4, 0, 0); parts.jaw.rotation.set(0, 0, 0);
+  for (const k in legs) { legs[k].up.rotation.set(0, 0, 0); legs[k].lo.rotation.set(0, 0, 0); legs[k].hf.rotation.set(0, 0, 0); }
+  legs.HL.up.rotation.x = legs.HR.up.rotation.x = -0.16; legs.HL.lo.rotation.x = legs.HR.lo.rotation.x = 0.3;
+  legs.HL.hf.rotation.x = legs.HR.hf.rotation.x = -0.14;
+  for (const c of clods) c.position.y = -10;
+};
+function earPose(t, amp, flick, back = 0) {
+  for (const s of [-1, 1]) {
+    const e = parts[s < 0 ? 'earL' : 'earR'], b = e.userData.base;
+    const lag = s < 0 ? 0 : 0.07;
+    e.rotation.set(b.x - back * 0.6 + 0.05 * sin(TAU * (t - 0.12)) + (flick ? flick(s) : 0) + amp * sin(TAU * (t * 2 - lag)), b.y, b.z - s * back + (flick ? -s * flick(s) * 0.7 : 0));
+  }
+}
+function tailPose(t, amp, curl = 0.4, freq = 1, phase = 0, lift = 0) {
+  tailSegs[0].rotation.x = 0.35 - lift;
+  tailSegs.forEach((sg, i) => { sg.rotation.z = amp * (0.5 + 0.2 * i) * sin(TAU * (t * freq - i * 0.08 + phase)); if (i) sg.rotation.x = 0.1 * curl * (i % 2 ? 1 : -0.5) - lift * 0.2; });
+}
+function bristlePose(t, amp, raise = 0) {
+  parts.bristleList.forEach((b, i) => {
+    const bs = b.userData.base; if (!bs) return;
+    b.rotation.x = bs.x + raise + amp * sin(TAU * (t - i * 0.012));
+  });
+}
+
+const clips = {
+  'Покой': {T: 5, fn(t) {
+    neutral();
+    const br = sin(TAU * t * 2);
+    body.scale.set(1 + 0.008 * br, 1 + 0.014 * br, 1 + 0.006 * br);
+    body.position.y = 0.004 * br;
+    neck.rotation.x = 0.1 + 0.03 * sin(TAU * (t * 2 - 0.1)) + 0.05 * sin(TAU * t);
+    neck.rotation.y = 0.22 * sin(TAU * t) + 0.08 * sin(TAU * t * 3);
+    head.rotation.x = 0.4 + 0.06 * sin(TAU * (t * 2 - 0.2)) + 0.05 * sin(TAU * t * 3);
+    head.rotation.y = 0.12 * sin(TAU * (t - 0.08));
+    head.rotation.z = 0.04 * sin(TAU * (t - 0.15));
+    parts.jaw.rotation.x = 0.02 + 0.015 * sin(TAU * t * 4);
+    parts.nose.scale.setScalar(1 + 0.04 * bump(t * 3, 0.5, 0.2));
+    const fl = s => 0.3 * bump(t, s < 0 ? 0.22 : 0.62, 0.05) * sin(TAU * t * 14);
+    earPose(t, 0.04, fl);
+    tailPose(t, 0.14 + 0.2 * bump(t, 0.6, 0.12), 0.4, 2, 0);
+    body.rotation.z = 0.01 * sin(TAU * t);
+    legs.FL.up.rotation.x = 0.02 * sin(TAU * t); legs.FR.up.rotation.x = -0.02 * sin(TAU * t);
+    bristlePose(t, 0.03 * br + 0.05 * bump(t, 0.6, 0.1));
+  }},
+  'Шаг': {T: 1.3, fn(t) {
+    neutral();
+    const ph = {HL: 0, FL: 0.25, HR: 0.5, FR: 0.75};
+    for (const k in legs) {
+      const th = TAU * (t - ph[k]), L = legs[k], hind = k[0] === 'H';
+      const swing = sin(th), lift = Math.max(0, -cos(th));
+      L.up.rotation.x += 0.5 * swing;
+      L.lo.rotation.x += (hind ? 0.55 : 0.95) * Math.pow(lift, 0.8);
+      L.hf.rotation.x += (hind ? -0.2 : -0.4) * lift - 0.15 * swing;
+    }
+    body.position.y = 0.012 * Math.abs(sin(TAU * t * 2 + 0.3)) - 0.006;
+    body.rotation.z = 0.035 * sin(TAU * t);
+    body.rotation.y = 0.04 * sin(TAU * (t - 0.1));
+    body.rotation.x = 0.012 * sin(TAU * t * 2 + 0.6);
+    neck.rotation.x = 0.16 + 0.07 * sin(TAU * (t * 2 - 0.25));
+    neck.rotation.y = -0.1 * sin(TAU * (t - 0.1));
+    head.rotation.x = 0.46 + 0.06 * sin(TAU * (t * 2 - 0.45));
+    head.rotation.y = 0.08 * sin(TAU * (t - 0.3));
+    parts.nose.scale.setScalar(1 + 0.03 * sin(TAU * t * 4));
+    earPose(t, 0.08, null);
+    tailPose(t, 0.3, 0.4, 1, -0.1);
+    bristlePose(t, 0.06 * sin(TAU * t * 2));
+  }},
+  'Рытьё': {T: 4, fn(t) {
+    neutral();
+    const down = sm(Math.min(1, bump(t, 0.5, 0.5) * 1.8));
+    const ph = TAU * (t * 4 - 0.25);
+    const push = 0.5 + 0.5 * sin(ph);                     // 4 rooting thrusts
+    neck.rotation.x = 0.1 + 0.78 * down + 0.06 * push * down;
+    neck.rotation.y = 0.12 * sin(TAU * t * 2) * down;
+    head.rotation.x = 0.4 + 0.42 * down - 0.2 * push * down;   // snout plows forward and flicks up
+    head.rotation.y = 0.1 * sin(TAU * t * 2 + 1) * down;
+    parts.jaw.rotation.x = 0.04 * down + 0.07 * down * Math.max(0, sin(TAU * t * 8));
+    parts.nose.scale.setScalar(1 + 0.06 * Math.max(0, sin(TAU * t * 8)) * down);
+    body.rotation.x = 0.06 * down + 0.012 * push * down;
+    body.position.y = -0.015 * down;
+    legs.FL.up.rotation.x = -0.18 * down; legs.FR.up.rotation.x = -0.18 * down;
+    legs.FL.lo.rotation.x = 0.28 * down; legs.FR.lo.rotation.x = 0.28 * down;
+    const sc = bump(t, 0.55, 0.13) * down;                // forefoot scraping
+    legs.FL.up.rotation.x += -0.4 * sc + 0.35 * sc * sin(TAU * t * 8);
+    legs.FL.lo.rotation.x += 0.7 * sc;
+    // flying soil clods
+    for (const c of clods) {
+      const k = c.userData.k, tt = ((t * 4 + k * 0.125) % 1);   // each thrust launches clods
+      const a = down * Math.min(1, tt < 0.8 ? 1 : 0);
+      const hgt = Math.max(0, 4 * 0.35 * tt * (1 - tt) * 2.2);
+      const sp = (k % 2 ? 1 : -1) * (0.04 + 0.03 * (k % 4));
+      c.position.set(sp * (0.4 + tt * 2), a ? 0.03 + hgt * 0.5 : -10, 0.78 + 0.25 * tt + 0.03 * k % 3);
+      c.scale.setScalar(a ? 1 - 0.4 * tt : 0.001);
+    }
+    earPose(t, 0.04 + 0.03 * down, s => 0.08 * down * push);
+    tailPose(t, 0.22, 0.4, 2, 0.1);
+    bristlePose(t, 0.04 * sin(TAU * t * 4) * down);
+  }},
+  'Атака': {T: 0.7, fn(t) {
+    neutral();
+    // gallop: fore pair then hind pair
+    const ph = {FL: 0, FR: 0.06, HL: 0.5, HR: 0.56};
+    for (const k in legs) {
+      const th = TAU * (t - ph[k]), L = legs[k], hind = k[0] === 'H';
+      const swing = sin(th), lift = Math.max(0, -cos(th));
+      L.up.rotation.x = (hind ? -0.2 : -0.1) + 0.85 * swing;
+      L.lo.rotation.x = (hind ? 0.35 : 0.2) + (hind ? 0.9 : 1.3) * Math.pow(lift, 0.8);
+      L.hf.rotation.x = (hind ? -0.2 : -0.3) - 0.3 * lift;
+    }
+    const b = sin(TAU * (t + 0.1));
+    body.position.y = 0.05 * Math.max(0, -cos(TAU * (t - 0.1))) - 0.03;
+    body.rotation.x = -0.1 * sin(TAU * (t - 0.05)) + 0.04;     // pitching rock, nose low
+    body.rotation.z = 0.02 * sin(TAU * t * 2);
+    body.rotation.y = 0.03 * sin(TAU * t);
+    neck.rotation.x = 0.55 + 0.1 * sin(TAU * (t - 0.2));
+    head.rotation.x = 0.28 + 0.12 * sin(TAU * (t - 0.35));       // snout lowered, tusks forward
+    head.rotation.y = 0.04 * sin(TAU * t);
+    parts.jaw.rotation.x = 0.1 + 0.05 * sin(TAU * t * 2);
+    parts.nose.scale.setScalar(1 + 0.05 * sin(TAU * t * 2));
+    earPose(t, 0.12, null, 0.45);
+    tailPose(t, 0.25, 0.4, 2, 0, 0.5);
+    bristlePose(t, 0.05 * sin(TAU * t * 2), 0.3);
+  }}
+};
+
+// ---------- state / UI ----------
+const state = {clip: 'Покой', time: 0, speed: 1, playing: true};
+const clipBox = document.getElementById('clips');
+const btns = {};
+for (const name in clips) {
+  const b = document.createElement('button'); b.textContent = name;
+  b.onclick = () => setClip(name); clipBox.appendChild(b); btns[name] = b;
+}
+function setClip(n) { state.clip = n; state.time = 0; for (const k in btns) btns[k].classList.toggle('on', k === n); }
+setClip('Покой');
+const pp = document.getElementById('pp');
+pp.onclick = () => { state.playing = !state.playing; pp.textContent = state.playing ? 'Пауза' : 'Играть'; };
+const sp = document.getElementById('sp'), spv = document.getElementById('spv');
+document.getElementById('rs').onclick = () => { state.time = 0; state.speed = 1; sp.value = 1; spv.textContent = '1.0×'; camera.position.set(2.6, 1.3, 2.8); controls.target.set(0, 0.55, 0); controls.update(); };
+sp.oninput = () => { state.speed = +sp.value; spv.textContent = state.speed.toFixed(1) + '×'; };
+
+function apply() { const c = clips[state.clip]; c.fn(((state.time / c.T) % 1 + 1) % 1); }
+const clipsApi = {};
+for (const n in clips) clipsApi[n] = {duration: clips[n].T, apply: u => clips[n].fn(u)};
+window.animal = {root, parts, clips: clipsApi, state, setClip, update: apply, setCam: (p, tg) => { camera.position.set(...p); if (tg) controls.target.set(...tg); controls.update(); }};
+
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (state.playing) state.time += dt * state.speed;
+  apply(); controls.update(); renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

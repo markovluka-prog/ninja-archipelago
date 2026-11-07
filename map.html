@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Карта острова</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--ink:#3b2f1e;--mute:#7a6a50;--accent:#8c5a1e;--card:rgba(250,243,226,.94)}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 Georgia,"Times New Roman",serif;color:var(--ink);background:#d9c7a0}
+  canvas{display:block;width:100vw;height:100vh;cursor:grab;touch-action:none}
+  canvas.drag{cursor:grabbing}
+  .hud{position:fixed;left:14px;top:14px;bottom:14px;width:260px;padding:14px;border-radius:14px;background:var(--card);
+       box-shadow:0 6px 24px rgba(60,40,10,.25);border:1px solid #c8b184;overflow:auto}
+  .hud h1{font-size:18px;margin:0 0 2px}
+  .hud small{color:var(--mute)}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:14px 0 6px}
+  .chk{display:flex;gap:8px;align-items:center;margin:4px 0;font-size:13px}
+  .place{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:1px solid transparent;background:transparent;border-radius:8px;padding:5px 6px;cursor:pointer;font:inherit;color:inherit}
+  .place:hover{background:#efe3c4;border-color:#d6c18e}
+  .place i{font-style:normal;width:20px;text-align:center}
+  .row{display:flex;gap:6px;margin-top:8px}
+  button.b{flex:1;font:inherit;border:1px solid #c8b184;background:#fffaf0;border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--ink)}
+  button.b:hover{border-color:var(--accent)}
+  input[type=number]{width:100%;font:inherit;padding:5px 8px;border:1px solid #c8b184;border-radius:8px;background:#fffaf0}
+  .leg{display:grid;grid-template-columns:18px 1fr;gap:4px 8px;align-items:center;font-size:12px}
+  .leg b{display:block;width:18px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.25)}
+  #tip{position:fixed;right:14px;bottom:14px;padding:8px 12px;border-radius:10px;background:var(--card);border:1px solid #c8b184;font-size:12px;box-shadow:0 4px 14px rgba(60,40,10,.2)}
+  #zoom{position:fixed;right:14px;top:14px;display:flex;flex-direction:column;gap:6px}
+  #zoom button{width:36px;height:36px;font-size:18px;border:1px solid #c8b184;border-radius:10px;background:var(--card);cursor:pointer;color:var(--ink)}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;background:#d9c7a0;font-size:18px;z-index:5}
+  body.nohud .hud{display:none}
+</style>
+</head>
+<body>
+<div id="loading">Рисую карту…</div>
+<canvas id="cv"></canvas>
+<div class="hud">
+  <h1>Карта острова</h1>
+  <small>Остров ≈ 32 × 22 км. Тяни мышью, колесо — масштаб.</small>
+  <h2>Слои</h2>
+  <label class="chk"><input type="checkbox" id="lLabels" checked>Подписи</label>
+  <label class="chk"><input type="checkbox" id="lIcons" checked>Значки мест</label>
+  <label class="chk"><input type="checkbox" id="lRivers" checked>Реки</label>
+  <label class="chk"><input type="checkbox" id="lRoads" checked>Дороги</label>
+  <label class="chk"><input type="checkbox" id="lDeco" checked>Леса и горы (рисунок)</label>
+  <label class="chk"><input type="checkbox" id="lShade" checked>Рельеф (тени)</label>
+  <label class="chk"><input type="checkbox" id="lGrid">Сетка</label>
+  <h2>Места</h2>
+  <div id="places"></div>
+  <h2>Остров</h2>
+  <input type="number" id="seed" value="2026">
+  <div class="row"><button class="b" id="gen">Другой остров</button><button class="b" id="rnd">Случайный</button></div>
+  <h2>Легенда</h2>
+  <div class="leg" id="legend"></div>
+</div>
+<div id="zoom"><button id="zi">+</button><button id="zo">−</button><button id="zr" title="Показать весь остров">⌂</button></div>
+<div id="tip">Наведи на карту</div>
+<script>
+'use strict';
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('nohud');
+
+/* ───────────── константы ───────────── */
+const W = 1600, H = 1100, SEA = 0.30, M_PER_PX = 20;     // 1 px карты = 20 м → остров ≈ 32 × 22 км
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+
+/* ───────────── шум ───────────── */
+function mulberry(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function makeNoise(seed){
+  const r = mulberry(seed), T = new Float32Array(65536); for (let i = 0; i < 65536; i++) T[i] = r();
+  return (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf*xf*(3 - 2*xf), v = yf*yf*(3 - 2*yf);
+    const a = T[((yi & 255) << 8) | (xi & 255)], b = T[((yi & 255) << 8) | ((xi + 1) & 255)], c = T[(((yi + 1) & 255) << 8) | (xi & 255)], d = T[(((yi + 1) & 255) << 8) | ((xi + 1) & 255)];
+    return a + (b - a)*u + (c - a)*v + (a - b - c + d)*u*v;
+  };
+}
+const fbm = (n, x, y, oct) => { let s = 0, a = 0.5, f = 1, t = 0; for (let i = 0; i < oct; i++){ s += n(x*f, y*f)*a; t += a; a *= 0.5; f *= 2.03; } return s/t; };
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a)/(b - a))); return t*t*(3 - 2*t); };
+const mix = (a, b, t) => a + (b - a)*t;
+const hex = h => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+const mixC = (A, B, t) => [mix(A[0], B[0], t), mix(A[1], B[1], t), mix(A[2], B[2], t)];
+
+/* ───────────── палитра ───────────── */
+const PAL = {
+  deep: hex(0x1b4a73), shallow: hex(0x6ec2d2), foam: hex(0xcfeee8),
+  sand: hex(0xe8d49b), grass: hex(0x93b857), grass2: hex(0x6f9f45), forest: hex(0x3f7a3a), hill: hex(0xa89a62), rock: hex(0x8c8478), rock2: hex(0x6e675f), snow: hex(0xf5f7fa),
+};
+const LEGEND = [['deep','Глубокое море'],['shallow','Мелководье'],['sand','Пляжи'],['grass','Луга'],['forest','Леса'],['hill','Холмы'],['rock','Горы'],['snow','Снега']];
+
+/* ───────────── генерация мира ───────────── */
+let E, MOIST, TERRAIN, DECO, RIVERS, ROADS, PLACES, SEED;
+function generate(seed){
+  SEED = seed;
+  const n1 = makeNoise(seed), n2 = makeNoise(seed + 101), n3 = makeNoise(seed + 202), n4 = makeNoise(seed + 303), n5 = makeNoise(seed + 404);
+  const R = mulberry(seed*7 + 3);
+  const mA = {x: W*(0.30 + R()*0.14), y: H*(0.30 + R()*0.14), sx: 150 + R()*40, sy: 110 + R()*30, rot: R()*Math.PI};
+  const mB = {x: W*(0.58 + R()*0.12), y: H*(0.26 + R()*0.1), sx: 100 + R()*30, sy: 70 + R()*20, rot: R()*Math.PI};
+  E = new Float32Array(W*H); MOIST = new Float32Array(W*H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    const nx = (x/W - 0.5)*2, ny = (y/H - 0.5)*2;
+    const warp = (fbm(n1, x*0.005 + 11, y*0.005 + 7, 4) - 0.5)*0.75;
+    const d = Math.hypot(nx*0.9, ny*1.08) + warp;
+    const mask = 1 - sstep(0.30, 0.97, d);
+    const base = fbm(n2, x*0.0052, y*0.0052, 5);
+    let mt = 0;
+    for (const m of [mA, mB]){
+      const dx = x - m.x, dy = y - m.y, c = Math.cos(m.rot), s = Math.sin(m.rot), rx = dx*c + dy*s, ry = -dx*s + dy*c;
+      const g = Math.exp(-(rx*rx/(2*m.sx*m.sx) + ry*ry/(2*m.sy*m.sy)));
+      const ridged = 1 - Math.abs(2*fbm(n3, x*0.011, y*0.011, 5) - 1);
+      mt += g*(0.30 + 0.62*ridged*ridged);
+    }
+    const i = y*W + x;
+    E[i] = Math.min(0.99, 0.08 + mask*(0.22 + 0.38*base) + mt*Math.sqrt(mask));
+    MOIST[i] = fbm(n4, x*0.009 + 50, y*0.009 + 20, 4);
+  }
+  renderTerrain(n5); findPlaces(R); traceRivers(R); makeRoads(); renderDeco(R);
+}
+
+function renderTerrain(nDither){
+  TERRAIN = document.createElement('canvas'); TERRAIN.width = W; TERRAIN.height = H;
+  const g = TERRAIN.getContext('2d'), img = g.createImageData(W, H), px = img.data;
+  const shade = $('lShade').checked;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    const i = y*W + x, e = E[i], mo = MOIST[i];
+    const xl = E[y*W + Math.max(0, x - 2)], xr = E[y*W + Math.min(W - 1, x + 2)], yu = E[Math.max(0, y - 2)*W + x], yd = E[Math.min(H - 1, y + 2)*W + x];
+    const dzx = xr - xl, dzy = yd - yu, slope = Math.hypot(dzx, dzy);
+    let c;
+    if (e < SEA){
+      const t = Math.pow(sstep(0.04, SEA, e), 1.6);
+      c = mixC(PAL.deep, PAL.shallow, t);
+      if (e > SEA - 0.018) c = mixC(c, PAL.foam, sstep(SEA - 0.018, SEA - 0.002, e)*0.55);
+    } else if (e < 0.325){ c = PAL.sand; }
+    else {
+      const nz = nDither(x*0.08, y*0.08);
+      if (e < 0.37) c = mixC(PAL.sand, PAL.grass, sstep(0.325, 0.37, e));
+      else if (e < 0.64){
+        c = mixC(PAL.grass, PAL.grass2, sstep(0.38, 0.55, e));
+        const f = sstep(0.50, 0.62, mo + (e - 0.45)*0.35 + (nz - 0.5)*0.12); c = mixC(c, PAL.forest, f);
+      }
+      else if (e < 0.76) c = mixC(PAL.forest, PAL.hill, sstep(0.64, 0.72, e));
+      else if (e < 0.90) c = mixC(PAL.hill, PAL.rock, sstep(0.76, 0.84, e));
+      else c = mixC(PAL.rock, PAL.snow, sstep(0.90, 0.95, e));
+      if (slope > 0.05 && e > 0.55) c = mixC(c, PAL.rock2, Math.min(0.6, (slope - 0.05)*6));
+    }
+    let k = 1;
+    if (shade){ const s = (dzx + dzy)*(e < SEA ? 6 : 16); k = 1 + Math.max(-0.38, Math.min(0.30, s)); }
+    px[i*4] = Math.min(255, c[0]*k); px[i*4 + 1] = Math.min(255, c[1]*k); px[i*4 + 2] = Math.min(255, c[2]*k); px[i*4 + 3] = 255;
+  }
+  // горизонтали
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++){
+    const i = y*W + x, e = E[i]; if (e < SEA) continue;
+    const l = Math.floor(e*22);
+    if (l !== Math.floor(E[i + 1]*22) || l !== Math.floor(E[i + W]*22)){ const a = (l % 5 === 0) ? 0.22 : 0.10; px[i*4] *= 1 - a; px[i*4 + 1] *= 1 - a; px[i*4 + 2] *= 1 - a; }
+  }
+  g.putImageData(img, 0, 0);
+}
+
+/* ───────────── места ───────────── */
+function distToSea(x, y, maxD){ let best = maxD; for (let a = 0; a < 24; a++){ const ca = Math.cos(a/24*Math.PI*2), sa = Math.sin(a/24*Math.PI*2); for (let d = 4; d < best; d += 4){ const px = x + ca*d | 0, py = y + sa*d | 0; if (px < 0 || py < 0 || px >= W || py >= H || E[py*W + px] < SEA){ best = d; break; } } } return best; }
+function coastFrom(cx, cy, ang){ let d = 0; while (d < 900){ const px = cx + Math.cos(ang)*d | 0, py = cy + Math.sin(ang)*d | 0; if (px < 1 || py < 1 || px >= W - 1 || py >= H - 1 || E[py*W + px] < SEA) break; d += 2; } return {x: cx + Math.cos(ang)*(d - 2), y: cy + Math.sin(ang)*(d - 2)}; }
+const eAt = (x, y) => E[Math.min(H - 1, Math.max(0, y | 0))*W + Math.min(W - 1, Math.max(0, x | 0))];
+function pickLand(R, tx, ty, eMin, eMax, seaMin, seaMax, forbid = []){
+  let best = null, bs = 1e9;
+  for (let k = 0; k < 2500; k++){
+    const x = 60 + R()*(W - 120), y = 60 + R()*(H - 120), e = eAt(x, y);
+    if (e < eMin || e > eMax) continue;
+    if (forbid.some(f => Math.hypot(f.x - x, f.y - y) < 140)) continue;
+    const ds = distToSea(x, y, seaMax + 1); if (ds < seaMin || ds > seaMax) continue;
+    const sc = Math.hypot(x - tx, y - ty); if (sc < bs){ bs = sc; best = {x, y}; }
+  }
+  return best;
+}
+function findPlaces(R){
+  PLACES = [];
+  let pk = {x: 0, y: 0, e: 0}; for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2){ const e = E[y*W + x]; if (e > pk.e) pk = {x, y, e}; }
+  PLACES.push({id:'peak', name:'Гора Сокол', icon:'▲', x: pk.x, y: pk.y, kind:'mountain', size:1.25});
+  let pk2 = {x: 0, y: 0, e: 0}; for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2){ const e = E[y*W + x]; if (e > pk2.e && Math.hypot(x - pk.x, y - pk.y) > 260) pk2 = {x, y, e}; }
+  PLACES.push({id:'peak2', name:'Пик Бури', icon:'▲', x: pk2.x, y: pk2.y, kind:'mountain', size:1});
+  const hut = pickLand(R, W*0.68, H*0.62, 0.34, 0.46, 24, 120, [pk]) || {x: W*0.6, y: H*0.6};
+  PLACES.push({id:'hut', name:'Домик', icon:'⌂', x: hut.x, y: hut.y, kind:'hut', size:1.1});
+  // причал: ближайший берег от домика
+  let bestA = 0, bestD = 1e9; for (let a = 0; a < 48; a++){ const an = a/48*Math.PI*2, c = coastFrom(hut.x, hut.y, an), d = Math.hypot(c.x - hut.x, c.y - hut.y); if (d < bestD){ bestD = d; bestA = an; } }
+  const dock = coastFrom(hut.x, hut.y, bestA); PLACES.push({id:'dock', name:'Причал', icon:'⚓', x: dock.x, y: dock.y, kind:'dock', size:1});
+  const bay = coastFrom(W/2, H/2, Math.PI*1.08); PLACES.push({id:'bay', name:'Пиратская бухта', icon:'☠', x: bay.x, y: bay.y, kind:'skull', size:1});
+  const fortP = pickLand(R, pk.x + 160, pk.y + 140, 0.40, 0.55, 40, 200, [pk, hut, bay]) || {x: W*0.45, y: H*0.5};
+  PLACES.push({id:'fort', name:'Крепость Сокола', icon:'♜', x: fortP.x, y: fortP.y, kind:'castle', size:1.1});
+  const light = coastFrom(W/2, H/2, -Math.PI*0.15); PLACES.push({id:'light', name:'Мыс Маяка', icon:'⛯', x: light.x, y: light.y, kind:'light', size:1});
+  // центр леса
+  let sx = 0, sy = 0, cn = 0; for (let y = 0; y < H; y += 6) for (let x = 0; x < W; x += 6){ const i = y*W + x; if (E[i] > 0.4 && E[i] < 0.62 && MOIST[i] > 0.56){ sx += x; sy += y; cn++; } }
+  if (cn > 30) PLACES.push({id:'forest', name:'Лес Теней', icon:'♣', x: sx/cn, y: sy/cn, kind:'area', size:1});
+  const beach = coastFrom(hut.x, hut.y, bestA + 0.9); PLACES.push({id:'beach', name:'Пальмовый берег', icon:'☼', x: (beach.x*0.85 + hut.x*0.15), y: (beach.y*0.85 + hut.y*0.15), kind:'area', size:0.9});
+}
+
+/* ───────────── реки ───────────── */
+function traceRivers(R){
+  RIVERS = [];
+  const src = [];
+  for (let k = 0; k < 900 && src.length < 7; k++){
+    const x = 60 + R()*(W - 120) | 0, y = 60 + R()*(H - 120) | 0, e = E[y*W + x];
+    if (e < 0.58 || e > 0.82) continue;
+    if (src.some(s => Math.hypot(s.x - x, s.y - y) < 190)) continue;
+    src.push({x, y});
+  }
+  for (const s of src){
+    const vis = new Uint8Array(W*H), pts = []; let x = s.x, y = s.y, steps = 0, ok = false;
+    while (steps++ < 5000){
+      pts.push([x, y]); vis[y*W + x] = 1;
+      if (E[y*W + x] < SEA){ ok = true; break; }
+      let bx = x, by = y, be = 9;
+      for (let dy = -2; dy <= 2; dy += 2) for (let dx = -2; dx <= 2; dx += 2){
+        if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
+        const v = E[ny*W + nx] + (vis[ny*W + nx] ? 0.05 : 0); if (v < be){ be = v; bx = nx; by = ny; }
+      }
+      if (bx === x && by === y) break; x = bx; y = by;
+    }
+    if (ok && pts.length > 60) RIVERS.push(pts);
+  }
+  RIVERS.sort((a, b) => b.length - a.length);
+  const rv = PLACES.find(p => p.id === 'forest'); if (RIVERS[0]) PLACES.push({id:'river', name:'Река Серебрянка', icon:'≈', x: RIVERS[0][RIVERS[0].length >> 1][0], y: RIVERS[0][RIVERS[0].length >> 1][1], kind:'area', size:0.9});
+}
+
+/* ───────────── дороги ───────────── */
+function makeRoads(){
+  ROADS = []; const P = id => PLACES.find(p => p.id === id); const link = (a, b, bend) => { if (!a || !b) return; ROADS.push({a, b, c: {x: (a.x + b.x)/2 + bend, y: (a.y + b.y)/2 - bend*0.6}}); };
+  link(P('hut'), P('dock'), 10); link(P('hut'), P('fort'), -40); link(P('fort'), P('peak'), 30); link(P('fort'), P('light'), 60); link(P('hut'), P('bay'), -120);
+}
+
+/* ───────────── рисунок: деревья, горы, волны ───────────── */
+function renderDeco(R){
+  DECO = document.createElement('canvas'); DECO.width = W; DECO.height = H; const g = DECO.getContext('2d');
+  // волны
+  g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1.2; g.lineCap = 'round';
+  for (let k = 0; k < 900; k++){ const x = R()*W, y = R()*H; if (eAt(x, y) > SEA - 0.03 || eAt(x, y) < 0.06) continue; g.beginPath(); g.moveTo(x - 7, y); g.quadraticCurveTo(x - 3.5, y - 4, x, y); g.quadraticCurveTo(x + 3.5, y + 4, x + 7, y); g.stroke(); }
+  // деревья
+  for (let k = 0; k < 7000; k++){
+    const x = R()*W, y = R()*H, i = (y | 0)*W + (x | 0), e = E[i]; if (e < 0.34 || e > 0.66 || MOIST[i] < 0.56 - (e - 0.4)*0.25) continue;
+    const s = 4 + R()*3; g.fillStyle = 'rgba(25,60,30,.35)'; g.beginPath(); g.ellipse(x + 1.5, y + s*0.6, s*0.6, s*0.25, 0, 0, 7); g.fill();
+    g.fillStyle = e > 0.5 ? '#2f6a33' : '#3f8a3e'; g.beginPath(); g.moveTo(x, y - s*1.5); g.lineTo(x + s*0.7, y + s*0.4); g.lineTo(x - s*0.7, y + s*0.4); g.closePath(); g.fill();
+    g.fillStyle = '#5b9a4c'; g.beginPath(); g.moveTo(x, y - s*1.5); g.lineTo(x + s*0.7, y + s*0.4); g.lineTo(x, y + s*0.2); g.closePath(); g.fill();
+  }
+  // горы
+  for (let k = 0; k < 2600; k++){
+    const x = R()*W, y = R()*H, e = eAt(x, y); if (e < 0.74) continue;
+    const s = 9 + (e - 0.74)*60 + R()*5, snow = e > 0.88;
+    g.fillStyle = 'rgba(40,30,20,.28)'; g.beginPath(); g.ellipse(x + s*0.4, y + s*0.2, s*0.9, s*0.25, 0, 0, 7); g.fill();
+    g.fillStyle = '#7b7469'; g.beginPath(); g.moveTo(x - s*0.9, y + s*0.2); g.lineTo(x, y - s); g.lineTo(x + s*0.9, y + s*0.2); g.closePath(); g.fill();
+    g.fillStyle = '#a9a294'; g.beginPath(); g.moveTo(x - s*0.9, y + s*0.2); g.lineTo(x, y - s); g.lineTo(x - s*0.05, y + s*0.2); g.closePath(); g.fill();
+    if (snow){ g.fillStyle = '#fff'; g.beginPath(); g.moveTo(x, y - s); g.lineTo(x + s*0.3, y - s*0.45); g.lineTo(x - s*0.3, y - s*0.45); g.closePath(); g.fill(); }
+  }
+}
+
+/* ───────────── камера ───────────── */
+const cam = {x: W/2, y: H/2, z: 1}; let dpr = 1, dirty = true, minZ = 0.3;
+function resize(){ dpr = Math.min(devicePixelRatio || 1, 2); cv.width = innerWidth*dpr; cv.height = innerHeight*dpr; const fitZ = Math.min((innerWidth - 290)/W, innerHeight/H)*0.97; minZ = fitZ*0.7; dirty = true; }
+function fit(){ const hud = document.body.classList.contains('nohud') ? 0 : 290; const fitZ = Math.min((innerWidth - hud)/W, innerHeight/H)*0.97; cam.z = fitZ; cam.x = W/2 - hud/2/cam.z; cam.y = H/2; dirty = true; }
+const w2s = (x, y) => [(x - cam.x)*cam.z + innerWidth/2, (y - cam.y)*cam.z + innerHeight/2];
+const s2w = (x, y) => [(x - innerWidth/2)/cam.z + cam.x, (y - innerHeight/2)/cam.z + cam.y];
+function zoomAt(f, sx, sy){ const [wx, wy] = s2w(sx, sy); cam.z = Math.min(8, Math.max(minZ, cam.z*f)); cam.x = wx - (sx - innerWidth/2)/cam.z; cam.y = wy - (sy - innerHeight/2)/cam.z; dirty = true; }
+let drag = null;
+cv.addEventListener('pointerdown', e => { drag = {x: e.clientX, y: e.clientY}; cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); });
+cv.addEventListener('pointerup', () => { drag = null; cv.classList.remove('drag'); });
+cv.addEventListener('pointermove', e => {
+  if (drag){ cam.x -= (e.clientX - drag.x)/cam.z; cam.y -= (e.clientY - drag.y)/cam.z; drag = {x: e.clientX, y: e.clientY}; dirty = true; }
+  const [wx, wy] = s2w(e.clientX, e.clientY); tip(wx, wy);
+});
+cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY*0.0016), e.clientX, e.clientY); }, {passive:false});
+$('zi').onclick = () => zoomAt(1.4, innerWidth/2, innerHeight/2); $('zo').onclick = () => zoomAt(1/1.4, innerWidth/2, innerHeight/2); $('zr').onclick = fit;
+addEventListener('resize', () => { resize(); });
+function flyTo(p){ cam.x = p.x; cam.y = p.y; cam.z = Math.max(cam.z, 2.2); if (!document.body.classList.contains('nohud')) cam.x -= 150/cam.z; dirty = true; }
+
+/* ───────────── подсказка ───────────── */
+function biome(e, mo){ if (e < 0.14) return 'глубокое море'; if (e < SEA) return 'мелководье'; if (e < 0.325) return 'пляж'; if (e < 0.64) return mo > 0.56 ? 'лес' : 'луга'; if (e < 0.76) return 'холмы'; if (e < 0.9) return 'горы'; return 'снежные вершины'; }
+function tip(wx, wy){
+  if (wx < 0 || wy < 0 || wx >= W || wy >= H){ $('tip').textContent = 'За краем карты'; return; }
+  const i = (wy | 0)*W + (wx | 0), e = E[i], m = Math.round((e - SEA)/(1 - SEA)*3200);
+  const col = String.fromCharCode(65 + Math.floor(wx/100)), row = Math.floor(wy/100) + 1;
+  $('tip').textContent = `${col}${row} · ${biome(e, MOIST[i])}${e >= SEA ? ' · ' + m + ' м' : ''}`;
+}
+
+/* ───────────── значки и отрисовка ───────────── */
+function icon(kind, x, y, s){
+  ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.lineWidth = 1.6*s/12;
+  const halo = () => { ctx.strokeStyle = 'rgba(255,250,235,.9)'; ctx.lineWidth = 4.5*s/12; }
+  ctx.fillStyle = '#4a2f18'; ctx.strokeStyle = '#2a1a0a';
+  if (kind === 'hut'){ ctx.fillStyle = '#c9a068'; ctx.fillRect(-s*0.8, -s*0.25, s*1.6, s*1.0); ctx.strokeRect(-s*0.8, -s*0.25, s*1.6, s*1.0); ctx.fillStyle = '#a8412e'; ctx.beginPath(); ctx.moveTo(-s*1.05, -s*0.2); ctx.lineTo(0, -s*1.2); ctx.lineTo(s*1.05, -s*0.2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#3a2412'; ctx.fillRect(-s*0.2, s*0.2, s*0.4, s*0.55); }
+  else if (kind === 'mountain'){ ctx.fillStyle = '#8b8478'; ctx.beginPath(); ctx.moveTo(-s, s*0.6); ctx.lineTo(-s*0.1, -s*0.9); ctx.lineTo(s*0.4, -s*0.1); ctx.lineTo(s*0.7, -s*0.5); ctx.lineTo(s*1.1, s*0.6); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(-s*0.1, -s*0.9); ctx.lineTo(s*0.2, -s*0.35); ctx.lineTo(-s*0.4, -s*0.35); ctx.closePath(); ctx.fill(); }
+  else if (kind === 'dock'){ ctx.fillStyle = '#7a5530'; ctx.fillRect(-s*0.25, -s*0.3, s*0.5, s*1.2); ctx.strokeRect(-s*0.25, -s*0.3, s*0.5, s*1.2); ctx.fillStyle = '#2a2a33'; ctx.beginPath(); ctx.arc(0, -s*0.7, s*0.18, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, -s*0.5); ctx.lineTo(0, s*0.35); ctx.moveTo(-s*0.4, -s*0.2); ctx.lineTo(s*0.4, -s*0.2); ctx.moveTo(-s*0.5, s*0.1); ctx.quadraticCurveTo(0, s*0.7, s*0.5, s*0.1); ctx.stroke(); }
+  else if (kind === 'skull'){ ctx.fillStyle = '#f4efe3'; ctx.beginPath(); ctx.arc(0, -s*0.1, s*0.7, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillRect(-s*0.35, s*0.4, s*0.7, s*0.35); ctx.strokeRect(-s*0.35, s*0.4, s*0.7, s*0.35); ctx.fillStyle = '#2a1a0a'; ctx.beginPath(); ctx.arc(-s*0.28, -s*0.15, s*0.17, 0, 7); ctx.arc(s*0.28, -s*0.15, s*0.17, 0, 7); ctx.fill(); }
+  else if (kind === 'castle'){ ctx.fillStyle = '#b9b2a4'; ctx.fillRect(-s*0.8, -s*0.2, s*1.6, s*1.0); ctx.strokeRect(-s*0.8, -s*0.2, s*1.6, s*1.0); for (const cx of [-0.8, -0.27, 0.27]){ ctx.fillRect(s*cx, -s*0.55, s*0.53, s*0.35); ctx.strokeRect(s*cx, -s*0.55, s*0.53, s*0.35); } ctx.fillStyle = '#3a2412'; ctx.fillRect(-s*0.2, s*0.25, s*0.4, s*0.55); }
+  else if (kind === 'light'){ ctx.fillStyle = '#f4efe3'; ctx.beginPath(); ctx.moveTo(-s*0.45, s*0.8); ctx.lineTo(-s*0.25, -s*0.5); ctx.lineTo(s*0.25, -s*0.5); ctx.lineTo(s*0.45, s*0.8); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#b23a30'; ctx.fillRect(-s*0.36, s*0.05, s*0.72, s*0.3); ctx.fillStyle = '#ffd24a'; ctx.fillRect(-s*0.25, -s*0.85, s*0.5, s*0.35); ctx.strokeRect(-s*0.25, -s*0.85, s*0.5, s*0.35); }
+  ctx.restore();
+}
+function label(text, x, y, size, color = '#3b2f1e', italic = false){
+  ctx.font = `${italic ? 'italic ' : ''}bold ${size}px Georgia, serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(255,248,230,.92)'; ctx.lineWidth = size*0.3; ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
+
+function draw(){
+  const sw = innerWidth, sh = innerHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#cdb98d'; ctx.fillRect(0, 0, sw, sh);
+  ctx.save(); ctx.translate(sw/2, sh/2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.x, -cam.y);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(TERRAIN, 0, 0);
+  if ($('lDeco').checked) ctx.drawImage(DECO, 0, 0);
+  const lw = 1/cam.z;
+  if ($('lRivers').checked) for (const r of RIVERS){
+    for (const pass of [0, 1]){
+      ctx.strokeStyle = pass ? '#58b6d6' : 'rgba(20,70,110,.65)'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const n = r.length; for (let i = 1; i < n; i += 4){ const t = i/n; ctx.lineWidth = (0.9 + t*2.4 + (pass ? 0 : 1.1)); ctx.beginPath(); ctx.moveTo(r[i - 1][0], r[i - 1][1]); for (let j = i; j < Math.min(n, i + 4); j++) ctx.lineTo(r[j][0], r[j][1]); ctx.stroke(); }
+    }
+  }
+  if ($('lRoads').checked){ ctx.strokeStyle = 'rgba(105,60,25,.85)'; ctx.lineWidth = 2*lw*1.4; ctx.setLineDash([7*lw*1.4, 5*lw*1.4]); for (const r of ROADS){ ctx.beginPath(); ctx.moveTo(r.a.x, r.a.y); ctx.quadraticCurveTo(r.c.x, r.c.y, r.b.x, r.b.y); ctx.stroke(); } ctx.setLineDash([]); }
+  if ($('lGrid').checked){ ctx.strokeStyle = 'rgba(60,40,10,.35)'; ctx.lineWidth = lw; ctx.beginPath(); for (let x = 0; x <= W; x += 100){ ctx.moveTo(x, 0); ctx.lineTo(x, H); } for (let y = 0; y <= H; y += 100){ ctx.moveTo(0, y); ctx.lineTo(W, y); } ctx.stroke(); }
+  ctx.restore();
+  // рамка карты
+  const [x0, y0] = w2s(0, 0), [x1, y1] = w2s(W, H);
+  ctx.strokeStyle = '#5a3d1c'; ctx.lineWidth = 3; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0); ctx.strokeStyle = '#8c6a3a'; ctx.lineWidth = 1; ctx.strokeRect(x0 + 6, y0 + 6, x1 - x0 - 12, y1 - y0 - 12);
+  if ($('lGrid').checked){ ctx.fillStyle = '#4a2f18'; ctx.font = 'bold 12px Georgia'; ctx.textAlign = 'center'; for (let i = 0; i < W/100; i++){ const [gx] = w2s(i*100 + 50, 0); ctx.fillText(String.fromCharCode(65 + i), gx, y0 - 8); } ctx.textAlign = 'right'; for (let j = 0; j < H/100; j++){ const [, gy] = w2s(0, j*100 + 50); ctx.fillText(String(j + 1), x0 - 8, gy + 4); } }
+  // подписи и значки
+  const showL = $('lLabels').checked, showI = $('lIcons').checked, z = Math.min(1.6, Math.max(0.8, cam.z**0.35));
+  // морские надписи
+  if (showL){ label('М О Р Е   Т Е Н Е Й', ...w2s(W*0.5, H*0.035), 17*z, '#16436a', true); label('Ю Ж Н О Е   М О Р Е', ...w2s(W*0.5, H*0.965), 17*z, '#16436a', true); label('Остров Ниндзи', ...w2s(W*0.5, H*0.5 + 20), 28*Math.min(1.8, cam.z**0.5 + 0.2), 'rgba(40,60,20,.55)', true); }
+  for (const p of PLACES){
+    const [sx, sy] = w2s(p.x, p.y); if (sx < -60 || sy < -60 || sx > sw + 60 || sy > sh + 60) continue;
+    const isArea = p.kind === 'area';
+    if (showI && !isArea) icon(p.kind, sx, sy, 11*p.size*z);
+    if (showL){ const dy = isArea ? 0 : 20*z; label(p.name, sx, sy + dy, (isArea ? 14 : 13)*z*p.size, isArea ? '#2c4d22' : '#3b2f1e', isArea); }
+  }
+  // компас
+  const cx = sw - 74, cy = sh - 110; ctx.save(); ctx.translate(cx, cy); ctx.fillStyle = 'rgba(250,243,226,.85)'; ctx.beginPath(); ctx.arc(0, 0, 40, 0, 7); ctx.fill(); ctx.strokeStyle = '#5a3d1c'; ctx.lineWidth = 1.5; ctx.stroke();
+  for (let i = 0; i < 4; i++){ ctx.rotate(Math.PI/2*(i ? 1 : 0)); ctx.fillStyle = i === 0 ? '#b23a30' : '#4a2f18'; ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(5, 0); ctx.lineTo(-5, 0); ctx.closePath(); ctx.fill(); }
+  ctx.restore(); ctx.fillStyle = '#4a2f18'; ctx.font = 'bold 13px Georgia'; ctx.textAlign = 'center'; ctx.fillText('С', cx, cy - 46); ctx.fillText('Ю', cx, cy + 56);
+  // масштаб
+  const kmPx = 1000/M_PER_PX*cam.z, nice = [0.5, 1, 2, 5, 10].find(k => k*kmPx > 90) || 10, len = nice*kmPx, bx = innerWidth/2 - len/2 + (document.body.classList.contains('nohud') ? 0 : 145), by = sh - 26;
+  ctx.fillStyle = 'rgba(250,243,226,.85)'; ctx.fillRect(bx - 10, by - 18, len + 20, 34); ctx.strokeStyle = '#4a2f18'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by + 4); ctx.lineTo(bx + len, by + 4); ctx.lineTo(bx + len, by - 4); ctx.stroke();
+  ctx.fillStyle = '#4a2f18'; ctx.font = '12px Georgia'; ctx.textAlign = 'center'; ctx.fillText(nice + ' км', bx + len/2, by - 6);
+}
+function loop(){ if (dirty && window.READY){ dirty = false; draw(); } requestAnimationFrame(loop); }
+
+/* ───────────── UI ───────────── */
+function buildUI(){
+  $('places').innerHTML = ''; for (const p of PLACES){ const b = document.createElement('button'); b.className = 'place'; b.innerHTML = `<i>${p.icon}</i><span>${p.name}</span>`; b.onclick = () => flyTo(p); $('places').appendChild(b); }
+}
+function legend(){ $('legend').innerHTML = LEGEND.map(([k, t]) => { const c = PAL[k]; return `<b style="background:rgb(${c.map(Math.round)})"></b><span>${t}</span>`; }).join('') + '<b style="background:#58b6d6"></b><span>Реки</span><b style="background:repeating-linear-gradient(90deg,#69401b 0 5px,transparent 5px 8px);height:3px"></b><span>Дороги</span>'; }
+for (const id of ['lLabels','lIcons','lRivers','lRoads','lDeco','lGrid']) $(id).onchange = () => dirty = true;
+$('lShade').onchange = () => { renderTerrain(makeNoise(SEED + 404)); dirty = true; };
+function build(seed){ window.READY = false; $('loading').style.display = 'grid'; setTimeout(() => { generate(seed); buildUI(); fit(); $('loading').style.display = 'none'; window.READY = true; dirty = true; }, 30); }
+$('gen').onclick = () => build(+$('seed').value || 1);
+$('rnd').onclick = () => { const s = Math.floor(Math.random()*9000) + 1000; $('seed').value = s; build(s); };
+resize(); legend(); build(+(Q.get('seed') || $('seed').value)); loop();
+if (Q.get('z')) setTimeout(() => { cam.z = +Q.get('z'); cam.x = +Q.get('x'); cam.y = +Q.get('y'); dirty = true; }, 400);
+</script>
+</body>
+</html>

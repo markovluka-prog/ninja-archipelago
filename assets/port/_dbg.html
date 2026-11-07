@@ -1,0 +1,8 @@
+<!doctype html><body><pre id=o></pre><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<script type="module">
+const o=document.getElementById('o');
+try{const THREE=await import('three');o.textContent+='three ok\n';
+const {MODELS}=await import('http://localhost:8765/models.js');o.textContent+=MODELS.length+' models\n';
+for(const m of MODELS){try{const g=m.make(THREE,0);const bb=new THREE.Box3().setFromObject(g),s=bb.getSize(new THREE.Vector3());let t=0;g.traverse(x=>{if(x.isMesh){const ge=x.geometry;t+=ge.index?ge.index.count/3:ge.attributes.position.count/3}});o.textContent+=`R ${m.id} | ${s.x.toFixed(1)}x${s.y.toFixed(1)}x${s.z.toFixed(1)} | minY ${bb.min.y.toFixed(2)} | ${Math.round(t)}\n`}catch(e){o.textContent+='ERR '+m.id+' '+e.message+'\n'}}
+}catch(e){o.textContent+='FATAL '+e.message}
+</script>

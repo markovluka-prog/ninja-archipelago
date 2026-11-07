@@ -1,0 +1,8 @@
+# личное и служебное — не публикуем
+*.HEIC
+*.heic
+coins.json
+out2.txt
+.DS_Store
+node_modules/
+nohup.out
