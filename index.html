@@ -1,94 +1,519 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" translate="no"><!-- translate=no: автоперевод браузера ломал DOM («removeChild») -->
 <head>
+<meta name="google" content="notranslate">
 <meta charset="utf-8">
-<title>Ниндзи — 3D персонажи</title>
+<title>Архипелаг — 3D карта</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  :root{--ink:#2a2723;--mute:#7a746b;--accent:#b8861b;--ok:#3f8f5a;--wip:#c27a1a;--card:#fff}
+  :root{--ink:#2a2723;--mute:#7a746b;--accent:#b8861b;--card:rgba(255,255,255,.86)}
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;font:14px/1.4 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
-  body{background:radial-gradient(ellipse at 50% 20%,#f6f4ef 0%,#e4e1d9 60%,#c9c5bb 100%);display:flex;flex-direction:column}
-  header{padding:18px 24px 6px}
-  h1{margin:0;font-size:22px}
-  header p{margin:2px 0 0;color:var(--mute)}
-  main{flex:1;display:flex;gap:16px;padding:12px 24px 24px;min-height:0}
-  .list{width:340px;flex:none;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}
-  .card{display:flex;gap:12px;align-items:center;background:var(--card);border:2px solid transparent;border-radius:14px;
-        padding:10px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.08);text-align:left;font:inherit;color:inherit;width:100%}
-  .card:hover{border-color:#d9c58f}
-  .card.sel{border-color:var(--accent)}
-  .thumb{width:64px;height:64px;border-radius:10px;background:#ece8de;flex:none;object-fit:cover;display:grid;place-items:center;font-size:26px;overflow:hidden}
-  .thumb img{width:100%;height:100%;object-fit:cover}
-  .meta b{display:block;font-size:15px}
-  .meta span{color:var(--mute);font-size:12px}
-  .meta .tag{color:#fff;display:inline-block;margin-top:4px;padding:1px 8px;border-radius:99px;font-size:11px;color:#fff}
-  .tag.ok{background:var(--ok)} .tag.wip{background:var(--wip)}
-  .stage{flex:1;min-width:0;background:rgba(255,255,255,.6);border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.12);display:flex;flex-direction:column;overflow:hidden}
-  .bar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #e0dccf}
-  .bar b{flex:1}
-  .bar a{color:var(--accent);text-decoration:none;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:5px 10px}
-  iframe{flex:1;border:0;width:100%;background:transparent}
-  .empty{flex:1;display:grid;place-items:center;color:var(--mute);text-align:center;padding:24px}
-  @media(max-width:800px){main{flex-direction:column}.list{width:100%;flex-direction:row;overflow-x:auto}.card{min-width:240px}}
+  html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#9fd3e8}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  #ui{position:fixed;right:14px;bottom:14px;width:220px;padding:12px;border-radius:14px;background:var(--card);backdrop-filter:blur(10px);box-shadow:0 6px 24px rgba(0,0,0,.18);z-index:20;max-height:70vh;overflow:auto}
+  #ui{display:none !important}      /* боковая панель «Архипелаг» убрана: режимы — G, телепорт — T, меню игроков и комнат — M */
+  #ui h1{font-size:15px;margin:0 0 2px} #ui small{color:var(--mute)}
+  #ui h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:10px 0 5px}
+  #ui button{display:block;width:100%;text-align:left;font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:6px 9px;margin:3px 0;cursor:pointer;color:var(--ink)}
+  #ui button:hover{border-color:var(--accent)} #ui button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  #ui.min .body{display:none}
+  #tog{float:right;border:0;background:none;cursor:pointer;font-size:16px;width:auto!important;padding:0 4px!important;margin:0!important}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;background:linear-gradient(#7fb9e0,#cfe6f2);z-index:50;color:#24435a;font-size:18px;text-align:center}
+  #loading i{display:block;height:6px;width:320px;background:#ffffff88;border-radius:9px;margin:14px auto 0;overflow:hidden} #loading b{display:block;height:100%;width:0;background:#b8861b;transition:width .2s}
+  #hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);padding:7px 14px;border-radius:99px;background:var(--card);font-size:12px;z-index:20;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+  body.nohud #ui,body.nohud #hint{display:none}
+  #tp{position:fixed;inset:0;background:rgba(10,25,40,.72);z-index:40;display:none;place-items:center}
+  #tp.on{display:grid}
+  #tp .box{background:var(--card);border-radius:16px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.4);max-width:96vw}
+  #tp h2{margin:0 0 8px;font-size:15px;display:flex;justify-content:space-between;gap:20px}
+  #tp canvas{display:block;border-radius:10px;cursor:crosshair;max-width:92vw;height:auto;width:880px}
+  #tp .lst{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  #tp .lst button{border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:5px 9px;cursor:pointer;font:inherit}
+  #tp .lst button:hover{border-color:var(--accent);background:#fff7e0}
 </style>
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
 </head>
 <body>
-<header>
-  <h1>Ниндзи — 3D персонажи</h1>
-  <p>Выберите героя слева. Каждая модель — отдельный HTML-файл (нужен интернет для Three.js).</p>
-</header>
-<main>
-  <div class="list" id="list"></div>
-  <div class="stage" id="stage"></div>
-</main>
-<script>
-// ready:true — модель готова; false — ещё делается (кнопка откроется, как только файл появится).
-const CHARS = [
-  {name:'Ричард Львиное Сердце', role:'Главный ниндзя',      file:'Ричард/3D/richard.html',  prev:null,                          ready:true,  icon:'🦁'},
-  {name:'Бэн Соммерс',           role:'Преемник Ричарда, друг',     file:'Бэн/3D/ben.html',          prev:'Бэн/3D/preview_front.png',     ready:true, icon:'🛡️'},
-  {name:'Маг Соколин',           role:'Гарпунер, злой ниндзя',file:'Соколин/3D/sokolin.html', prev:'Соколин/3D/preview_front.png', ready:true,  icon:'🦅'},
-  {name:'Зантио',                role:'Капитан, шпагоносец', file:'Зантио/3D/zantio.html',    prev:'Зантио/3D/preview_front.png',  ready:true,  icon:'🎩'},
-  {name:'Чжэнь Ши',              role:'Самурай, абордажник', file:'Чжен Ши/3D/zhenshi.html',  prev:'Чжен Ши/3D/preview_three.png',ready:true,  icon:'🗡️'},
-  {name:'NPC — жители (15 видов)', role:'Рыбак, кузнец, торговка, стражи, пират, монах, дама, плотник, ребёнок, знахарка, матрос…', file:'npc/index.html', prev:'npc/preview_all.png', ready:true, icon:'🧑‍🤝‍🧑'},
-  {name:'Остров',                role:'Локация: домик, гора, причал', file:'island.html', prev:null, ready:true, icon:'🏝️'},
-  {name:'Карта острова',         role:'Карта большого острова (≈32×22 км)', file:'map.html', prev:null, ready:true, icon:'🗺️'},
-  {name:'Рисуем карту',          role:'Редактор: рисуй свою карту острова', file:'draw-map.html', prev:null, ready:true, icon:'✏️'},
-  {name:'Архипелаг (подробно)',  role:'Город, порт, озеро, дороги — можно дорисовывать', file:'draw-map.html?karta=archipelag', prev:null, ready:true, icon:'🧭'},
-];
-const list = document.getElementById('list'), stage = document.getElementById('stage');
-const enc = p => { const [a, q] = p.split('?'); return a.split('/').map(encodeURIComponent).join('/') + (q ? '?' + q : ''); };
+<div id="loading"><div><div id="lmsg">Строю архипелаг…</div><i><b id="lbar"></b></i></div></div>
+<div id="tp"><div class="box"><h2><span>🗺️ Телепортация — кликни по карте или выбери место (1–9)</span><span style="color:var(--mute)">T / Esc — закрыть</span></h2><div class="lst" id="tptabs" style="margin:0 0 8px"><button id="tabTp">🗺️ Телепорт</button><button id="tabNpc">🧑 Жители: зоны и маршруты</button><button id="tabAni">🐾 Животные: зоны и маршруты</button></div><canvas id="tpmap" width="880" height="605"></canvas><div id="tpinfo" style="margin-top:6px;min-height:1.5em;font-size:13px"></div><div class="lst" id="tplist"></div></div></div>
+<div id="hint">Кликни по сцене, чтобы управлять · G — режим (Ричард / облёт) · H — справка по клавишам</div>
+<div id="ui"><button id="tog">–</button><h1>Архипелаг</h1><small id="stat">…</small><br><small id="netStat"></small>
+  <div class="body"><h2>Время суток</h2><input type="range" id="tod" min="0" max="1" step="0.001" style="width:100%"><button id="todAuto">⏯ Смена дня: вкл</button><small id="todT"></small><h2>Режим</h2><button id="bWalk">🚶 Ричард (G)</button><button id="bOrbit">🦅 Облёт карты (G)</button><button id="bTp">🗺️ Телепорт (T)</button><button id="bChar">👥 Меню игроков (M)</button>
+  <h2>Телепорт</h2><div id="spots"></div></div></div>
 
-CHARS.forEach((c,i)=>{
-  const b = document.createElement('button'); b.className='card';
-  const th = document.createElement('div'); th.className='thumb';
-  if(c.prev){ const im=new Image(); im.src=enc(c.prev); im.onerror=()=>{th.textContent=c.icon; im.remove()}; th.appendChild(im);} else th.textContent=c.icon;
-  const m = document.createElement('div'); m.className='meta';
-  m.innerHTML = `<b>${c.name}</b><span>${c.role}</span><br><span class="tag ${c.ready?'ok':'wip'}">${c.ready?'готов':'в работе'}</span>`;
-  b.append(th,m); b.onclick=()=>show(i,b); list.appendChild(b);
-  c.btn=b;
-});
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { buildMap } from './build-map.js';
+import { createAnimals } from './animals.js';
+import { loadRichard } from './richard-mode.js';
+import { createNPCs } from './npcs.js';
+import { startNetwork } from './network.js';
+import { startLobby } from './lobby.js';
+import { startChat } from './chat.js';
+import { startGame } from './game.js';
+import { createDragons } from './dragon.js';
+import { startMinimap } from './minimap.js';
+import { createSky } from './sky.js';
 
-function show(i,btn){
-  const c=CHARS[i];
-  document.querySelectorAll('.card').forEach(x=>x.classList.toggle('sel',x===btn));
-  location.hash=i;
-  stage.innerHTML='';
-  const bar=document.createElement('div'); bar.className='bar';
-  bar.innerHTML=`<b>${c.name}</b><a href="${enc(c.file)}" target="_blank">Открыть отдельно ↗</a>`;
-  stage.appendChild(bar);
-  if(!c.ready){
-    const e=document.createElement('div'); e.className='empty';
-    e.innerHTML=`<div><div style="font-size:42px">${c.icon}</div><p>Модель «${c.name}» ещё делается.<br>Файл появится здесь: <code>${c.file}</code></p>
-      <button class="card" style="width:auto;display:inline-block;padding:8px 14px" id="try">Попробовать открыть всё равно</button></div>`;
-    stage.appendChild(e);
-    e.querySelector('#try').onclick=()=>{c.ready=true; show(i,btn)};
+const Q = new URLSearchParams(location.search);
+if (Q.get('hud') === '0') document.body.classList.add('nohud');
+const $ = id => document.getElementById(id);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });      // логарифмический буфер глубины: убирает мерцание (z-fighting) на близких поверхностях при near 0.4 / far 14000
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); const adapt = { t: 0, n: 0, max: Math.min(devicePixelRatio, 1.75) };
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.prepend(renderer.domElement);
+
+const SKY = new THREE.Color(0xa9d6ea);
+const scene = new THREE.Scene(); scene.background = SKY; scene.fog = new THREE.Fog(SKY, 500, 2400);
+window.__canvas = renderer.domElement;      // нужен стриму: подмена «захвата мыши»
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.4, 14000);
+const hemi = new THREE.HemisphereLight(0xe3f3ff, 0x6a7a55, 1.0); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -180, right: 180, top: 180, bottom: -180, near: 10, far: 700 });
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.08; scene.add(sun, sun.target);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 10; controls.maxDistance = 7000; controls.maxPolarAngle = Math.PI * 0.495;
+camera.position.set(0, 1800, 2300); controls.update();
+
+const say = (m, p) => { $('lmsg').textContent = m; $('lbar').style.width = (p * 100) + '%'; };
+let world, animals, npcs = { count: 0, update() {} }, richard, mode = 'orbit';
+try {
+  world = await buildMap({ THREE, mergeGeometries, scene, base: './', onProgress: say });
+  say('Заселяю животных…', 0.95);
+  animals = createAnimals({ THREE, scene, world, base: './' });
+  say('Расселяю жителей…', 0.96);
+  try { npcs = await createNPCs({ scene, world, base: './' }); } catch (e) { console.error('NPC не загрузились', e); }
+  const startPt = world.startSpot;
+  say('Собираю Ричарда…', 0.97);
+  try { richard = await loadRichard({ renderer, scene, camera, world, url: new URL('Ричард/3D/richard.html', location.href).href, start: startPt }); }
+  catch (e) { console.error('Ричард не загрузился', e); }
+  world.richardStart = startPt;
+  camera.far = 14000; camera.near = 0.4; camera.updateProjectionMatrix(); scene.fog = new THREE.Fog(SKY, 500, 2400); scene.background = SKY;   // Ричард ставит свой туман/дальность
+} catch (e) { console.error(e); $('lmsg').textContent = 'Ошибка: ' + e.message + ' (откройте страницу через локальный сервер: python3 -m http.server)'; throw e; }
+$('stat').textContent = `${world.stats.placements} объектов · ${animals.count} животных · ${npcs.count} жителей`;
+const net = startNetwork({ richard, scene, THREE, onStatus: t => { const el = $('netStat'); if (el) el.textContent = t; } });      // игра вдвоём (сервер: node server.js)
+window.CAM = camera; window.CTRL = controls; window.NET = net; window.SCENE = scene; window.WORLD = world; window.RICHARD = richard; window.ANIMALS = animals;
+
+/* день и ночь: t ∈ [0,1): 0.25 — рассвет, 0.5 — полдень, 0.75 — закат, 0/1 — полночь */
+const tod = { t: 0.42, auto: true, len: 360 };      // полные сутки = 6 минут
+const C_DAY = new THREE.Color(0xa9d6ea), C_NIGHT = new THREE.Color(0x0a1428), C_WARM = new THREE.Color(0xf0925a), C_SUN = new THREE.Color(0xfff1d6), C_SUNW = new THREE.Color(0xffa860), cc = new THREE.Color();
+const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+let dayF = 1;
+const sky = createSky(THREE, scene);      // солнце, луна, облака
+function applyTod() {
+  const ang = (tod.t - 0.25) * Math.PI * 2, el = Math.sin(ang), f = sm(-0.12, 0.28, el), warm = Math.exp(-(((el - 0.02) / 0.2) ** 2)) * 0.6;
+  dayF = f; world.tod = { t: tod.t, phase: tod.t < 0.24 || tod.t >= 0.80 ? 'night' : tod.t >= 0.70 ? 'eve' : 'day' };      // жители и животные живут по расписанию: день — работа, вечер — домой, ночь — сон
+  cc.copy(C_NIGHT).lerp(C_DAY, f).lerp(C_WARM, warm * (1 - 0.3 * f)); SKY.copy(cc); scene.background = SKY; if (scene.fog) scene.fog.color.copy(cc);
+  hemi.intensity = 0.16 + 0.84 * f; renderer.toneMappingExposure = 0.55 + 0.45 * f;
+  sun.color.copy(C_SUN).lerp(C_SUNW, warm); sun.intensity = mode === 'walk' ? 0 : 2.4 * f;
+  sun.userData.dir = [Math.cos(ang) * 0.9, Math.max(0.12, el), 0.45];
+  if (richard && richard.key) { richard.key.intensity = 2.3 * (0.12 + 0.88 * f); richard.rim.intensity = 1.0 * (0.2 + 0.8 * f); richard.key.color.copy(C_SUN).lerp(C_SUNW, warm); }
+  sky.update(camera, ang, el, f, warm);
+  const h = ((tod.t * 24) + 24) % 24; const todTxt = String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0') + (world.tod.phase === 'night' ? ' · ночь: все спят' : world.tod.phase === 'eve' ? ' · вечер: идут домой' : el < 0.3 ? ' · утро: идут на работу' : ' · день: работа');
+  if (todTxt !== applyTod.last) { applyTod.last = todTxt; $('todT').textContent = todTxt; }      // в DOM пишем только когда текст изменился
+}
+$('tod').oninput = e => { tod.t = +e.target.value; applyTod(); };
+$('todAuto').onclick = () => { tod.auto = !tod.auto; $('todAuto').textContent = '⏯ Смена дня: ' + (tod.auto ? 'вкл' : 'выкл'); };
+
+/* телепорты */
+const spotsEl = $('spots');
+const goTo = (name) => {
+  if (window.__gameLock) return;      // телепорт выключен во время режима
+  const s = world.spots[name]; if (!s) return;
+  if (mode === 'walk' && richard) richard.teleport(s.x, s.z, s.yaw);
+  else { controls.target.set(s.x, world.heightAt(s.x, s.z), s.z); camera.position.set(s.x + 90, world.heightAt(s.x, s.z) + 80, s.z + 110); controls.update(); }
+};
+for (const n of Object.keys(world.spots)) { const b = document.createElement('button'); b.textContent = n; b.onclick = () => goTo(n); spotsEl.appendChild(b); }
+$('tog').onclick = () => { $('ui').classList.toggle('min'); $('tog').textContent = $('ui').classList.contains('min') ? '+' : '–'; };
+
+/* режимы */
+function setMode(m, quiet) {
+  if (m === 'orbit' && window.__gameLock && richard && net.me && net.me.play) m = 'walk';      // в режиме игры облёт карты выключен
+  if (m === 'walk' && (!richard || !(net.me && net.me.play))) m = 'orbit';      // гулять можно только добавив себя в игру (меню M)
+  mode = m; $('bWalk').classList.toggle('on', m === 'walk'); $('bOrbit').classList.toggle('on', m === 'orbit');
+  controls.enabled = m === 'orbit';
+  scene.fog.near = m === 'orbit' ? 7000 : 500; scene.fog.far = m === 'orbit' ? 16000 : 2400;
+  if (richard) richard.active = m === 'walk';
+  sun.castShadow = m !== 'walk'; applyTod();
+  if (m === 'orbit') {
+    const p = richard ? richard.P.pos : { x: 0, y: 0, z: 0 };
+    controls.target.set(p.x, p.y, p.z); camera.position.set(p.x + 140, p.y + 120, p.z + 170); camera.fov = 50; camera.updateProjectionMatrix(); controls.update();
+    $('hint').textContent = 'Облёт: мышь — вращение, колесо — зум, ПКМ — сдвиг · G — к Ричарду';
+  } else $('hint').textContent = 'Клик по сцене — захват мыши · WASD бег · Пробел прыжок · J удар · K блок · C перекат · V скольжение · E взаимодействие и двери домов · G облёт · T телепорт · H справка';
+}
+$('bWalk').onclick = () => setMode('walk'); $('bOrbit').onclick = () => setMode('orbit');
+addEventListener('keydown', e => { if (e.code === 'KeyG') { if (document.pointerLockElement) document.exitPointerLock(); setMode(mode === 'walk' ? 'orbit' : 'walk'); } });
+setMode('orbit');      // в игру попадают только через меню лобби (lobby.js)
+// персонаж: Ричард / Соколин (клавиша B — в richard-mode.js; меняет только внешний вид, позиция и камера сохраняются)
+let lobby = null;
+$('bChar').onclick = () => lobby && lobby.open();
+addEventListener('richardcharacter', e => { $('bChar').textContent = '👥 Меню игроков (M) · ' + e.detail; });
+startChat({ net, getName: () => net.lobby ? (net.lobby.name || 'Игрок') : 'Игрок' });      // чат: Enter
+let gameMode = null;
+      // режимы игры
+if (richard) lobby = startLobby({ net, richard, world, setMode, getMode: () => mode });
+if (Q.get('at')) goTo(Q.get('at'));
+if (Q.get('cam')) { const [x, y, z, tx, ty, tz] = Q.get('cam').split(',').map(Number); camera.position.set(x, y, z); controls.target.set(tx, ty, tz); controls.update(); }
+
+/* телепортация: карта-миникарта; клик — переносит туда (в режиме Ричарда — на ближайшую свободную сушу), 1–9 — быстрые места */
+{
+  const tp = $('tp'), cv = $('tpmap'), g2 = cv.getContext('2d'), CW = cv.width, CH = cv.height, WW = world.size.W, WH = world.size.H;
+  const names = Object.keys(world.spots), toW = (px, py) => [(px / CW - 0.5) * WW, (py / CH - 0.5) * WH], toP = (x, z) => [(x / WW + 0.5) * CW, (z / WH + 0.5) * CH];
+  let baked = null;
+  const bake = () => {
+    const im = g2.createImageData(CW, CH), d = im.data;
+    for (let py = 0; py < CH; py += 2) for (let px = 0; px < CW; px += 2) {
+      const [x, z] = toW(px, py), h = world.heightAt(x, z); let r, g, b;
+      if (h < 0) { const t = Math.min(1, -h / 14); r = 80 - 60 * t; g = 150 - 90 * t; b = 200 - 60 * t; }
+      else if (h < 0.8) { r = 232; g = 212; b = 155; }
+      else if (h < 14) { const t = h / 14; r = 120 - 30 * t; g = 175 - 40 * t; b = 85 - 10 * t; }
+      else if (h < 30) { r = 130; g = 122; b = 110; } else { r = 240; g = 244; b = 248; }
+      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) { const k = ((py + j) * CW + px + i) * 4; d[k] = r; d[k + 1] = g; d[k + 2] = b; d[k + 3] = 255; }
+    }
+    baked = im;
+  };
+  /* вкладка «Жители»: зона (круг), маршрут (линия; замкнутый — кругом, «путь» — туда-обратно), точки с действиями, дом (пунктир) и текущее положение каждого жителя */
+  let tab = 'tp'; const hidden = new Set(); let infos = [], hoverN = null;
+  const hue = id => { const ids = [...new Set(infos.map(n => n.id))].sort(); return 'hsl(' + (ids.indexOf(id) * 47 % 360) + ',72%,42%)'; };
+  const RU = { horse: ['Лошадь', '🐎'], palfrey: ['Верховая лошадь', '🐴'], 'draft-horse': ['Тяжеловоз', '🐴'], donkey: ['Осёл', '🐴'], ox: ['Вол', '🐂'], bull: ['Бык', '🐂'], cow: ['Корова', '🐄'], pig: ['Свинья', '🐖'], boar: ['Кабан', '🐗'], sheep: ['Овца', '🐑'], goat: ['Коза', '🐐'], dog: ['Собака', '🐕'], cat: ['Кошка', '🐈'], wolf: ['Волк', '🐺'], hen: ['Курица', '🐔'], rooster: ['Петух', '🐓'], goose: ['Гусь', '🦢'], duck: ['Утка', '🦆'], dove: ['Голубь', '🕊️'], raven: ['Ворон', '🐦'], falcon: ['Сокол', '🦅'] };
+  let ainfos = [];
+  const ahue = sp => 'hsl(' + ([...new Set(ainfos.map(a => a.sp))].sort().indexOf(sp) * 41 % 360) + ',70%,40%)';
+  const drawAni = () => {
+    ainfos = animals.info();
+    for (const a of ainfos) {
+      if (hidden.has('a:' + a.sp)) continue; const col = ahue(a.sp);
+      g2.strokeStyle = col; g2.fillStyle = col.replace('hsl', 'hsla').replace(')', ',0.10)'); g2.lineWidth = 1.6;
+      if (a.orbit) { const [cx, cy] = toP(a.orbit.cx, a.orbit.cz); g2.setLineDash([6, 4]); g2.beginPath(); g2.arc(cx, cy, a.orbit.r / WW * CW, 0, 7); g2.fill(); g2.stroke(); g2.setLineDash([]); continue; }
+      if (!a.route) continue; const pts = a.route.map(p => toP(p[0], p[1]));
+      const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length, r = Math.max(...pts.map(p => Math.hypot(p[0] - cx, p[1] - cy))) + 5;
+      if (a.mode !== 'route') { g2.setLineDash([4, 4]); g2.beginPath(); g2.arc(cx, cy, r, 0, 7); g2.fill(); g2.stroke(); g2.setLineDash([]); }
+      g2.lineWidth = a === hoverN ? 3.5 : 1.8; g2.beginPath(); pts.forEach((p, i) => i ? g2.lineTo(p[0], p[1]) : g2.moveTo(p[0], p[1])); if (a.mode === 'loop' || a.mode === 'swim') g2.closePath(); g2.stroke();
+    }
+    for (const a of ainfos) { if (hidden.has('a:' + a.sp)) continue; const [px, py] = toP(a.x, a.z); g2.fillStyle = '#fff'; g2.strokeStyle = ahue(a.sp); g2.lineWidth = 1.5; g2.beginPath(); g2.arc(px, py, 7, 0, 7); g2.fill(); g2.stroke(); g2.font = '10px sans-serif'; g2.fillStyle = '#000'; g2.textAlign = 'center'; g2.fillText(RU[a.sp][1], px, py + 1); g2.textAlign = 'left'; }
+  };
+  const ACT = { work: 'работа', talk: 'разговор', idle: 'отдых' };
+  const drawNpc = () => {
+    infos = npcs.info ? npcs.info() : [];
+    for (const n of infos) {
+      if (hidden.has(n.id)) continue;
+      const col = hue(n.id), pts = n.route.map(p => toP(p[0], p[1]));
+      const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length, r = Math.max(...pts.map(p => Math.hypot(p[0] - cx, p[1] - cy))) + 6;
+      g2.fillStyle = col.replace('hsl', 'hsla').replace(')', ',0.10)'); g2.strokeStyle = col.replace('hsl', 'hsla').replace(')', ',0.45)'); g2.lineWidth = 1.5; g2.setLineDash([5, 4]);
+      g2.beginPath(); g2.arc(cx, cy, r, 0, 7); g2.fill(); g2.stroke(); g2.setLineDash([]);
+      g2.strokeStyle = col; g2.lineWidth = n === hoverN ? 4 : 2; g2.beginPath(); pts.forEach((p, i) => i ? g2.lineTo(p[0], p[1]) : g2.moveTo(p[0], p[1])); if (n.mode === 'loop') g2.closePath(); g2.stroke();
+      pts.forEach((p, i) => { g2.fillStyle = n.acts && n.acts[i] === 'work' ? '#fff' : n.acts && n.acts[i] === 'talk' ? '#ffe28a' : col; g2.strokeStyle = col; g2.lineWidth = 2; g2.beginPath(); g2.arc(p[0], p[1], 3.2, 0, 7); g2.fill(); g2.stroke(); });
+      if (n.home) { const [hx, hy] = toP(n.home.x, n.home.z), q = pts.reduce((b, p) => Math.hypot(p[0] - hx, p[1] - hy) < Math.hypot(b[0] - hx, b[1] - hy) ? p : b, pts[0]); g2.strokeStyle = col; g2.setLineDash([2, 3]); g2.beginPath(); g2.moveTo(q[0], q[1]); g2.lineTo(hx, hy); g2.stroke(); g2.setLineDash([]); g2.font = '14px sans-serif'; g2.fillStyle = col; g2.fillText('⌂', hx - 5, hy); }
+    }
+    for (const n of infos) { if (hidden.has(n.id)) continue; const [px, py] = toP(n.x, n.z); g2.fillStyle = '#fff'; g2.strokeStyle = hue(n.id); g2.lineWidth = 2; g2.beginPath(); g2.arc(px, py, 9, 0, 7); g2.fill(); g2.stroke(); g2.font = '12px sans-serif'; g2.fillStyle = '#000'; g2.textAlign = 'center'; g2.fillText(n.icon, px, py + 1); g2.textAlign = 'left'; }
+  };
+  const buildLegend = () => {
+    const l = $('tplist'); l.innerHTML = '';
+    if (tab === 'ani') { ainfos = animals.info(); const by = new Map(); for (const a of ainfos) by.set(a.sp, (by.get(a.sp) || 0) + 1); for (const [sp, c] of by) { const b = document.createElement('button'); b.textContent = RU[sp][1] + ' ' + RU[sp][0] + ' ×' + c; b.style.borderColor = ahue(sp); b.style.opacity = hidden.has('a:' + sp) ? 0.4 : 1; b.onclick = () => { hidden.has('a:' + sp) ? hidden.delete('a:' + sp) : hidden.add('a:' + sp); buildLegend(); draw(); }; l.appendChild(b); } return; }
+    if (tab === 'tp') { names.forEach((n, i) => { const b = document.createElement('button'); b.textContent = (i + 1) + ' · ' + n; b.onclick = () => { goTo(n); open(false); }; l.appendChild(b); }); return; }
+    infos = npcs.info ? npcs.info() : []; const by = new Map(); for (const n of infos) by.set(n.id, (by.get(n.id) || { n, c: 0 })), by.get(n.id).c++;
+    for (const [id, { n, c }] of by) { const b = document.createElement('button'); b.textContent = n.icon + ' ' + n.role + ' ×' + c; b.style.borderColor = hue(id); b.style.opacity = hidden.has(id) ? 0.4 : 1; b.onclick = () => { hidden.has(id) ? hidden.delete(id) : hidden.add(id); buildLegend(); draw(); }; l.appendChild(b); }
+  };
+  const draw = () => {
+    if (!baked) bake();
+    g2.putImageData(baked, 0, 0); g2.font = 'bold 13px sans-serif'; g2.textBaseline = 'middle';
+    if (tab === 'ani') { drawAni(); const p = mode === 'walk' && richard ? richard.P.pos : controls.target, [qx, qy] = toP(p.x, p.z); g2.fillStyle = '#d33'; g2.strokeStyle = '#fff'; g2.lineWidth = 2; g2.beginPath(); g2.arc(qx, qy, 7, 0, 7); g2.fill(); g2.stroke(); return; }
+    if (tab === 'npc') { drawNpc(); const p = mode === 'walk' && richard ? richard.P.pos : controls.target, [qx, qy] = toP(p.x, p.z); g2.fillStyle = '#d33'; g2.strokeStyle = '#fff'; g2.lineWidth = 2; g2.beginPath(); g2.arc(qx, qy, 7, 0, 7); g2.fill(); g2.stroke(); return; }
+    names.forEach((n, i) => { const [px, py] = toP(world.spots[n].x, world.spots[n].z); g2.fillStyle = '#b8861b'; g2.beginPath(); g2.arc(px, py, 6, 0, 7); g2.fill(); g2.lineWidth = 3; g2.strokeStyle = '#fff'; g2.strokeText((i + 1) + ' ' + n, px + 9, py); g2.fillStyle = '#2a2723'; g2.fillText((i + 1) + ' ' + n, px + 9, py); });
+    const p = mode === 'walk' && richard ? richard.P.pos : controls.target, [qx, qy] = toP(p.x, p.z);
+    g2.fillStyle = '#d33'; g2.strokeStyle = '#fff'; g2.lineWidth = 2; g2.beginPath(); g2.arc(qx, qy, 7, 0, 7); g2.fill(); g2.stroke();
+  };
+  const toXZ = (x, z) => {
+    if (mode === 'walk' && richard) richard.teleport(x, z, 0);
+    else { const y = world.heightAt(x, z); controls.target.set(x, y, z); camera.position.set(x + 90, Math.max(y, 0) + 80, z + 110); controls.update(); }
+  };
+  const setTab = t => { tab = t; $('tpinfo').textContent = t === 'ani' ? 'Круг — зона обитания, линия — маршрут (замкнутая — кругом, иначе туда-обратно), большой пунктирный круг — полёт птиц над местом, значок — где животное сейчас. Нажмите на вид внизу, чтобы скрыть/показать. Клик по карте — телепорт.' : t === 'npc' ? 'Круг — зона, линия — маршрут (замкнутый — кругом, незамкнутый — туда-обратно по улице), белая точка — работа, жёлтая — разговор, ⌂ — дом, где житель иногда бывает. Нажмите на роль внизу, чтобы скрыть/показать. Клик по карте — телепорт.' : ''; buildLegend(); draw(); };
+  const open = v => { if (v && window.__gameLock) return; tp.classList.toggle('on', v); if (v) { document.exitPointerLock?.(); setTab(tab); } };
+  setInterval(() => { if (tp.classList.contains('on') && (tab === 'npc' || tab === 'ani')) draw(); }, 250);      // положение жителей обновляется, пока карта открыта
+  $('tabTp').onclick = () => setTab('tp'); $('tabNpc').onclick = () => setTab('npc'); $('tabAni').onclick = () => setTab('ani');
+  cv.addEventListener('mousemove', e => {
+    if (tab === 'ani') {
+      const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) / r.width * CW, my = (e.clientY - r.top) / r.height * CH; let best = null, bd = 12;
+      for (const a of ainfos) { if (hidden.has('a:' + a.sp)) continue; const q = toP(a.x, a.z); let d = Math.hypot(q[0] - mx, q[1] - my); for (const p of a.route || []) { const u = toP(p[0], p[1]); d = Math.min(d, Math.hypot(u[0] - mx, u[1] - my)); } if (d < bd) { bd = d; best = a; } }
+      hoverN = best; $('tpinfo').textContent = best ? RU[best.sp][1] + ' ' + RU[best.sp][0] + ' · ' + (best.orbit ? 'летает кругами над местом' : best.mode === 'route' ? 'летит вдоль морского пути' : best.mode === 'swim' ? 'плавает по озеру' : best.mode === 'path' ? 'ходит по улице туда-обратно' : 'ходит кругом') + (best.route ? ' · точек: ' + best.route.length : '') + (best.ridden ? ' · на нём едут' : best.state === 'walk' ? ' · идёт' : ' · стоит') : 'Наведите на животное или его линию.';
+      return;
+    }
+    if (tab !== 'npc') return; const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) / r.width * CW, my = (e.clientY - r.top) / r.height * CH; let best = null, bd = 14;
+    for (const n of infos) { if (hidden.has(n.id)) continue; const d = Math.min(Math.hypot(...[toP(n.x, n.z)].map(p => [p[0] - mx, p[1] - my])[0]), ...n.route.map(q => { const p = toP(q[0], q[1]); return Math.hypot(p[0] - mx, p[1] - my); })); if (d < bd) { bd = d; best = n; } }
+    hoverN = best; $('tpinfo').textContent = best ? best.icon + ' ' + best.name + ' — ' + best.role + ' · ' + best.work + ' · ' + (best.mode === 'path' ? 'ходит по улице туда-обратно' : 'ходит кругом') + ' · точек: ' + best.route.length + (best.home ? ' · есть дом' : '') + (best.inside ? ' · сейчас в доме' : best.state === 'walk' ? ' · идёт' : ' · стоит (' + (ACT[best.rest] || 'отдых') + ')') : 'Круг — зона, линия — маршрут, белая точка — работа, жёлтая — разговор, ⌂ — дом. Наведите на жителя или линию.';
+  });
+  cv.addEventListener('click', e => { const r = cv.getBoundingClientRect(), [x, z] = toW((e.clientX - r.left) / r.width * CW, (e.clientY - r.top) / r.height * CH); toXZ(x, z); open(false); });
+  $('bTp').onclick = () => open(true);
+  tp.addEventListener('click', e => { if (e.target === tp) open(false); });
+  addEventListener('keydown', e => {
+    if (e.code === 'KeyT' && !e.repeat) open(!tp.classList.contains('on'));
+    else if (tp.classList.contains('on')) { if (e.code === 'Escape') open(false); else if (/^Digit[1-9]$/.test(e.code) && names[+e.code[5] - 1]) { goTo(names[+e.code[5] - 1]); open(false); } }
+  }, true);
+}
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+$('loading').remove();
+
+/* верховая езда и корабли
+   лошадь: E рядом — сесть (с анимацией), W/S ход, A/D поворот, Shift — галоп, Пробел — прыжок, E — слезть;
+   корабль: на борт — по лестнице (E у лестницы), плыть можно только у штурвала на корме (E): W/S ход, A/D поворот, Shift быстрее, E — оставить штурвал */
+const keys = new Set(); addEventListener('keydown', e => keys.add(e.code)); addEventListener('keyup', e => keys.delete(e.code)); addEventListener('blur', () => keys.clear());
+let riding = null;       // { kind: 'horse'|'ship'|'ladder', ... }
+const rideEl = document.createElement('div');
+rideEl.style.cssText = 'position:fixed;left:50%;bottom:26%;transform:translateX(-50%);font:600 16px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:6px 14px;border-radius:10px;pointer-events:none;display:none;z-index:15';
+document.body.appendChild(rideEl);
+const V3_ = THREE.Vector3, lerpN = (a, b, t) => a + (b - a) * t, easeN = u => u * u * (3 - 2 * u), angLerp = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
+const SEAT_DROP = 4.4;                                    // от седла до ступней всадника: движок опускает таз так, чтобы нижняя нога касалась «земли» (solveRoot), при посадке бёдра ≈ P.y + 4.4
+const sup = { min: new V3_(), max: new V3_() }; let supOn = false;     // подвижная опора под ногами (чтобы физика Ричарда не «приземляла» его на рельеф)
+const setSup = (x, y, z) => { sup.min.set(x - 1.3, y - 0.9, z - 1.3); sup.max.set(x + 1.3, y, z + 1.3); if (!supOn && richard) { richard.solids.push(sup); supOn = true; } };
+const dropSup = () => { if (supOn && richard) { const i = richard.solids.indexOf(sup); if (i >= 0) richard.solids.splice(i, 1); } supOn = false; };
+function setRiding(r) { riding = r; window.__riding = !!r; window.__ridingKind = r ? r.kind : null; if (richard && r) richard.clearKeys(); }
+const setPos = (P, x, y, z, yaw) => { P.pos.set(x, y, z); P.vel.set(0, 0, 0); if (yaw !== undefined) P.yaw = P.yawVis = yaw; setSup(x, y, z); };
+
+/* корабли: палуба = цепочка квадратных опор вдоль корпуса, едет вместе с кораблём */
+const ships = (world.vessels || []).filter(v => v.box && v.ladder);
+for (const v of ships) if (!(v.deckY >= 0.5)) v.deckY = 0.5;      // у малых лодок настил был ниже воды (−0.35…) — твёрдая палуба оказывалась под поверхностью и коллизии «не было»; поднимаем над ватерлинией
+const wp = (v, lx, ly, lz) => { v.g.updateMatrixWorld(true); return v.g.localToWorld(new V3_(lx, ly, lz)); };
+function placeDeck(v) {
+  const g = v.g, y1 = v.y0 + v.deckY * v.s, n = v.deckBoxes.length;
+  v.deckBoxes.forEach((b, i) => { const t = v.deckSpec[i].t, h_ = v.deckSpec[i].h, cx = g.position.x + Math.sin(v.yaw) * t, cz = g.position.z + Math.cos(v.yaw) * t; b.min.set(cx - h_, y1 - 40, cz - h_); b.max.set(cx + h_, y1, cz + h_); b.grab = true; });      // корпус твёрдый до самого дна (внутрь не проплыть), за край палубы можно ухватиться и подтянуться
+  // бортик (фальшборт): столбики по обоим бортам и у носа/кормы — за борт не упасть; у лестницы справа проход свободен (там подтягиваются на палубу), у штурвала на корме тоже
+  const ax = Math.cos(v.yaw), az = -Math.sin(v.yaw), fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rb = v.railBoxes;
+  v.railSpec.forEach((r, i) => { const b = rb[i], cx = g.position.x + fx * r.t + ax * r.lat, cz = g.position.z + fz * r.t + az * r.lat; b.min.set(cx - r.hw, y1 - 0.3, cz - r.hw); b.max.set(cx + r.hw, y1 + r.h, cz + r.hw); });
+  // посадочная площадка: точка, куда приземляет подтягивание (у борта лестницы минус 1.9 внутрь), в любом повороте корабля лежит на настиле
+  const o = wp(v, v.ladder.x + 0.15, 0, v.ladder.z), yw = g.rotation.y, lx = o.x - Math.cos(yw) * 1.9, lz = o.z + Math.sin(yw) * 1.9, h = 1.6;
+  v.padBox.min.set(lx - h, y1 - 40, lz - h); v.padBox.max.set(lx + h, y1, lz + h); v.padBox.grab = true;
+}
+if (richard) for (const v of ships) {
+  // настил покрывает палубу от кормы до носа (раньше только середину 70%, на корме проваливались): коробки разной ширины по форме корпуса — у кормы и носа уже, чтобы за бортом не было невидимой площадки
+  const wf = tn => tn >= 0 ? Math.pow(Math.max(1 - Math.pow(tn, 2.3), 0), 0.7) : 1 - 0.4 * tn * tn;
+  const nB = Math.max(4, Math.ceil(v.L * 0.94 / Math.max(2.5, v.W * 0.3)));
+  v.deckSpec = Array.from({ length: nB }, (_, i) => { const t = ((i + 0.5) / nB - 0.5) * v.L * 0.94, tn = t / (v.L / 2); return { t, h: Math.max(1.6, v.W * 0.5 * wf(tn) * 0.82) }; });
+  v.deckBoxes = v.deckSpec.map(() => ({ min: new V3_(), max: new V3_(), grab: true }));
+  v.padBox = { min: new V3_(), max: new V3_(), grab: true };
+  { const hw = 0.8, hh = Math.min(1.5, 0.45 + v.W * 0.12), ladT = (v.ladder.z || 0) * v.s, ladSide = Math.sign(v.ladder.x) || 1, helmT = v.helm ? v.helm.z * v.s : -v.L * 0.4;      // высота бортика растёт с шириной корабля (1.0…1.5)
+    v.railSpec = [];
+    const add = (t, lat, h) => v.railSpec.push({ t, lat, hw, h });
+    const step = hw * 1.9, tMax = v.L * 0.47;
+    for (let t = -tMax; t <= tMax; t += step) {
+      const tn = t / (v.L / 2), wfn = tn >= 0 ? Math.pow(Math.max(1 - Math.pow(tn, 2.3), 0), 0.7) : 1 - 0.4 * tn * tn, lat = Math.max(1.4, v.W * 0.5 * wfn * 0.82) - 0.1;
+      for (const sd of [-1, 1]) { if (sd === ladSide && Math.abs(t - ladT) < 3.2) continue; add(t, sd * lat, hh); }      // у лестницы — проход
+    }
+    for (const sd of [-1, 0, 1]) { add(tMax + step * 0.5, sd * Math.max(1, v.W * 0.2), hh); }      // нос (узкая часть)
+    for (const sd of [-1, 0, 1]) add(-tMax - step * 0.5, sd * Math.max(1.2, v.W * 0.28), hh);      // корма (транец)
+    v.railBoxes = v.railSpec.map(() => ({ min: new V3_(), max: new V3_(), grab: false })); }
+  placeDeck(v); richard.solids.push(...v.deckBoxes, v.padBox, ...v.railBoxes);
+  if (v.box.solidRef) { const i = richard.solids.indexOf(v.box.solidRef); if (i >= 0) richard.solids.splice(i, 1); }      // прежняя общая коробка заменена цепочкой опор
+}
+/* лестница корабля — такая же, как лестницы шаблона игры: из воды W → лезешь → на верху подтягиваешься на палубу; лестница едет вместе с кораблём */
+const V2 = { x: 0, z: 0 };
+function syncLad(v) {
+  const o = wp(v, v.ladder.x + 0.15, 0, v.ladder.z), yaw = v.g.rotation.y;
+  Object.assign(v.lad, { px: o.x, pz: o.z, hw: 0.7 * v.s, bottom: -6.6, top: v.y0 + v.deckY * v.s });      // top — статичная верхняя грань настила (без качки), как у коробок палубы
+  v.lad.n.x = Math.cos(yaw); v.lad.n.z = -Math.sin(yaw);
+}
+if (richard) for (const v of ships) { v.lad = { px: 0, pz: 0, hw: 1, bottom: -6.6, top: 3, n: { x: 1, z: 0 } }; richard.ladders.push(v.lad); syncLad(v); }
+function sailsTick(dt) {
+  for (const v of ships) if (v.lad) syncLad(v);      // паруса поднимаются/опускаются плавно: скатываются вверх к рее (масштаб по высоте вокруг верхней кромки)
+  for (const v of ships) { v.sailK += ((v.sailsUp ? 1 : 0.07) - v.sailK) * Math.min(1, dt * 0.9); for (const s of v.sails) { s.m.scale.y = v.sailK; s.m.position.y = s.y0 + s.ymax * (1 - v.sailK); } }
+}
+sailsTick(0);
+const deckWorldY = v => v.y0 + v.deckY * v.s;
+const nearBoat = () => null;      // «E — сесть в лодку» убрано: на малые лодки залезают по лестнице/с причала, а E работает только у штурвала (nearHelm)
+const nearHelm = p => { for (const v of ships) { const h = wp(v, v.helm.x, v.helm.y, v.helm.z); if (Math.hypot(h.x - p.x, h.z - p.z) < 5 && Math.abs(p.y - deckWorldY(v)) < 7) return v; } return null; };
+
+function startMount(c) {
+  const P = richard.P; animals.mount(c);
+  setRiding({ kind: 'horse', c, stage: 'mount', t: 0, from: P.pos.clone(), yaw0: P.yaw, cur: '' });
+  richard.play('Посадка', { loop: false, fade: 0.1, restart: true });
+}
+function startDismount() {
+  const P = richard.P, r = riding, s = animals.seat(r.c), sx = s.x + Math.cos(s.yaw) * 5, sz = s.z - Math.sin(s.yaw) * 5;
+  animals.dismount(r.c); r.stage = 'dismount'; r.t = 0; r.from = P.pos.clone(); r.to = new V3_(sx, Math.max(0.3, world.heightAt(sx, sz)), sz); r.yaw0 = P.yaw;
+  richard.play('Падение', { fade: 0.1 });
+}
+function mountedAttack() {      // удар мечом с лошади (J или левая кнопка мыши)
+  if (!richard || mode !== 'walk' || !riding || riding.kind !== 'horse' || riding.stage !== 'ride' || riding.atk > 0 || richard.P.dead) return;
+  riding.atk = 0.7; riding.cur = 'ВерхомУдар'; richard.play('ВерхомУдар', { loop: false, fade: 0.05, restart: true });
+  setTimeout(() => dispatchEvent(new CustomEvent('mountedswing')), 260);      // момент удара — игра проверяет, кого задели (game.js)
+}
+addEventListener('keydown', e => { if (e.code === 'KeyJ' && !e.repeat && !document.activeElement?.matches?.('input')) mountedAttack(); });
+renderer.domElement.addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) mountedAttack(); });
+addEventListener('forcedismount', () => { if (riding && riding.kind === 'horse' && riding.stage === 'ride') startDismount(); });      // погиб в седле — падает с лошади
+addEventListener('keydown', e => {
+  if (!richard || mode !== 'walk') return;
+  if (e.code === 'Space' && riding && riding.kind === 'horse' && riding.stage === 'ride') { if (animals.controllable(riding.c)) animals.jump(riding.c); return; }
+  if (e.code === 'KeyQ' && !e.repeat && riding && riding.kind === 'ship') { riding.v.sailsUp = !riding.v.sailsUp; return; }
+  if (e.code !== 'KeyE' || e.repeat || window.__gunner || window.__dragonOn || window.__dragonNear || window.__leverNear) return;      // у пушки клавишу E обрабатывает game.js
+  const P = richard.P;
+  if (riding) {
+    e.stopImmediatePropagation();
+    if (riding.kind === 'horse' && riding.stage === 'ride') startDismount();
+    else if (riding.kind === 'ship') { setRiding(null); }      // оставили штурвал: корабль идёт дальше сам, если паруса подняты
     return;
   }
-  const f=document.createElement('iframe'); f.src=enc(c.file); stage.appendChild(f);
+  const c = animals.nearRideable(P.pos.x, P.pos.z, 9); if (c) { e.stopImmediatePropagation(); startMount(c); return; }
+  const h = nearHelm(P.pos); if (h) { e.stopImmediatePropagation(); h.rv = 0; setRiding({ kind: 'ship', v: h }); return; }
+  const bt = P.state === 'swim' && richard.ladderNear() ? null : nearBoat(P.pos); if (bt) { e.stopImmediatePropagation(); const w = wp(bt, 0, 0, 0); P.pos.set(w.x, deckWorldY(bt) + 0.1, w.z); P.vel.set(0, 0, 0); return; }      // в лодку: Ричард встаёт на её палубу и ходит по ней; плыть — у штурвала (E у руля)
+}, true);
+
+/* ход корабля: паруса подняты — плывёт сам (штурвал не обязателен, достаточно оставить паруса поднятыми), опущены — тормозит и стоит; штурвал только поворачивает */
+/* столкновения кораблей: каждый — три круга вдоль корпуса; в другой корабль заплыть нельзя (из касания выплыть можно) */
+function shipGap(v, x, z, yaw) {
+  let gap = 1e9; const r1 = Math.max(v.W * 0.5, 3) * 0.9, fx = Math.sin(yaw), fz = Math.cos(yaw);
+  for (const o of ships) {
+    if (o === v || o.sunk) continue;
+    const ox = o.g.position.x, oz = o.g.position.z; if (Math.hypot(ox - x, oz - z) > (v.L + o.L) * 0.6 + 4) continue;
+    const r2 = Math.max(o.W * 0.5, 3) * 0.9, gx = Math.sin(o.yaw), gz = Math.cos(o.yaw);
+    for (const a of [-0.3, 0, 0.3]) for (const b of [-0.3, 0, 0.3]) gap = Math.min(gap, Math.hypot(x + fx * a * v.L - (ox + gx * b * o.L), z + fz * a * v.L - (oz + gz * b * o.L)) - r1 - r2);
+  }
+  return gap;
 }
-const start = Math.min(Math.max(parseInt(location.hash.slice(1))||0,0),CHARS.length-1);
-show(start,CHARS[start].btn);
+function stepShip(v, dt, turn, run) {
+  const g = v.g, B = world.bounds, sf = Math.max(0, (v.sailK - 0.07) / 0.93), sp = lerpN(4, run ? 21 : 13, sf);      // скорость корабля = скорость Ричарда (бег 13, с Shift 21)
+  v.rv += ((v.sailsUp ? sp : 0) - v.rv) * Math.min(1, dt * 0.7);
+  { const y0_ = v.yaw, ny = y0_ + turn * 0.55 * dt * Math.min(1, 0.25 + Math.abs(v.rv) / 8), px = g.position.x, pz = g.position.z; v.yaw = (ny !== y0_ && shipGap(v, px, pz, ny) < 0 && shipGap(v, px, pz, ny) < shipGap(v, px, pz, y0_)) ? y0_ : ny; }
+  const dx = Math.sin(v.yaw), dz = Math.cos(v.yaw), nx = g.position.x + dx * v.rv * dt, nz = g.position.z + dz * v.rv * dt, la = Math.sign(v.rv || 1) * v.L * 0.45;
+  if (world.heightAt(nx + dx * la, nz + dz * la) < -3.5 && world.heightAt(nx, nz) < -3.5 && nx > B.x0 && nx < B.x1 && nz > B.z0 && nz < B.z1 && !(shipGap(v, nx, nz, v.yaw) < 0 && shipGap(v, nx, nz, v.yaw) < shipGap(v, g.position.x, g.position.z, v.yaw))) { g.position.x = nx; g.position.z = nz; } else v.rv *= 0.3;
+  g.rotation.y = v.yaw; placeDeck(v);
+  if (v.wheel) v.wheel.rotation.z -= turn * dt * 2.5;
+  v.heel += (-turn * Math.min(1, Math.abs(v.rv) / 16) * 0.025 - (v.heel || 0)) * Math.min(1, dt * 2);
+}
+const onDeck = (v, p) => Math.abs(p.y - deckWorldY(v)) < 1.4 && v.deckBoxes.some(b => p.x > b.min.x - 0.3 && p.x < b.max.x + 0.3 && p.z > b.min.z - 0.3 && p.z < b.max.z + 0.3);
+function sailShips(dt) {          // корабли без рулевого: если паруса подняты — продолжают плыть; стоящие на палубе едут вместе с ними
+  const P = richard.P;
+  for (const v of ships) {
+    if (riding && riding.kind === 'ship' && riding.v === v) continue;
+    if (v.remote || v.frozen || v.sunk) continue;      // чужие корабли в сетевом режиме двигает их хозяин
+    if (!(v.sailsUp || Math.abs(v.rv) > 0.05)) continue;
+    const ox = v.g.position.x, oz = v.g.position.z, oy = v.yaw, carry = onDeck(v, P.pos) && !riding;
+    stepShip(v, dt, 0, false);
+    if (carry) { const th = v.yaw - oy, rx = P.pos.x - ox, rz = P.pos.z - oz; P.pos.x = v.g.position.x + rx * Math.cos(th) + rz * Math.sin(th); P.pos.z = v.g.position.z - rx * Math.sin(th) + rz * Math.cos(th); }
+  }
+}
+function unstickShips(P) {          // упал за борт и оказался внутри коробки корпуса: выталкиваем наружу по кратчайшему пути (иначе застреваешь в борту)
+  if (!P || !['swim', 'air', 'ground'].includes(P.state)) return;
+  for (const v of ships) for (const b of v.deckBoxes) {
+    if (P.pos.y >= b.max.y - 0.35 || P.pos.y <= b.min.y) continue;
+    const px = P.pos.x, pz = P.pos.z; if (px <= b.min.x || px >= b.max.x || pz <= b.min.z || pz >= b.max.z) continue;
+    const d = [[px - b.min.x, -1, 0], [b.max.x - px, 1, 0], [pz - b.min.z, 0, -1], [b.max.z - pz, 0, 1]].sort((a, c) => a[0] - c[0])[0];
+    if (P.pos.y > b.max.y - 1.2) continue;      // стоит на самой кромке палубы — не трогаем
+    P.pos.x += d[1] * (d[0] + 0.8); P.pos.z += d[2] * (d[0] + 0.8); P.vel.x = P.vel.z = 0; return;
+  }
+}
+function rideUpdate(dt) {
+  const P = richard.P, fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), turn = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0), run = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  sailShips(dt);
+  if (!riding) {
+    if (window.__dragonOn) { rideEl.style.display = 'none'; return; }
+    const c = animals.nearRideable(P.pos.x, P.pos.z, 9), bt = c || (P.state === 'swim' && richard.ladderNear()) ? null : nearBoat(P.pos), h = c || bt ? null : nearHelm(P.pos), l = c || bt || h || P.state !== 'swim' ? null : richard.ladderNear();
+    rideEl.style.display = (c || bt || h || l) && !P.dead ? 'block' : 'none';
+    rideEl.textContent = bt ? 'E — сесть в лодку' : c ? (animals.controllable(c) ? 'E — сесть на лошадь (с седлом: можно управлять)' : 'E — сесть (без седла: лошадь идёт сама)') : h ? 'E — встать к штурвалу (плыть можно только отсюда)' : l ? 'W — лезть по лестнице на борт' : '';
+    return;
+  }
+  const r = riding; rideEl.style.display = 'block';
+  if (r.kind === 'horse') {
+    const c = r.c;
+    if (r.stage === 'mount') {
+      r.t += dt; const u = Math.min(1, r.t / 1.1), e = easeN(u), s = animals.seat(c);
+      setPos(P, lerpN(r.from.x, s.x, e), lerpN(r.from.y, s.y - SEAT_DROP, e) + Math.sin(Math.PI * u) * 2.2, lerpN(r.from.z, s.z, e), angLerp(r.yaw0, s.yaw, e));
+      rideEl.textContent = '';
+      if (u >= 1) { r.stage = 'ride'; r.cur = 'Верхом'; richard.play('Верхом', { fade: 0.2 }); }
+    } else if (r.stage === 'ride') {
+      const ctl = animals.controllable(c); if (ctl) animals.rideStep(c, fwd, turn, run, dt); const s = animals.seat(c);
+      setPos(P, s.x, s.y - SEAT_DROP, s.z, s.yaw);
+      if (r.atk > 0) { r.atk -= dt; if (r.atk <= 0) r.cur = ''; }      // идёт удар с лошади — позу «Верхом» не навязываем
+      else { const want = c.jy > 0.3 ? 'ВерхомПрыжок' : 'Верхом'; if (r.cur !== want) { r.cur = want; richard.play(want, { fade: 0.12 }); } }
+      rideEl.textContent = ctl ? 'W/S · A/D · Shift — галоп · Пробел — прыжок · E — слезть' : 'Лошадь без седла не слушается — она идёт сама · E — слезть';
+    } else {
+      r.t += dt; const u = Math.min(1, r.t / 0.6), e = easeN(u);
+      setPos(P, lerpN(r.from.x, r.to.x, e), lerpN(r.from.y, r.to.y, e) + Math.sin(Math.PI * u) * 2.5, lerpN(r.from.z, r.to.z, e), angLerp(r.yaw0, r.yaw0, 0));
+      if (u >= 1) { richard.release(); dropSup(); P.pos.set(r.to.x, r.to.y, r.to.z); setRiding(null); }
+    }
+    return;
+  }
+  // корабль: штурвал
+  rideEl.textContent = 'Q — ' + (r.v.sailsUp ? 'спустить паруса (встать)' : 'поднять паруса (плыть)') + ' · A/D — поворот · Shift — быстрее · E — оставить штурвал (при поднятых парусах корабль поплывёт сам)';
+  const v = r.v; stepShip(v, dt, turn, run);
+  const h = wp(v, v.helm.x, v.helm.y, v.helm.z); P.pos.set(h.x, deckWorldY(v) + 0.02, h.z); P.vel.set(0, 0, 0); P.yaw = P.yawVis = v.yaw;
+}
+
+for (const v of ships) v.init = { x: v.g.position.x, z: v.g.position.z, yaw: v.yaw, y0: v.y0 };
+/* пушки: по три на каждом борту (слоты 0–2 левый, 3–5 правый). Позиции считает и сервер по тем же формулам: вдоль корпуса −0.25L / 0 / +0.25L, от борта на 1.3 внутрь */
+function buildCannons(v) {
+  const iron = new THREE.MeshStandardMaterial({ color: 0x2b2b30, roughness: 0.45, metalness: 0.7 }), wood = new THREE.MeshStandardMaterial({ color: 0x5a3a1e, roughness: 0.85 });
+  v.guns = [];
+  for (let i = 0; i < 6; i++) {
+    const side = i < 3 ? -1 : 1, along = [-0.25, 0, 0.25][i % 3], grp = new THREE.Group(), pivot = new THREE.Group(), barrel = new THREE.Group();
+    grp.position.set(side * (v.W * 0.5 - 1.3) / v.s, v.deckY, along * v.L / v.s); grp.scale.setScalar(1 / v.s);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 2.4), wood); base.position.y = 0.45; grp.add(base);
+    for (const sx of [-1, 1]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10), iron); w.rotation.z = Math.PI / 2; w.position.set(sx * 0.95, 0.42, 0); grp.add(w); }
+    pivot.position.y = 1.15; pivot.rotation.y = side * Math.PI / 2; grp.add(pivot);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.52, 3.2, 12), iron); tube.rotation.x = Math.PI / 2; tube.position.z = 0.9; barrel.add(tube);
+    const muzzle = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.1, 6, 12), iron); muzzle.position.z = 2.5; barrel.add(muzzle);
+    pivot.add(barrel); v.g.add(grp); v.guns.push({ grp, pivot, barrel, side, along, recoil: 0 });
+  }
+}
+for (const v of ships) buildCannons(v);
+const shipsApi = {                    // для режима «Морской бой» (game.js): корабли, их позы, посадка на штурвал, потопление
+  list: ships,
+  setPose(v, x, z, yaw) { v.g.position.x = x; v.g.position.z = z; v.yaw = yaw; v.g.rotation.y = yaw; placeDeck(v); },
+  reset() { for (const v of ships) { v.remote = v.frozen = v.sunk = false; v.sailsUp = false; v.rv = 0; v.heel = 0; v.y0 = v.init.y0; v.g.visible = true; this.setPose(v, v.init.x, v.init.z, v.init.yaw); } },
+  freeze(v, on) { v.frozen = on; if (on) { v.sailsUp = false; v.rv = 0; } },
+  board(v) { const P = richard.P, h = wp(v, v.helm.x, v.helm.y, v.helm.z); P.pos.set(h.x, deckWorldY(v) + 0.05, h.z); P.vel.set(0, 0, 0); v.rv = 0; setRiding({ kind: 'ship', v }); },
+  release() { if (riding && riding.kind === 'ship') setRiding(null); },
+  deckY: v => deckWorldY(v),
+  nearHelm: () => !!nearHelm(richard.P.pos),
+  setPoseCarry(v, x, z, yaw) {          // чужой корабль переместился: если я стою на его палубе — еду вместе с ним
+    const P = richard.P, carry = !riding && onDeck(v, P.pos), ox = v.g.position.x, oz = v.g.position.z, oy = v.yaw;
+    this.setPose(v, x, z, yaw);
+    if (carry) { const th = yaw - oy, rx = P.pos.x - ox, rz = P.pos.z - oz; P.pos.x = x + rx * Math.cos(th) + rz * Math.sin(th); P.pos.z = z - rx * Math.sin(th) + rz * Math.cos(th); }
+  },
+  riding: () => (riding && riding.kind === 'ship' ? riding.v : null),
+  sink(v, dt) { v.sunk = true; v.sailsUp = false; v.y0 = Math.max(v.y0 - 1.7 * dt, -16); v.heel += (0.5 - v.heel) * Math.min(1, dt * 0.6); placeDeck(v); if (v.y0 <= -15) v.g.visible = false; },
+};
+if (richard) gameMode = startGame({ net, richard, world, scene, THREE, ships: shipsApi });
+let dragons = null; if (richard) { try { dragons = createDragons({ THREE, scene, world, richard, net, camera, renderer }); } catch (e) { console.error('драконы', e); } }
+if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode, ships: shipsApi, getDbg: () => gameMode && gameMode.dbg });      // миникарта: где второй игрок (N — размер)
+
+/* цикл */
+const clock = new THREE.Clock(); let T = 0, todF = 0;
+let streamSkip = false;
+renderer.setAnimationLoop(now => {
+  if (window.__stream) { streamSkip = !streamSkip; if (streamSkip) return; }      // стрим-вкладка: 30 кадров в секунду (больше всё равно не отправляется) — вдвое меньше работы на каждого стрим-игрока
+  const rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.25); T += dt;      // потолок 0.25 с: корабли и анимации идут в реальном времени и при низком FPS
+  { adapt.t += rawDt; adapt.n++; if (adapt.t > 1.5) { const fps = adapt.n / adapt.t; adapt.t = adapt.n = 0;      // авто-разрешение: мало кадров — снижаем чёткость, много — возвращаем
+      if (!document.hidden) { let pr = renderer.getPixelRatio(); const lowF = window.__stream ? 24 : 30, highF = window.__stream ? 28 : 56, floor = 0.75; if (fps < lowF && pr > floor) pr = Math.max(floor, pr - 0.25); else if (fps > highF && pr < adapt.max) pr = Math.min(adapt.max, pr + 0.25);
+        if (pr !== renderer.getPixelRatio()) { renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight); } } } }
+  if (tod.auto) tod.t = (tod.t + dt / tod.len) % 1;
+  if ((todF = (todF + 1) % 3) === 0) { if (tod.auto) $('tod').value = tod.t; applyTod(); }      // смена дня медленная: небо и свет пересчитываем 20 раз в секунду, а не каждый кадр
+  net.update(dt); if (dragons) dragons.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
+  if (mode === 'walk' && richard) {
+    const p = richard.P.pos;                                  // животные и жители твёрдые: выталкиваем Ричарда
+    rideUpdate(dt); if (!riding && !window.__dragonOn) unstickShips(richard.P);
+    for (const b of riding || window.__dragonOn ? [] : [...animals.bodies(), ...(npcs.bodies ? npcs.bodies() : []), ...net.bodies()]) {
+      if (Math.abs(p.y - b.y) > 6) continue;
+      const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz), m = b.r + 1.1;
+      if (d < m) { const k = d > 1e-3 ? m / d : 0; if (k) { p.x = b.x + dx * k; p.z = b.z + dz * k; } else p.x += m; }
+    }
+    richard.loop(now);
+  }
+  else {
+    controls.update();
+    const sd = sun.userData.dir || [0.5, 1, 0.4]; sun.position.set(controls.target.x + sd[0] * 240, controls.target.y + sd[1] * 240, controls.target.z + sd[2] * 240); sun.target.position.copy(controls.target); sun.target.updateMatrixWorld();
+    renderer.render(scene, camera);
+  }
+  window.READY = true;
+});
 </script>
 </body>
 </html>

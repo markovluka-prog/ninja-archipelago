@@ -5,12 +5,12 @@
 
 ## Запуск (мультиплеер)
 ```
-node server.js            # http://localhost:8080/karta3d.html  (Node 18+, без зависимостей)
+node server.js            # http://localhost:8080/index.html  (Node 18+, без зависимостей)
 ```
-Второй игрок открывает ту же ссылку (в локальной сети — `http://<IP>:8080/karta3d.html`) и вводит тот же код комнаты.
+Второй игрок открывает ту же ссылку (в локальной сети — `http://<IP>:8080/index.html`) и вводит тот же код комнаты.
 
 ## GitHub Pages
 Pages отдаёт только статику, поэтому без сервера игра работает в одиночном режиме.
 Чтобы играть вдвоём со страницы Pages, запустите `node server.js` и откройте туннель (например `cloudflared tunnel --url http://localhost:8080`), затем откройте страницу Pages со ссылкой:
 
-`.../karta3d.html?server=<адрес-туннеля>`  (например `?server=abc-def.trycloudflare.com`)
+`.../index.html?server=<адрес-туннеля>`  (например `?server=abc-def.trycloudflare.com`)

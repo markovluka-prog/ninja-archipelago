@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Ниндзи — 3D персонажи</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--ink:#2a2723;--mute:#7a746b;--accent:#b8861b;--ok:#3f8f5a;--wip:#c27a1a;--card:#fff}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font:14px/1.4 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+  body{background:radial-gradient(ellipse at 50% 20%,#f6f4ef 0%,#e4e1d9 60%,#c9c5bb 100%);display:flex;flex-direction:column}
+  header{padding:18px 24px 6px}
+  h1{margin:0;font-size:22px}
+  header p{margin:2px 0 0;color:var(--mute)}
+  main{flex:1;display:flex;gap:16px;padding:12px 24px 24px;min-height:0}
+  .list{width:340px;flex:none;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}
+  .card{display:flex;gap:12px;align-items:center;background:var(--card);border:2px solid transparent;border-radius:14px;
+        padding:10px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.08);text-align:left;font:inherit;color:inherit;width:100%}
+  .card:hover{border-color:#d9c58f}
+  .card.sel{border-color:var(--accent)}
+  .thumb{width:64px;height:64px;border-radius:10px;background:#ece8de;flex:none;object-fit:cover;display:grid;place-items:center;font-size:26px;overflow:hidden}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .meta b{display:block;font-size:15px}
+  .meta span{color:var(--mute);font-size:12px}
+  .meta .tag{color:#fff;display:inline-block;margin-top:4px;padding:1px 8px;border-radius:99px;font-size:11px;color:#fff}
+  .tag.ok{background:var(--ok)} .tag.wip{background:var(--wip)}
+  .stage{flex:1;min-width:0;background:rgba(255,255,255,.6);border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.12);display:flex;flex-direction:column;overflow:hidden}
+  .bar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #e0dccf}
+  .bar b{flex:1}
+  .bar a{color:var(--accent);text-decoration:none;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:5px 10px}
+  iframe{flex:1;border:0;width:100%;background:transparent}
+  .empty{flex:1;display:grid;place-items:center;color:var(--mute);text-align:center;padding:24px}
+  @media(max-width:800px){main{flex-direction:column}.list{width:100%;flex-direction:row;overflow-x:auto}.card{min-width:240px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ниндзи — 3D персонажи</h1>
+  <p>Выберите героя слева. Каждая модель — отдельный HTML-файл (нужен интернет для Three.js).</p>
+</header>
+<main>
+  <div class="list" id="list"></div>
+  <div class="stage" id="stage"></div>
+</main>
+<script>
+// ready:true — модель готова; false — ещё делается (кнопка откроется, как только файл появится).
+const CHARS = [
+  {name:'Ричард Львиное Сердце', role:'Главный ниндзя',      file:'Ричард/3D/richard.html',  prev:null,                          ready:true,  icon:'🦁'},
+  {name:'Бэн Соммерс',           role:'Преемник Ричарда, друг',     file:'Бэн/3D/ben.html',          prev:'Бэн/3D/preview_front.png',     ready:true, icon:'🛡️'},
+  {name:'Маг Соколин',           role:'Гарпунер, злой ниндзя',file:'Соколин/3D/sokolin.html', prev:'Соколин/3D/preview_front.png', ready:true,  icon:'🦅'},
+  {name:'Зантио',                role:'Капитан, шпагоносец', file:'Зантио/3D/zantio.html',    prev:'Зантио/3D/preview_front.png',  ready:true,  icon:'🎩'},
+  {name:'Чжэнь Ши',              role:'Самурай, абордажник', file:'Чжен Ши/3D/zhenshi.html',  prev:'Чжен Ши/3D/preview_three.png',ready:true,  icon:'🗡️'},
+  {name:'NPC — жители (15 видов)', role:'Рыбак, кузнец, торговка, стражи, пират, монах, дама, плотник, ребёнок, знахарка, матрос…', file:'npc/index.html', prev:'npc/preview_all.png', ready:true, icon:'🧑‍🤝‍🧑'},
+  {name:'Остров',                role:'Локация: домик, гора, причал', file:'island.html', prev:null, ready:true, icon:'🏝️'},
+  {name:'Карта острова',         role:'Карта большого острова (≈32×22 км)', file:'map.html', prev:null, ready:true, icon:'🗺️'},
+  {name:'Рисуем карту',          role:'Редактор: рисуй свою карту острова', file:'draw-map.html', prev:null, ready:true, icon:'✏️'},
+  {name:'Архипелаг (подробно)',  role:'Город, порт, озеро, дороги — можно дорисовывать', file:'draw-map.html?karta=archipelag', prev:null, ready:true, icon:'🧭'},
+];
+const list = document.getElementById('list'), stage = document.getElementById('stage');
+const enc = p => { const [a, q] = p.split('?'); return a.split('/').map(encodeURIComponent).join('/') + (q ? '?' + q : ''); };
+
+CHARS.forEach((c,i)=>{
+  const b = document.createElement('button'); b.className='card';
+  const th = document.createElement('div'); th.className='thumb';
+  if(c.prev){ const im=new Image(); im.src=enc(c.prev); im.onerror=()=>{th.textContent=c.icon; im.remove()}; th.appendChild(im);} else th.textContent=c.icon;
+  const m = document.createElement('div'); m.className='meta';
+  m.innerHTML = `<b>${c.name}</b><span>${c.role}</span><br><span class="tag ${c.ready?'ok':'wip'}">${c.ready?'готов':'в работе'}</span>`;
+  b.append(th,m); b.onclick=()=>show(i,b); list.appendChild(b);
+  c.btn=b;
+});
+
+function show(i,btn){
+  const c=CHARS[i];
+  document.querySelectorAll('.card').forEach(x=>x.classList.toggle('sel',x===btn));
+  location.hash=i;
+  stage.innerHTML='';
+  const bar=document.createElement('div'); bar.className='bar';
+  bar.innerHTML=`<b>${c.name}</b><a href="${enc(c.file)}" target="_blank">Открыть отдельно ↗</a>`;
+  stage.appendChild(bar);
+  if(!c.ready){
+    const e=document.createElement('div'); e.className='empty';
+    e.innerHTML=`<div><div style="font-size:42px">${c.icon}</div><p>Модель «${c.name}» ещё делается.<br>Файл появится здесь: <code>${c.file}</code></p>
+      <button class="card" style="width:auto;display:inline-block;padding:8px 14px" id="try">Попробовать открыть всё равно</button></div>`;
+    stage.appendChild(e);
+    e.querySelector('#try').onclick=()=>{c.ready=true; show(i,btn)};
+    return;
+  }
+  const f=document.createElement('iframe'); f.src=enc(c.file); stage.appendChild(f);
+}
+const start = Math.min(Math.max(parseInt(location.hash.slice(1))||0,0),CHARS.length-1);
+show(start,CHARS[start].btn);
+</script>
+</body>
+</html>

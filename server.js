@@ -1,6 +1,6 @@
 // server.js — раздаёт проект по HTTP и работает как сервер для игры вдвоём (WebSocket /ws), без внешних зависимостей.
-// Запуск:  node server.js [порт]      (по умолчанию 8080)   →  открыть http://localhost:8080/karta3d.html
-// Для второго игрока: открыть тот же адрес с другого окна/компьютера (в локальной сети — http://<IP-этого-компьютера>:8080/karta3d.html).
+// Запуск:  node server.js [порт]      (по умолчанию 8080)   →  открыть http://localhost:8080/
+// Для второго игрока: открыть тот же адрес с другого окна/компьютера (в локальной сети — http://<IP-этого-компьютера>:8080/).
 // Лобби: каждый вошедший сначала в меню — выбирает имя и персонажа (одинаковых нельзя), нажимает «Добавить игрока» / «Убрать игрока».
 // Закрыл вкладку — его персонаж у остальных погибает (leave с dead:true), а сам персонаж освобождается.
 'use strict';
@@ -20,7 +20,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 const server = http.createServer((req, res) => {
   let p; try { p = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400); return res.end('bad url'); }
   if (p === '/') p = '/index.html';
-  if (p === '/karta3d.html' && STREAM.enabled && !STREAM.isHost(req) && !new URL(req.url, 'http://x').searchParams.has('full')) p = '/stream.html';      // не хозяин: картинку игры отдаём стримом, Three.js у него не запускается
+  if ((p === '/index.html' || p === '/karta3d.html') && STREAM.enabled && !STREAM.isHost(req) && !new URL(req.url, 'http://x').searchParams.has('full')) p = '/stream.html';      // не хозяин: картинку игры отдаём стримом, Three.js у него не запускается
   const file = path.normalize(path.join(ROOT, p));
   if (file !== ROOT && !file.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end('forbidden'); }      // строго внутри папки проекта (префикс ROOT без разделителя пропускал бы соседние папки)
   if (/(^|[\\/])\./.test(path.relative(ROOT, file)) || /\.heic$/i.test(file) || /[\\/](coins\.json|out2\.txt)$/.test(file)) { res.writeHead(404); return res.end('not found'); }      // личное не раздаём: скрытые файлы (.git), фото HEIC, монеты игроков
@@ -451,6 +451,6 @@ setInterval(() => { for (const room of [...rooms.values()]) inRoom(room, tick); 
 
 server.listen(PORT, () => {
   const nets = require('os').networkInterfaces(), ips = Object.values(nets).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => n.address);
-  console.log(`Сервер игры: http://localhost:${PORT}/karta3d.html`);
-  for (const ip of ips) console.log(`  для второго игрока в сети: http://${ip}:${PORT}/karta3d.html`);
+  console.log(`Сервер игры: http://localhost:${PORT}/`);
+  for (const ip of ips) console.log(`  для второго игрока в сети: http://${ip}:${PORT}/`);
 });

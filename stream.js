@@ -1,5 +1,5 @@
 // stream.js — «пиксельный стрим»: игроки, которые зашли НЕ с компьютера хозяина, не запускают Three.js у себя.
-// Для каждого такого игрока на машине хозяина поднимается свой безголовый Chrome-вкладка (отдельный профиль), в ней открывается обычная игра (karta3d.html?full=1),
+// Для каждого такого игрока на машине хозяина поднимается свой безголовый Chrome-вкладка (отдельный профиль), в ней открывается обычная игра (index.html?full=1),
 // а её картинка (JPEG-кадры CDP screencast) летит игроку по WebSocket /stream; клавиши, мышь и колесо летят обратно и подаются в ту вкладку.
 // Хозяин (открыл с этого же компьютера без прокси) играет как раньше — напрямую. Принудительно полный клиент: добавить ?full=1 к ссылке.
 'use strict';
@@ -99,7 +99,7 @@ async function openSession(sock, q) {
     await s('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
     await s('Page.addScriptToEvaluateOnNewDocument', { source: SHIM });
     const qs = new URLSearchParams({ full: '1' }); if (/^\d{3}$/.test(q.room || '')) qs.set('room', q.room);
-    await s('Page.navigate', { url: `http://127.0.0.1:${q.port}/karta3d.html?${qs}` });
+    await s('Page.navigate', { url: `http://127.0.0.1:${q.port}/index.html?${qs}` });
     s('Page.bringToFront').catch(() => {});
     for (let i = 0; ; i++) { try { await s('Page.startScreencast', { format: 'jpeg', quality: S.q, maxWidth: w, maxHeight: h, everyNthFrame: S.nth }); break; } catch (e) { if (i >= 20 || S.closed) throw e; await sleep(400); } }      // сразу после navigate вкладка иногда ещё не «активна»
     toThin({ t: 'ready', w, h });
