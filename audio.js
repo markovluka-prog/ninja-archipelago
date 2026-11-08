@@ -18,7 +18,7 @@ export function createAudio({ world, richard, net }) {
     ctx = new AC(); const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5; comp.connect(ctx.destination);
     master = ctx.createGain(); master.gain.value = muted ? 0 : 0.85; master.connect(comp);
     musicG = ctx.createGain(); musicG.gain.value = 0.28; musicG.connect(master);
-    sfxG = ctx.createGain(); sfxG.gain.value = 0.75; sfxG.connect(master);
+    sfxG = ctx.createGain(); sfxG.gain.value = 1.15; sfxG.connect(master);
     ambG = ctx.createGain(); ambG.gain.value = 0.6; ambG.connect(master);
     const n = ctx.sampleRate * 2; noiseW = ctx.createBuffer(1, n, ctx.sampleRate); noiseB = ctx.createBuffer(1, n, ctx.sampleRate);
     const w = noiseW.getChannelData(0), b = noiseB.getChannelData(0); let last = 0; for (let i = 0; i < n; i++) { const x = Math.random() * 2 - 1; w[i] = x; last = (last + 0.02 * x) / 1.02; b[i] = last * 3.5; }      // белый и «коричневый» шум
@@ -26,8 +26,9 @@ export function createAudio({ world, richard, net }) {
     delayIn = ctx.createGain(); delayIn.gain.value = 0.55; delayIn.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(musicG);      // эхо для арпеджио
     startAmbient(); return ctx;
   }
-  const unlock = () => { if (ensure()) { removeEventListener('pointerdown', unlock); removeEventListener('keydown', unlock); } };
-  addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
+  const EVS = ['pointerdown', 'mousedown', 'click', 'touchend', 'keydown'];
+  const unlock = () => { const c = ensure(); if (c && c.state === 'running') for (const e of EVS) removeEventListener(e, unlock, true); else if (c) c.resume().catch(() => {}); };
+  for (const e of EVS) addEventListener(e, unlock, true);      // в фазе перехвата: поля меню гасят всплытие клавиш, а звук всё равно должен включиться
 
   /* ───── кирпичики ───── */
   function tone({ f = 440, f2 = null, type = 'sine', a = 0.005, d = 0.2, v = 0.3, at = 0, out = null, detune = 0 }) {
@@ -43,13 +44,13 @@ export function createAudio({ world, richard, net }) {
 
   /* ───── эффекты ───── */
   const SFX = {
-    step_grass: v => noise({ dur: 0.1, f: rnd(380, 600), v: 0.16 * v, brown: true }),
-    step_sand: v => noise({ dur: 0.12, f: rnd(700, 1100), v: 0.13 * v }),
+    step_grass: v => { noise({ dur: 0.1, f: rnd(380, 600), v: 0.16 * v, brown: true }); noise({ dur: 0.05, type: 'highpass', f: 2800, v: 0.05 * v }); },
+    step_sand: v => { noise({ dur: 0.12, f: rnd(700, 1100), v: 0.13 * v }); noise({ dur: 0.06, type: 'highpass', f: 3500, v: 0.04 * v }); },
     step_stone: v => { noise({ dur: 0.06, type: 'bandpass', f: rnd(1700, 2400), q: 2, v: 0.2 * v }); tone({ f: rnd(150, 190), f2: 90, d: 0.07, v: 0.1 * v }); },
     step_wood: v => { tone({ f: rnd(110, 150), f2: 70, type: 'triangle', d: 0.09, v: 0.22 * v }); noise({ dur: 0.05, type: 'bandpass', f: 900, q: 1.5, v: 0.1 * v }); },
     step_water: v => noise({ dur: 0.18, type: 'bandpass', f: rnd(900, 1500), f2: 500, q: 1, v: 0.16 * v }),
-    jump: v => { tone({ f: 200, f2: 420, type: 'triangle', d: 0.13, v: 0.1 * v }); noise({ dur: 0.1, type: 'highpass', f: 1500, v: 0.05 * v }); },
-    land: v => { tone({ f: 120, f2: 55, d: 0.16, v: 0.3 * v }); noise({ dur: 0.14, f: 500, v: 0.2 * v, brown: true }); },
+    jump: v => { tone({ f: 260, f2: 620, type: 'triangle', d: 0.14, v: 0.1 * v }); noise({ dur: 0.1, type: 'highpass', f: 1500, v: 0.05 * v }); },
+    land: v => { tone({ f: 120, f2: 55, d: 0.16, v: 0.3 * v }); noise({ dur: 0.14, f: 500, v: 0.2 * v, brown: true }); noise({ dur: 0.08, type: 'highpass', f: 2200, v: 0.06 * v }); },
     swing: v => noise({ dur: 0.2, type: 'bandpass', f: 700, f2: 2600, q: 1.2, a: 0.04, v: 0.2 * v }),
     whoosh: v => noise({ dur: 0.35, type: 'bandpass', f: 300, f2: 1400, q: 0.8, a: 0.1, v: 0.22 * v }),
     clang: v => { for (const f of [820, 1330, 2210]) tone({ f, f2: f * 0.985, type: 'square', d: 0.35, v: 0.05 * v }); noise({ dur: 0.05, type: 'highpass', f: 3000, v: 0.12 * v }); },
@@ -71,15 +72,17 @@ export function createAudio({ world, richard, net }) {
     start: v => [0, 7, 12].forEach((s, i) => tone({ f: 330 * Math.pow(2, s / 12), type: 'sawtooth', a: 0.02, d: 0.5, v: 0.07 * v, at: i * 0.14 })),
     win: v => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone({ f: 392 * Math.pow(2, s / 12), type: 'triangle', a: 0.01, d: 0.8, v: 0.12 * v, at: i * 0.12 })),
     kill: v => { tone({ f: 520, f2: 260, type: 'square', d: 0.15, v: 0.06 * v }); noise({ dur: 0.12, type: 'bandpass', f: 1200, v: 0.1 * v }); },
-    chirp: v => { const f = rnd(2300, 3600), n = 2 + Math.floor(Math.random() * 3); for (let i = 0; i < n; i++) tone({ f, f2: f * rnd(0.7, 1.4), d: 0.07, v: 0.035 * v, at: i * 0.1 }); },
+    chirp: v => { const f = rnd(1900, 2900), n = 2 + Math.floor(Math.random() * 2); for (let i = 0; i < n; i++) tone({ f, f2: f * rnd(1.15, 1.5), a: 0.02, d: 0.16, v: 0.012 * v, at: i * 0.22 }); },      // тихая мягкая трель вдали
     gull: v => { tone({ f: 900, f2: 1500, type: 'sawtooth', a: 0.05, d: 0.35, v: 0.03 * v }); tone({ f: 1400, f2: 800, type: 'sawtooth', a: 0.05, d: 0.3, v: 0.025 * v, at: 0.35 }); },
-    cricket: v => { for (let i = 0; i < 3; i++) tone({ f: 4300, d: 0.035, v: 0.015 * v, at: i * 0.06 }); },
+    cricket: v => { for (let i = 0; i < 3; i++) tone({ f: 3800, a: 0.01, d: 0.05, v: 0.006 * v, at: i * 0.08 }); },
   };
   const gap = { step_grass: 0.07, step_sand: 0.07, step_stone: 0.07, step_wood: 0.07, step_water: 0.07, flap: 0.25, hoof: 0.05, clank: 0.08, chirp: 0.5, cricket: 0.2 }, lastAt = {};
+  // низкие и тихие звуки на динамиках ноутбука почти не слышны — поднимаем их (и добавляем «щелчки» повыше)
+  const BOOST = { step_grass: 2.4, step_sand: 2.2, step_stone: 1.6, step_wood: 1.8, step_water: 2, jump: 2.2, land: 2, swing: 2.4, clang: 1.6, thunk: 2.2, ping: 1.6, shoot: 2.4, draw: 2.2, arrowhit: 2.4, hurt: 1.8, death: 1.5, splash: 2, hoof: 2.2, flap: 1.8, scrape: 1.8, clank: 1.6, whoosh: 1.8, roar: 1.5, boom: 1.4 };
   function play(name, v = 1) {
     if (!ctx || ctx.state !== 'running' || muted || !SFX[name]) return;
     const t = performance.now() / 1000; if (t - (lastAt[name] || 0) < (gap[name] || 0.03)) return; lastAt[name] = t;
-    try { SFX[name](v); } catch { /* звук не должен ломать игру */ }
+    try { SFX[name](v * (BOOST[name] || 1)); } catch { /* звук не должен ломать игру */ }
   }
   window.__snd = play;
 
@@ -164,8 +167,8 @@ export function createAudio({ world, richard, net }) {
   document.body.appendChild(btn);
 
   /* ───── слежение за игрой: шаги, прыжки, удары, раны, вода, ветер ───── */
-  let prevSt = '', prevHp = P.hp, prevDead = false, stepAcc = 0, lastX = P.pos.x, lastZ = P.pos.z, minVy = 0, ambT = 0, birdT = rnd(3, 8), hoofAcc = 0, ladderAcc = 0;
-  const sm = { water: 0, wind: 0 };
+  let prevSt = '', prevHp = P.hp, prevDead = false, stepAcc = 0, lastX = P.pos.x, lastZ = P.pos.z, minVy = 0, ambT = 0, birdT = rnd(3, 8), hoofAcc = 0, ladderAcc = 0, swimAcc = 0;
+  const sm = { water: 0, wind: 0 }; let resumeT = 1;
   function surface() {
     const h = hAt(P.pos.x, P.pos.z);
     if (P.pos.y > h + 1.5) return 'wood';       // стоим выше земли — на настиле/крыше/палубе
@@ -183,12 +186,14 @@ export function createAudio({ world, richard, net }) {
     if (st === 'air' || st === 'glide') minVy = 0;
   }
   function update(dt) {
+    if (ctx && ctx.state === 'suspended' && (resumeT -= dt) <= 0) { resumeT = 1; ctx.resume().catch(() => {}); }
     if (!ctx || ctx.state !== 'running') return; dt = Math.min(dt, 0.1);
     const st = P.state, dx = P.pos.x - lastX, dz = P.pos.z - lastZ, spd = Math.hypot(dx, dz) / Math.max(dt, 1e-3); lastX = P.pos.x; lastZ = P.pos.z;
     if (Math.abs(spd) > 400) { /* телепорт: шаги не считаем */ } else {
       if (st !== prevSt) { onState(prevSt, st); prevSt = st; }
       if (st === 'air' || st === 'glide') minVy = Math.min(minVy, P.vel.y);
       if (!window.__dragonOn && !window.__riding && (st === 'ground') && spd > 2) { stepAcc += spd * dt; if (stepAcc > 6.5) { stepAcc = 0; play('step_' + surface(), clamp(spd / 22, 0.5, 1.2)); } } else stepAcc = 0;
+      if (st === 'swim' && spd > 1.2) { swimAcc += dt; if (swimAcc > 0.55) { swimAcc = 0; play('step_water', 1.3); } } else swimAcc = 0;
       if (window.__ridingKind === 'horse' && spd > 3) { hoofAcc += spd * dt; if (hoofAcc > 4.2) { hoofAcc = 0; play('hoof', clamp(spd / 30, 0.5, 1)); } }
       if ((st === 'ladder' || st === 'climb') && spd + Math.abs(P.vel.y) > 1) { ladderAcc += dt; if (ladderAcc > 0.32) { ladderAcc = 0; play('clank'); } }
     }
@@ -206,11 +211,11 @@ export function createAudio({ world, richard, net }) {
     }
     setLoop(loops.water, sm.water * 0.55, dt, 2); setLoop(loops.surf, sm.water * 0.07, dt, 2); setLoop(loops.wind, sm.wind * 0.5, dt, 2.5);
     if (loops.wind) loops.wind.fl.frequency.value = 350 + sm.wind * 900;
-    setLoop(loops.fire, loopTarget.fire * 0.55, dt, 12); setLoop(loops.fire2, loopTarget.fire * 0.22, dt, 12);
+    setLoop(loops.fire, loopTarget.fire * 1.1, dt, 12); setLoop(loops.fire2, loopTarget.fire * 0.45, dt, 12);
     // птицы днём, сверчки ночью, чайки у моря
     birdT -= dt; if (birdT <= 0) {
-      const ph = world.tod && world.tod.phase; birdT = rnd(2.5, 7);
-      if (ph === 'day' && sm.water < 0.5 && !P.dead) play('chirp', rnd(0.6, 1)); else if (ph === 'night') { play('cricket', 1); birdT = rnd(0.6, 1.8); } else if (sm.water > 0.35 && Math.random() < 0.5) play('gull', 1);
+      const ph = world.tod && world.tod.phase; birdT = rnd(9, 22);
+      if (ph === 'day' && sm.water < 0.5 && !P.dead) play('chirp', rnd(0.6, 1)); else if (ph === 'night') { play('cricket', 1); birdT = rnd(2.5, 6); } else if (sm.water > 0.35 && Math.random() < 0.5) play('gull', 1);
     }
   }
   /* ───── события игры ───── */
