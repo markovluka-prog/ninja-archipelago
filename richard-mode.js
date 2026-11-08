@@ -254,15 +254,18 @@ const GCLIP = {
   // камера: первое лицо внутри дома; плавный переход
   let fpV = 0;
   const fwd = new V(), fpPos = new V(), fpLook = new V(), tpPos = new V(), tpLook = new V(), head = new V();
+  let capeObj = null;
   function fpTick(cam, tgt, dt){
     if (!G) return;
     doorsTick(dt); weaponTick(dt); unstick(dt);
+    if (window.__dragonOn){ G.figure.visible = true; return; }      // на драконе дверей и первого лица нет — лишние обходы сцены не делаем
     const nd = nearDoor(), showP = !!nd && !G.interactNear() && ['ground', 'air'].includes(P.state) && window.__richardActive;
     doorPrompt.style.display = showP ? 'block' : 'none';
     if (showP) doorPrompt.textContent = nd.want ? 'E — закрыть дверь' : 'E — открыть дверь';
     const inside = doors.some(insideOf);
     fpV += ((inside ? 1 : 0) - fpV) * (1 - Math.exp(-6 * dt));      // первое лицо — только внутри дома
-    const cape = scene.getObjectByName('Cape');       // плащ добавлен в сцену отдельно от фигуры — прячем его вместе с ней
+    if (!capeObj || !capeObj.parent) capeObj = scene.getObjectByName('Cape');      // поиск по всей сцене каждый кадр был дорогим — кэшируем
+    const cape = capeObj;       // плащ добавлен в сцену отдельно от фигуры — прячем его вместе с ней
     if (fpV < 0.002){ G.figure.visible = true; if (cape) cape.visible = true; return; }
     G.figure.getObjectByName('Head').getWorldPosition(head);
     tpPos.copy(cam.position); tpLook.set(tgt.x, tgt.y + 0.5, tgt.z);

@@ -252,17 +252,31 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   const g_ = () => window.__g;
   const inDragonMode = () => { const g = net.game; return !!(g && g.phase === 'play' && g.mode === 'dragons'); };
   const riderBusy = () => ['mount', 'ride', 'land', 'hop'].includes(mine.st);
-  const solidHitAt = (x, y, z, r) => { const S = richard.solids; for (let i = 0; i < S.length; i++) { const b = S[i]; if (b === sup || (b.max.y - b.min.y < 12 && (b.max.x - b.min.x) * (b.max.z - b.min.z) < 400)) continue; if (x > b.min.x - r && x < b.max.x + r && y > b.min.y - r && y < b.max.y + r && z > b.min.z - r && z < b.max.z + r) return true; } return false; };
+  /* твёрдые боксы мира — в сетке (клетки по 32): проверка столкновения смотрит только соседние боксы, а не весь список (иначе на каждый кадр уходили сотни тысяч сравнений) */
+  const isSmall = b => b.max.y - b.min.y < 12 && (b.max.x - b.min.x) * (b.max.z - b.min.z) < 400;
+  const GC = 32; let grid = null, gridN = -1;
+  function buildGrid() {
+    grid = new Map(); gridN = richard.solids.length;
+    for (const b of richard.solids) {
+      if (b === sup || b.__dragonBox || isSmall(b)) continue;
+      for (let cx = Math.floor((b.min.x - 8) / GC); cx <= Math.floor((b.max.x + 8) / GC); cx++) for (let cz = Math.floor((b.min.z - 8) / GC); cz <= Math.floor((b.max.z + 8) / GC); cz++) { const k = cx + ',' + cz; (grid.get(k) || grid.set(k, []).get(k)).push(b); }
+    }
+  }
+  const solidHitAt = (x, y, z, r) => {
+    if (!grid || Math.abs(richard.solids.length - gridN) > 40) buildGrid();
+    const list = grid.get(Math.floor(x / GC) + ',' + Math.floor(z / GC)); if (!list) return false;
+    for (let i = 0; i < list.length; i++) { const b = list[i]; if (x > b.min.x - r && x < b.max.x + r && y > b.min.y - r && y < b.max.y + r && z > b.min.z - r && z < b.max.z + r) return true; }
+    return false;
+  };
 
   const PROBES = [[0, 3, 22, 4], [0, -2, 6, 5], [0, -3, -8, 5], [0, -4, -24, 3], [-22, 0, -3, 3.5], [22, 0, -3, 3.5]];      // [вбок, вверх, вперёд, радиус] в системе дракона
   const probeWorld = (x, y, z, yaw, p) => { const sn = Math.sin(yaw), cs = Math.cos(yaw); return [x + p[0] * cs + p[2] * sn, y + p[1], z - p[0] * sn + p[2] * cs]; };
   function probeSolid(x, y, z, yaw) { for (const p of PROBES) { const w = probeWorld(x, y, z, yaw, p); if (solidHitAt(w[0], w[1], w[2], p[3])) return true; } return false; }
   function overlapDir(x, y, z, yaw) {                   // куда выталкивать, если дракон уже внутри твёрдого бокса: от центра бокса
-    const S = richard.solids;
-    for (const p of PROBES) { const w = probeWorld(x, y, z, yaw, p);
-      for (let i = 0; i < S.length; i++) { const b = S[i]; if (b === sup || (b.max.y - b.min.y < 12 && (b.max.x - b.min.x) * (b.max.z - b.min.z) < 400)) continue;
-        if (w[0] > b.min.x - p[3] && w[0] < b.max.x + p[3] && w[1] > b.min.y - p[3] && w[1] < b.max.y + p[3] && w[2] > b.min.z - p[3] && w[2] < b.max.z + p[3]) {
-          let dx = x - (b.min.x + b.max.x) / 2, dz = z - (b.min.z + b.max.z) / 2; const d = Math.hypot(dx, dz) || 1; return { x: dx / d, z: dz / d }; } } }
+    if (!grid) buildGrid();
+    for (const p of PROBES) { const w = probeWorld(x, y, z, yaw, p), list = grid.get(Math.floor(w[0] / GC) + ',' + Math.floor(w[2] / GC)); if (!list) continue;
+      for (const b of list) if (w[0] > b.min.x - p[3] && w[0] < b.max.x + p[3] && w[1] > b.min.y - p[3] && w[1] < b.max.y + p[3] && w[2] > b.min.z - p[3] && w[2] < b.max.z + p[3]) {
+        const dx = x - (b.min.x + b.max.x) / 2, dz = z - (b.min.z + b.max.z) / 2, d = Math.hypot(dx, dz) || 1; return { x: dx / d, z: dz / d }; } }
     return null;
   }
   function terrainNeed(x, z, yaw) {                    // нижний допустимый уровень центра дракона по рельефу
@@ -276,7 +290,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     return need;
   }
   /* сидящий дракон — препятствие для пешего игрока: три коробки вдоль корпуса */
-  const landBoxes = [0, 1, 2].map(() => ({ min: new V(), max: new V(), grab: false })); let landOn = false;
+  const landBoxes = [0, 1, 2].map(() => ({ min: new V(), max: new V(), grab: false, __dragonBox: true })); let landOn = false;
   function landedBoxes(on) {
     if (on) { const sn = Math.sin(mine.yaw), cs = Math.cos(mine.yaw), g = mine.y - REST;
       [14, 0, -14].forEach((zl, i) => { const b = landBoxes[i], cx = mine.x + sn * zl, cz = mine.z + cs * zl; b.min.set(cx - 4.5, g, cz - 4.5); b.max.set(cx + 4.5, g + 9, cz + 4.5); if (!landOn) richard.solids.push(b); });
