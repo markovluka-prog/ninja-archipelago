@@ -163,7 +163,9 @@ function handle(pl, msg) {
    Монеты за победу хранятся в coins.json по имени игрока. */
 const COINS_FILE = path.join(ROOT, 'coins.json'); let coins = {};
 try { coins = JSON.parse(fs.readFileSync(COINS_FILE, 'utf8')); } catch { /* файла ещё нет */ }
-const saveCoins = () => fs.writeFile(COINS_FILE, JSON.stringify(coins), () => {});
+const DB = require('./db.js');
+const saveCoins = () => { fs.writeFile(COINS_FILE, JSON.stringify(coins), () => {}); DB.sync(coins); };
+DB.init().then(remote => { if (!remote) return; let ch = false; for (const [n, v] of Object.entries(remote)) if ((coins[n] || 0) < v) { coins[n] = v; ch = true; } fs.writeFile(COINS_FILE, JSON.stringify(coins), () => {}); DB.sync(coins); });      // облако и файл сводятся к большему значению
 const MODES = {
   battle:  { name: 'Битва',            min: 2, pvp: true,  limit: 10 },     // 10 побед (без таймера)
   relics:  { name: 'Поиск реликвий',   min: 2, pvp: false, limit: 10 },                 // 10 реликвий

@@ -3,6 +3,9 @@
 // remotes — Map по id, фигура пересоздаётся только при смене персонажа (старая сначала удаляется). Свой персонаж в remotes не попадает.
 // Если игрок закрыл вкладку, сервер шлёт leave{dead:true}: его фигура падает (клип «Смерть»), лежит несколько секунд и исчезает.
 // Без server.js (например, python -m http.server) сеть тихо отключается: лобби работает локально, одиночная игра как раньше.
+import { SUPABASE_URL, SUPABASE_KEY, FORCE_RT } from './config.js';
+const qpRt = new URLSearchParams(location.search).get('rt');
+const USE_RT = qpRt === '1' || (qpRt !== '0' && (FORCE_RT || /github\.io$/.test(location.hostname)));      // на GitHub Pages своего сервера нет
 export const CHARS = {
   richard: { name: 'Ричард', role: 'Главный ниндзя', icon: '🦁', img: null },
   sokolin: { name: 'Соколин', role: 'Меч и щит, злой ниндзя', icon: '🦅', img: 'Соколин/3D/preview_front.png' },
@@ -65,7 +68,14 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
   const pushLobby = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'lobby', name: lobby.name, ch: lobby.ch, play: lobby.play })); };
 
   function connect() {
+    if (USE_RT) {                                  // без своего сервера: сеть через Supabase Realtime (rt.js)
+      import('./rt.js').then(m => { ws = m.createRTSocket({ url: SUPABASE_URL, key: SUPABASE_KEY }); wire(); }).catch(e => { console.error('[rt] не загрузился', e); if (!closedByUs && ++tries <= 3) setTimeout(connect, 2000 * tries); });
+      return;
+    }
     try { ws = new WebSocket(url); } catch { return; }
+    wire();
+  }
+  function wire() {
     ws.onopen = () => { online = true; tries = 0; };
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
