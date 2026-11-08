@@ -368,6 +368,8 @@ const GCLIP = {
   setTimeout(() => { const h = [...document.querySelectorAll('div')].find(d => d.innerHTML.includes('Управление') && d.innerHTML.includes('Пробел')); if (h && !h.innerHTML.includes('X —')) h.innerHTML += '<br>1 — меч и щит · 2 — лук<br>V — позвать дракона, E — залезть/слезть, Q — спрыгнуть · в полёте: WASD по горизонтали, Z/X вверх/вниз, Пробел — огонь<br>Лук: зажать ЛКМ/J — натянуть, отпустить — выстрел<br>В прыжке: J — удар · Пробел — 2-й прыжок, затем планирование'; }, 0);
   const uiEls = [...document.body.children].filter(c => !before.has(c) && c.id !== '__rdom');
   const g = window.__g; G = g; uiEls.push(doorPrompt);
+  const helpDiv = uiEls.find(d => d.innerHTML && d.innerHTML.includes('Управление')); let helpVisible = false;      // панель управления по умолчанию скрыта (H — показать/скрыть)
+  if (helpDiv) { helpDiv.style.display = 'none'; addEventListener('keydown', e => { if (e.code === 'KeyH' && !e.repeat) setTimeout(() => { helpVisible = helpDiv.style.display !== 'none'; }, 0); }); }
   // тренировочная площадка в городе и лук
   const sp_ = (world.spots && world.spots['Город короля']) || { x: start.x, z: start.z };
   const training = createTraining({ THREE, scene, world, solids: g.solids, anchor: sp_ });
@@ -554,7 +556,7 @@ const GCLIP = {
       const free = (px, pz) => world.heightAt(px, pz) > 0.7 && !world.solidBoxes.some(b => Math.max(b.x0 - px, px - b.x1, 0) ** 2 + Math.max(b.z0 - pz, pz - b.z1, 0) ** 2 < 9 * 9);
       search: for (let r = 0; r <= 120; r += 4) for (let k = 0; k < (r ? 12 : 1); k++) { const a = k / 12 * 6.283, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (free(px, pz)) { x = px; z = pz; break search; } }
       const y = world.heightAt(x, z); P.pos.set(x, Math.max(y, 0.3), z); P.spawn.copy(P.pos); P.vel.set(0, 0, 0); P.yaw = P.yawVis = yaw; g.cam(yaw + Math.PI, 0.3); g.step(2); },
-    set active(v) { window.__richardActive = v; uiEls.forEach(d => { d.style.display = v ? '' : 'none'; }); if (!v) document.exitPointerLock?.(); },
+    set active(v) { window.__richardActive = v; uiEls.forEach(d => { d.style.display = v ? (d === helpDiv && !helpVisible ? 'none' : '') : 'none'; }); if (!v) document.exitPointerLock?.(); },
     get active() { return window.__richardActive; },
   };
   api.active = false; api.teleport(SX, SZ, 0);
