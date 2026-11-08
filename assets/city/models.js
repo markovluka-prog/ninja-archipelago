@@ -103,8 +103,8 @@ function doorLeaf(p,w,h,x,z,c,open,name='Door'){
 // окно: ось 'x' — стена с нормалью по x (на боковых стенах), 'z' — на передней/задней
 function win(p,x,y,z,ww,hh,axis='z',t=.8,c=K.glass){
   const g=grp(p,'Window',x,y,z);
-  if(axis==='z'){ bx(g,ww,hh,t,0,0,0,M(c,{e:0x1a3342,fs:false,r:.3})); bx(g,ww+.5,.3,t+.1,0,hh,0,K.white); bx(g,.25,hh,t+.1,0,0,0,K.white); bx(g,ww+.5,.3,t+.1,0,-.3,0,K.white); }
-  else { bx(g,t,hh,ww,0,0,0,M(c,{e:0x1a3342,fs:false,r:.3})); bx(g,t+.1,.3,ww+.5,0,hh,0,K.white); bx(g,t+.1,hh,.25,0,0,0,K.white); bx(g,t+.1,.3,ww+.5,0,-.3,0,K.white); }
+  if(axis==='z'){ bx(g,ww,hh,t+.4,0,0,0,M(c,{e:0x1a3342,fs:false,r:.3})); bx(g,ww+.5,.3,t+.7,0,hh,0,K.white); bx(g,.25,hh,t+.7,0,0,0,K.white); bx(g,ww+.5,.3,t+.7,0,-.3,0,K.white); }
+  else { bx(g,t+.4,hh,ww,0,0,0,M(c,{e:0x1a3342,fs:false,r:.3})); bx(g,t+.7,.3,ww+.5,0,hh,0,K.white); bx(g,t+.7,hh,.25,0,0,0,K.white); bx(g,t+.7,.3,ww+.5,0,-.3,0,K.white); }
   return g;
 }
 // круглая/коническая оболочка с толщиной (внешняя+внутренняя поверхность) и дверным проёмом
@@ -131,12 +131,12 @@ function merlonsRing(p,R,y,n,w,h,t,c){
 function merlonsLine(p,len,y,z,h,c,tz=1.2){
   const n=Math.round(len/3); for(let i=0;i<n;i++) bx(p,1.5,h,tz,-len/2+1.5+i*3,y,z,c);
 }
-function crate(p,x,y,z,s,c=K.woodL){ const m=bx(p,s,s,s,x,y,z,c); m.rotation.y=(x*7+z*3)%1; bx(p,s+.1,.18,s+.1,x,y+s*.5-.09,z,K.woodD); return m; }
-function barrel(p,x,y,z,r=1.1,h=2.4,c=K.woodL){ cy(p,r,r*.9,h,x,y,z,c,10); cy(p,r*1.04,r*1.04,.2,x,y+h*.2,z,K.iron,10); cy(p,r*1.04,r*1.04,.2,x,y+h*.75,z,K.iron,10); }
+function crate(p,x,y,z,s,c=K.woodL){ const m=bx(p,s,s,s,x,y,z,c); m.userData.solid=true; m.rotation.y=(x*7+z*3)%1; bx(p,s+.1,.18,s+.1,x,y+s*.5-.09,z,K.woodD); return m; }
+function barrel(p,x,y,z,r=1.1,h=2.4,c=K.woodL){ cy(p,r,r*.9,h,x,y,z,c,10).userData.solid=true; cy(p,r*1.04,r*1.04,.2,x,y+h*.2,z,K.iron,10); cy(p,r*1.04,r*1.04,.2,x,y+h*.75,z,K.iron,10); }
 function sack(p,x,y,z,c=K.cream){ const s=sp(p,.9,x,y+.8,z,c,{},7,6); s.scale.set(1,1.15,.9); return s; }
-function table(p,x,y,z,w=5,d=3,h=2.8){ bx(p,w,.3,d,x,y+h-.3,z,K.woodL); for(const a of[-1,1])for(const b of[-1,1]) bx(p,.35,h-.3,.35,x+a*(w/2-.4),y,z+b*(d/2-.4),K.woodD); }
-function bench(p,x,y,z,w=5,rot=0){ const g=grp(p,'Bench',x,y,z); bx(g,w,.3,1.2,0,1.3,0,K.woodL); bx(g,.35,1.3,1,-w/2+.5,0,0,K.woodD); bx(g,.35,1.3,1,w/2-.5,0,0,K.woodD); g.rotation.y=rot; return g; }
-function bed(p,x,y,z,rot=0,c=K.red){ const g=grp(p,'Bed',x,y,z); bx(g,3.2,1,6.4,0,0,0,K.woodD); bx(g,2.8,.7,5.6,0,1,.2,K.cream); bx(g,2.8,.5,2.6,0,1.2,1.8,c); bx(g,2.2,.4,1.2,0,1.7,-2.2,K.white); g.rotation.y=rot; return g; }
+function table(p,x,y,z,w=5,d=3,h=2.8){ const g=grp(p,'Table',x,y,z); g.userData.solid=true; bx(g,w,.3,d,0,h-.3,0,K.woodL); for(const a of[-1,1])for(const b of[-1,1]) bx(g,.35,h-.3,.35,a*(w/2-.4),0,b*(d/2-.4),K.woodD); return g; }
+function bench(p,x,y,z,w=5,rot=0){ const g=grp(p,'Bench',x,y,z); g.userData.solid=true; bx(g,w,.3,1.2,0,1.3,0,K.woodL); bx(g,.35,1.3,1,-w/2+.5,0,0,K.woodD); bx(g,.35,1.3,1,w/2-.5,0,0,K.woodD); g.rotation.y=rot; return g; }
+function bed(p,x,y,z,rot=0,c=K.red){ const g=grp(p,'Bed',x,y,z); g.userData.solid=true; bx(g,3.2,1,6.4,0,0,0,K.woodD); bx(g,2.8,.7,5.6,0,1,.2,K.cream); bx(g,2.8,.5,2.6,0,1.2,1.8,c); bx(g,2.2,.4,1.2,0,1.7,-2.2,K.white); g.rotation.y=rot; return g; }
 
 function winR(p,R,a,y,ww=.9,hh=2.6){ const w=win(p,Math.sin(a)*R,y,Math.cos(a)*R,ww,hh,'z',.8); w.rotation.y=a; return w; }
 function def(id,name,fn){
@@ -454,7 +454,7 @@ def('tower_round','Круглая башня',(g,r,op)=>{
   const R0=12,R1=11,H=26,t=.8, c=vary(r,K.stone);        // шире (было 9.5)
   tube(g,R0,R1,0,H,t,c,12,{dw:4.8,dh:8.8,name:'Body',fs:true});
   doorLeaf(g,4.8,8.8,0,R0-.35,K.woodD,op.doorOpen);
-  cy(g,R0+.8,R0+.8,2,0,0,0,K.stoneD,12,{fs:true});
+  tube(g,R0+.8,R0+.8,0,2,1.0,K.stoneD,12,{dw:4.8,dh:2,floor:false,name:'Plinth',fs:true});      // цоколь — кольцо с проёмом у двери (раньше сплошной диск перекрывал пол внутри)
   for(let i=0;i<3;i++) winR(g,R0-.5,Math.PI+(i-1)*1.2,14+i*3,.8,3);
   const rf=grp(g,'Roof'); cy(rf,R1+1.4,R1+1.4,1.2,0,H,0,K.stoneD,12,{fs:true});
   merlonsRing(rf,R1+1,H+1.2,16,2.2,2,1.2,c);
@@ -466,9 +466,10 @@ def('tower_round','Круглая башня',(g,r,op)=>{
   table(g,0,FL,-2,5.5,3); bench(g,0,FL,.2,5.5);
   bed(g,-5.5,FL,-4.5,0,K.blue);
   barrel(g,4.6,FL,4.2,1.1,2.4); crate(g,6,FL,-3,2.2);
+  crate(g,-3.8,FL,3.4,2.2); barrel(g,-.6,FL,5.4,1.1,2.4); crate(g,3.6,FL,-5.4,2);      // ещё мебели в центре: башня была пустой
 });
 
-const WL=12, WH=12, WT=3.2;
+const WL=12, WH=28, WT=4.4;      // высота 28 (было 12/18) и толщина 4.4 (было 3.2): стену нельзя перепрыгнуть
 function wallStones(g,r,c){      // декоративная кладка на обеих гранях звена стены (восстановлена после случайного удаления)
   for(let i=0;i<16;i++){ const x=(r()-.5)*(WL-2), y=1.4+r()*(WH-3.8), s=1+r()*1.3; for(const q of[-1,1]) { const m=bx(g,s*1.5,s*.8,.12,x,y,q*(WT/2+.04),vary(r,K.stoneL)); m.castShadow=false; } }
 }      // размеры звена стены (восстановлены после случайного удаления: длина 12 — как у плеча угловой стены, высота 12 — выше арки ворот, толщина 3.2)
@@ -477,10 +478,10 @@ def('wall_straight','Стена прямая',(g,r)=>{
   bx(g,WL,.8,WT+.5,0,0,0,K.stoneD);
   const rf=grp(g,'Walk'); merlonsLine(rf,WL,WH,WT/2-.6,2,c); merlonsLine(rf,WL,WH,-WT/2+.6,2,c);
   wallStones(g,r,c);
-  for(let i=0;i<2;i++) bx(g,.7,1.8,.2,-3+i*6,8,WT/2+.05,K.dark);  // бойницы
+  for(let i=0;i<2;i++) bx(g,.7,1.8,.2,-3+i*6,18,WT/2+.05,K.dark);  // бойницы
 });
 def('wall_corner','Стена угловая',(g,r,op)=>{
-  const c=vary(r,K.stone), S=9, TH=19;
+  const c=vary(r,K.stone), S=9, TH=WH+8;
   // углы: плечи по -x и -z (длиной 6 от центра башни), наружные стороны +x/+z
   const room_=room(g,S,S,TH,.8,c,K.stoneL,{w:4.8,h:8.8,x:0});
   doorLeaf(g,4.8,8.8,0,S/2-.4,K.woodD,op.doorOpen);
@@ -559,9 +560,10 @@ def('fortress_big','Королевский дворец-крепость',(g,r,o
   bx(b,5,.1,18,0,FL,0,0xb83a3a); for(const s of[-1,1])for(let i=0;i<3;i++) cy(b,.8,.8,H-.2,s*8,FL,-6+i*6,K.white,8);
   bx(b,5,1.2,5,0,FL,-D/2+4,K.gold,{m:.3});
   // мебель: длинные столы со скамьями, трон, кровати, сундуки, бочки
-  for(const s of[-1,1]){ table(b,s*13,FL,-2,3,12); bench(b,s*13-2.4,FL,-2,10,Math.PI/2); bench(b,s*13+2.4,FL,-2,10,Math.PI/2); }
+  { const FS=.55, SOf=(x,z)=>{ const q=grp(b,'Solid',x,FL,z); q.scale.setScalar(FS); return q; };      // дворец увеличивается ≈ в 2 раза — мебель уменьшаем, иначе стол выше половины роста игрока
+    for(const s of[-1,1]){ const q=SOf(s*13,-2); table(q,0,0,0,3,12); bench(q,-2.4,0,0,10,Math.PI/2); bench(q,2.4,0,0,10,Math.PI/2); } }
   bx(b,3,3,2.4,0,FL,-D/2+2.2,K.woodD); bx(b,2.2,6,.5,0,FL+3,-D/2+1.2,K.red);
-  for(const s of[-1,1]){ bed(b,s*15,FL,-D/2+4.5,0,K.blue); crate(b,s*17,FL,-D/2+1.5,1.6); barrel(b,s*17,FL,D/2-2,1,2.2); }
+  for(const s of[-1,1]){ const SOf=(x,z)=>{ const q=grp(b,'Solid',x,FL,z); q.scale.setScalar(.55); return q; }; bed(SOf(s*15,-D/2+4.5),0,0,0,0,K.blue); crate(SOf(s*17,-D/2+1.5),0,0,0,1.6); barrel(SOf(s*17,D/2-2),0,0,0,1,2.2); }
   flagAnim(g,fl);
 });
 def('citadel','Малая цитадель',(g,r,op)=>{
@@ -585,20 +587,20 @@ def('citadel','Малая цитадель',(g,r,op)=>{
   for(const sx of[-1,1])for(const sz of[-1,1]) { cy(ow,2.6,3,11,sx*hw,0,sz*hw,K.stone,8,{fs:true}); cn(ow,3.6,4.5,sx*hw,11,sz*hw,K.roofD,8,{fs:true}); }
   // обстановка донжона. Цитадель в игре увеличивается ≈ в 3.2 раза (SCALE_H=90), поэтому мебель делаем в «человеческих» единицах и уменьшаем на F:
   // после увеличения стол ≈ 3 ед. высотой при росте Ричарда 9. Каждый предмет — группа 'Solid' (по ней строится коллизия)
-  const F=.31;
+  const F=.27;      // было .31 и огромные габариты: стол 32 длиной, койка ×1.7, ящики 5.5–6.5 — мебель в горной крепости получалась великанской при росте игрока 9
   { const I=grp(k,'Interior'), hz=S/2-t, hx=S/2-t, SO=(x,z,sc=1)=>{ const q=grp(I,'Solid',x,FL,z); q.scale.setScalar(F*sc); return q; };
     bx(I,6,.2,12,0,FL,-1,0x8a2a2a);                                    // ковёр от двери к трону
     { const q=SO(0,-hz+2.2); bx(q,16,2,9,0,0,0,K.woodD); bx(q,9,11,1.6,0,2,-3,K.woodD); bx(q,6,1.5,5,0,2,0,K.red); }    // трон на возвышении
     for(const s2 of[-1,1]){
-      { const q=SO(s2*7.2,3); table(q,0,0,0,9,32,3.4); bench(q,-6.5,0,0,30,Math.PI/2); bench(q,6.5,0,0,30,Math.PI/2); }
-      { const q=SO(s2*(hx-2.6),-hz+4.5,1.7); bed(q,0,0,0,0,s2<0?K.blue:K.red); }
-      crate(SO(s2*(hx-1.5),-hz+9.5),0,0,0,5.5); barrel(SO(s2*(hx-1.5),hz-1.8),0,0,0,2.2,5); barrel(SO(s2*(hx-3.8),hz-1.8),0,0,0,2.2,5);
+      { const q=SO(s2*7.2,3); table(q,0,0,0,7,20,3.4); bench(q,-5.2,0,0,19,Math.PI/2); bench(q,5.2,0,0,19,Math.PI/2); }
+      { const q=SO(s2*(hx-2.6),-hz+4.5,1.15); bed(q,0,0,0,0,s2<0?K.blue:K.red); }
+      crate(SO(s2*(hx-1.5),-hz+9.5),0,0,0,4); barrel(SO(s2*(hx-1.5),hz-1.8),0,0,0,1.9,4.2); barrel(SO(s2*(hx-3.8),hz-1.8),0,0,0,1.9,4.2);
       { const q=SO(s2*(hx-5.5),-hz+1.6); bx(q,8,4,5,0,0,0,K.woodD); bx(q,8.2,1.4,5.2,0,4,0,K.gold,{m:.3}); bx(q,1.2,2,.5,0,1.4,2.6,K.iron); }
     }
   }
   // двор: ящики, бочки, мешки у стен
   { const Y=grp(g,'Yard'), hw2=O+4-2, SO=(x,z,sc=F)=>{ const q=grp(Y,'Solid',x,0,z); q.scale.setScalar(sc); return q; };
-    for(const [x,z] of [[-hw2+3,-hw2+3],[hw2-3,-hw2+3],[hw2-3,hw2-3],[-hw2+3,hw2-3]]){ crate(SO(x,z),0,0,0,6.5); crate(SO(x+2.4,z),0,0,0,4.5); barrel(SO(x,z+(z>0?-2.4:2.4)),0,0,0,2.2,5); sack(SO(x+(x>0?-2.6:2.6),z+(z>0?-1.5:1.5)),0,0,0); }
+    for(const [x,z] of [[-hw2+3,-hw2+3],[hw2-3,-hw2+3],[hw2-3,hw2-3],[-hw2+3,hw2-3]]){ crate(SO(x,z),0,0,0,4.6); crate(SO(x+2.4,z),0,0,0,3.2); barrel(SO(x,z+(z>0?-2.4:2.4)),0,0,0,1.9,4.2); sack(SO(x+(x>0?-2.6:2.6),z+(z>0?-1.5:1.5)),0,0,0); }
     for(const x of[-14,14]) { const q=SO(x,-16,1); cy(q,.3,.35,3.2,0,0,0,K.woodD,6); sp(q,.5,0,3.4,0,K.white,{},8,6); }
   }
   flagAnim(g,fl);
@@ -623,7 +625,6 @@ def('lighthouse_a','Маяк полосатый',(g,r,op)=>{
   for(let i=0;i<n;i++){ const f0=i/n,f1=(i+1)/n, ra=R0+(R1-R0)*f0, rb=R0+(R1-R0)*f1;
     tube(g,ra,rb,H*f0,H/n,t,i%2?K.red:K.white,16,i===0?{dw:4.8,dh:8.8,name:'Band0'}:{name:'Band'+i,floor:i===0}); }
   doorLeaf(g,4.8,8.8,0,R0-.45,K.woodD,op.doorOpen);
-  cy(g,R0+.8,R0+1,2,0,0,0,K.stoneD,16);
   // галерея и площадка: кольцо (внешний R1+2, внутренний R1-.5), центр открыт для лестницы
   const ring=(p,y,mat)=>{ const rO=R1+2, rI=R1-.5, rm=(rO+rI)/2, nr=16; for(let i=0;i<nr;i++){ const a=i/nr*TAU; bx(p,TAU*rm/nr*1.15,.8,rO-rI+.1,Math.sin(a)*rm,y,Math.cos(a)*rm,mat).rotation.y=a; } };
   ring(g,H,K.iron);

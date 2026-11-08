@@ -26,6 +26,11 @@ export function makeHousePlanner(THREE) {
         out.push(box(x - half, x + half, y0, y1, z - half, z + half));
       }
     }
+    if (rd.platform){      // кольцевая площадка маяка: твёрдое кольцо по радиусам (проём в центре — для лестничного колодца)
+      const pl = rd.platform;
+      for (let r = pl.rI + 0.8; r <= pl.rO - 0.3; r += 1.4){ const N = Math.max(8, Math.ceil(6.283 * r / 1.4)); for (let k = 0; k < N; k++){ const a = k / N * 6.283, x = rd.cx + Math.sin(a) * r, z = rd.cz + Math.cos(a) * r; out.push(box(x - 0.75, x + 0.75, pl.y - 0.4, pl.y + 0.8, z - 0.75, z + 0.75)); } }
+    }
+    if (rd.lantern){ const lq = rd.lantern; addSilos(out, { silos: [{ cx: rd.cx, cz: rd.cz, R: lq.R, y0: rd.platform ? rd.platform.y + 0.8 : lq.y0, y1: lq.y1 }] }); }      // фонарь маяка (стекло) — твёрдый цилиндр
     for (const s_ of h.steps || []) out.push(box(s_.x0, s_.x1, s_.y0, s_.y1, s_.z0, s_.z1));
     for (const f of h.floors || []) out.push(box(f.x0, f.x1, f.y0, f.y1, f.z0, f.z1));
     const tx = nz ? dw / 2 : 1.4, tz = nz ? 1.4 : dw / 2, door = box(dx - tx, dx + tx, gy, gy + dh, dz - tz, dz + tz);

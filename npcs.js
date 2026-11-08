@@ -157,7 +157,14 @@ export async function createNPCs({ scene, world, base = './' }) {
   const turn = (yaw, want, rate) => { const d = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw)); return { yaw: yaw + Math.max(-rate, Math.min(rate, d)), diff: d }; };
   function setClip(c, name) {
     if (c.clip === name || !c.npc) return; c.clip = name; c.npc.n.setClip(name);
-    if (c.npc.n.station) c.npc.n.station.visible = name === 'work';
+    c.stWant = name === 'work' ? 1 : 0;      // котёл/наковальня/ящик и т. п. не «выскакивают» мгновенно, а плавно вырастают (см. stationTick)
+  }
+  function stationTick(c, dt) {
+    const st = c.npc && c.npc.n.station; if (!st) return;
+    if (st.userData.s0 === undefined) { st.userData.s0 = st.scale.x; c.stK = c.stWant ? 1 : 0; }
+    const w = c.stWant || 0; c.stK = (c.stK ?? 0) + (w - (c.stK ?? 0)) * Math.min(1, dt * (w ? 3 : 6));
+    if (c.stK < 0.02 && !w) { st.visible = false; return; }
+    st.visible = true; st.scale.setScalar(st.userData.s0 * Math.max(0.02, c.stK));
   }
 
   return {
@@ -182,7 +189,10 @@ export async function createNPCs({ scene, world, base = './' }) {
           else {
             const tg = v.stage === 'toOut' || v.stage === 'out' ? out : inn, dx = tg[0] - c.x, dz = tg[1] - c.z, d = Math.hypot(dx, dz);
             c.state = 'walk'; c.yaw = turn(c.yaw, Math.atan2(dx, dz), 6 * dt).yaw;
-            const sp = Math.min(c.v * (v.sleep ? 1.7 : 1) * dt, d); c.x += dx / (d || 1) * sp; c.z += dz / (d || 1) * sp;
+            const sp = Math.min(c.v * (v.sleep ? 1.7 : 1) * dt, d), nx_ = c.x + dx / (d || 1) * sp, nz_ = c.z + dz / (d || 1) * sp;
+            const nearH = nx_ > h.bx0 - 7 && nx_ < h.bx1 + 7 && nz_ > h.bz0 - 7 && nz_ < h.bz1 + 7;      // у своего дома можно подходить вплотную, везде больше — стены и здания не пересекаем
+            if (!nearH && world.blockedAt && world.blockedAt(nx_, nz_, 1.2)) { v.blk = (v.blk || 0) + dt; c.state = 'rest'; c.rest = 'idle'; if (v.blk > 1.2) { c.visit = null; c.timer = 2; } }
+            else { v.blk = 0; c.x = nx_; c.z = nz_; }
             if (d < 0.8) {
               if (v.stage === 'toOut') { door(1); v.stage = 'in'; }
               else if (v.stage === 'in') { v.stage = 'stay'; door(0); }
@@ -198,7 +208,7 @@ export async function createNPCs({ scene, world, base = './' }) {
           const sp = c.v * Math.max(0.1, 1 - Math.abs(r.diff) / 1.1) * dt; c.x += Math.sin(c.yaw) * Math.min(sp, d + 1); c.z += Math.cos(c.yaw) * Math.min(sp, d + 1);
           if ((world.blockedAt && world.blockedAt(c.x, c.z, 1.2)) || hAt(c.x, c.z) < 0.6 || world.lakeAt(c.x, c.z)) {   // не в здания, деревья и воду: шаг отменяем, берём следующую точку
             c.x = ox; c.z = oz; c.wi = c.mode === 'path' ? (c.wi + c.dir >= 0 && c.wi + c.dir < c.route.length ? c.wi + c.dir : (c.dir *= -1, c.wi + c.dir)) : (c.wi + 1) % c.route.length; c.state = 'rest'; c.timer = 1.5; c.rest = 'idle';
-            if (++c.stuck >= 2) { const q = c.route[c.wi]; c.x = q[0]; c.z = q[1]; c.stuck = 0; }      // застрял у препятствия — переходим на ближайшую свободную точку маршрута
+            if (++c.stuck >= 2) { c.stuck = 0; const q = c.route[c.wi]; if (Math.hypot(q[0] - c.x, q[1] - c.z) < 30 && !(world.blockedAt && world.blockedAt(q[0], q[1], 1.2))) { c.x = q[0]; c.z = q[1]; } }      // на точку маршрута — только рядом и по свободной земле (раньше «перепрыгивали» через стену)      // застрял у препятствия — переходим на ближайшую свободную точку маршрута
           } else if (c.stuck = 0, d < 3) { const reached = c.wi;
             if (c.mode === 'path') { let n = c.wi + c.dir; if (n < 0 || n >= c.route.length) { c.dir *= -1; n = c.wi + c.dir; } c.wi = n; } else c.wi = (c.wi + 1) % c.route.length;
             if (rnd() < 0.6) { c.state = 'rest'; c.timer = 4 + rnd() * 9; c.rest = c.acts[reached]; }
@@ -213,11 +223,12 @@ export async function createNPCs({ scene, world, base = './' }) {
         const vh = c.visit && c.x > c.visit.h.bx0 && c.x < c.visit.h.bx1 && c.z > c.visit.h.bz0 && c.z < c.visit.h.bz1 ? c.visit.h.gy : Math.max(0, hAt(c.x, c.z));
         root.position.set(c.x, vh, c.z); root.rotation.y = c.yaw;
         setClip(c, c.state === 'walk' ? 'walk' : (c.rest || 'idle'));
+        stationTick(c, dt);
         // реплики: раз в 6–14 с, если игрок/камера рядом (<25) или NPC болтает
         c.speakT -= dt;
         if (c.speakT <= 0) { c.speakT = 6 + rnd() * 8; if (!homeTime && (Math.hypot(c.x - cam.x, c.z - cam.z) < 25 || (c.state === 'rest' && c.rest === 'talk'))) say(c); }
         if (c.bubble && c.bubble.visible) { c.bubble.timer -= dt; if (c.bubble.timer <= 0) hideBubble(c); else c.bubble.position.set(c.x, Math.max(0, hAt(c.x, c.z)) + 9, c.z); }
-        c.npc.n.update(dt);
+        c.ad = (c.ad || 0) + dt; if (dd < 90 || (frame & 1) === 0 || inView(c)) { c.npc.n.update(c.ad); c.ad = 0; }      // далёкие и невидимые — анимация через кадр с накопленным временем
       }
     },
   };

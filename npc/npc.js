@@ -203,6 +203,12 @@ const ITEMS = {
     mk(g, G.cyl(0.06, 0.06, 0.02), mat(DARK, 0.5, 0.6), [0, -0.23, 0]);
     return g;
   },
+  book() { // книга в переплёте с белыми страницами (монах, знахарь): держат перед грудью
+    const g = new THREE.Group(); g.userData.mode = 'upright';
+    mk(g, G.box(0.16, 0.22, 0.03, 0.01), mat(0x6a3e1e, 0.9), [0, 0, 0]);
+    mk(g, G.box(0.14, 0.2, 0.034, 0.004), mat(0xf4efe4, 0.95), [0, 0, 0.002]);
+    return g;
+  },
 };
 
 /* Как предмет несут в правой руке (тело: z вперёд, x влево; для левой руки x зеркалится) */
@@ -222,6 +228,7 @@ const CARRY = {
   katana: {g: [-0.32, 0.95, 0.15], d: [0, -0.8, 0.6]},
   basket: {g: [-0.32, 0.9, 0.25]}, bucket: {g: [-0.3, 0.85, 0.15]}, mug: {g: [-0.15, 1.1, 0.42]},
   rag: {g: [-0.3, 0.9, 0.2]}, lantern: {g: [-0.32, 0.9, 0.25]}, parasol: {g: [-0.34, 0.88, 0.18]},
+  book: {g: [-0.12, 1.0, 0.38]},
 };
 
 /* ───────────── декорации-«станции» для рабочего клипа ───────────── */
@@ -349,6 +356,23 @@ function addHat(hc, type, c) {
       mk(hc, G.box(0.02, 0.2, 0.012), mat(0xc9a13a, 0.35, 0.7), [-0.07, 0.3, 0.1], null, [0, 0, 0.45]);
       break;
     }
+    case 'bandana': { // косынка: повязка на лбу и узел с концами сзади
+      mk(hc, G.tor(0.15, 0.022), mat(c, 0.9), [0, 0.085, 0], null, [PI / 2, 0, 0]);
+      mk(hc, G.sph(0.035), mat(c, 0.9), [0, 0.085, -0.16]);
+      mk(hc, G.cone(0.03, 0.1, 6), mat(c, 0.9), [0.04, 0.05, -0.2], null, [0.3, 0.4, -0.9]);
+      mk(hc, G.cone(0.03, 0.1, 6), mat(c, 0.9), [-0.02, 0.04, -0.21], null, [0.5, -0.3, 0.8]);
+      break;
+    }
+    case 'beanie': // шапка-бини: облегающий купол, отворот и помпон
+      mk(hc, G.dome(0.18, PI * 0.42), mat(c, 0.95), [0, 0.03, -0.005]);
+      mk(hc, G.tor(0.172, 0.022), mat(c, 0.95), [0, 0.07, 0], null, [PI / 2, 0, 0]);
+      mk(hc, G.sph(0.03), mat(0xf4efe4, 0.95), [0, 0.2, 0]);
+      break;
+    case 'hood': { // капюшон монаха: купол сверху и складки сзади, лицо открыто
+      mk(hc, G.dome(0.19, PI * 0.36), mat(c, 0.9), [0, 0.03, -0.01], [1, 1, 1.05], [-0.25, 0, 0]);
+      mk(hc, new THREE.CylinderGeometry(0.19, 0.2, 0.16, 24, 1, true, PI - 0.95, 1.9), mat(c, 0.9, 0, true), [0, -0.04, -0.02]);
+      break;
+    }
     case 'ninjahood': { // чёрный капюшон с прорезью для глаз
       mk(hc, G.sph(0.178, 24, 16), m(c), [0, 0.0, 0], [1.0, 1.1, 1.02]);
       mk(hc, G.cone(0.05, 0.22, 8), m(c), [0, -0.05, -0.2], null, [-2.0, 0, 0]);
@@ -367,6 +391,23 @@ function addHair(hc, type, c) {
     case 'bun': cap(); mk(hc, G.sph(0.075), m, [0, 0.19, -0.1]); break;
     case 'ponytail': cap(); mk(hc, G.cap(0.05, 0.18), m, [0, 0.0, -0.21], null, [0.6, 0, 0]); break;
     case 'topknot': cap(PI * 0.46); mk(hc, G.cap(0.04, 0.08), m, [0, 0.2, -0.04], null, [-0.2, 0, 0]); break;
+    case 'curly': // кудри: купол из мелких шаров по черепу
+      cap(PI * 0.5);
+      [[0, 0.17, 0], [0.09, 0.15, 0.06], [-0.09, 0.15, 0.06], [0.12, 0.12, -0.07], [-0.12, 0.12, -0.07], [0, 0.13, -0.14],
+        [0.16, 0.06, -0.02], [-0.16, 0.06, -0.02], [0.07, 0.1, 0.13], [-0.07, 0.1, 0.13]].forEach(p => mk(hc, G.sph(0.06, 12, 8), m, p));
+      break;
+    case 'wild': // растрёпанные вихры: короткие конусы, торчащие наружу
+      cap(PI * 0.5);
+      for (let i = 0; i < 7; i++) { const a = i / 7 * 2 * PI; mk(hc, G.cone(0.03, 0.13, 6), m, [Math.cos(a) * 0.1, 0.19, Math.sin(a) * 0.1], null, [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5]); }
+      break;
+    case 'buzz': // короткая стрижка «ёжик»: тонкий купол
+      mk(hc, G.dome(0.172, PI * 0.42), m, [0, 0.02, -0.005], null, [-0.3, 0, 0]);
+      break;
+    case 'braid': // одна коса за спиной, перетянутая лентой
+      cap(PI * 0.47);
+      mk(hc, G.cap(0.034, 0.3), m, [0, -0.13, -0.19], null, [0.12, 0, 0]);
+      mk(hc, G.sph(0.03), mat(0xc9a13a, 0.4, 0.6), [0, 0, -0.2]);
+      break;
   }
 }
 function addBeard(hc, type, c) {
@@ -383,6 +424,7 @@ function addBeard(hc, type, c) {
   if (type === 'mustache' || type === 'full' || type === 'braided' || type === 'white' || type === 'big')
     [-1, 1].forEach(s => mk(hc, G.cap(type === 'big' ? 0.026 : 0.018, type === 'big' ? 0.1 : 0.06), m, [s * (type === 'big' ? 0.055 : 0.04), -0.052, 0.152], null, [0, 0, s * (type === 'big' ? 1.2 : 1.35)]));
   if (type === 'goatee') mk(hc, G.sph(0.045), m, [0, -0.125, 0.125], [1, 1.4, 0.8]);
+  if (type === 'stubble') mk(hc, G.sph(0.105, 16, 10), m, [0, -0.085, 0.05], [0.95, 0.5, 0.8]); // щетина: тень на челюсти
 }
 
 /* ───────────── сборка персонажа ───────────── */
@@ -458,6 +500,20 @@ export function makeNPC(def) {
   addBeard(hc, s.beard, s.beardColor ?? s.hairColor);
   if (s.hat) addHat(hc, s.hat, s.hatColor);
   if (s.scar) mk(hc, G.box(0.012, 0.09, 0.008), mat(0xa85a4a), [0.06, 0.02, 0.158], null, [0, 0, 0.5]);
+  // мелкие аксессуары головы и шеи
+  if (s.glasses) { // круглые очки: два кольца перед глазами и перемычка
+    const gm = mat(s.glasses, 0.4, 0.5);
+    [-1, 1].forEach(sg => mk(hc, G.tor(0.04, 0.007), gm, [sg * 0.062, 0.025, 0.17]));
+    mk(hc, G.box(0.04, 0.008, 0.008, 0.002), gm, [0, 0.03, 0.17]);
+  }
+  if (s.earring) mk(hc, G.tor(0.018, 0.005), mat(0xc9a13a, 0.35, 0.7), [0.165, -0.06, 0], null, [0, PI / 2, 0]);
+  if (s.pencil) mk(hc, G.box(0.012, 0.012, 0.09, 0.003), mat(0xe8b43a, 0.6), [0.19, 0, 0.03]); // карандаш за ухом
+  if (s.pipe) { // трубка в углу рта: чубук вперёд и чуть вниз, чашечка на конце
+    const dir = PI / 2 + 0.3;
+    mk(hc, G.cyl(0.008, 0.008, 0.1, 8), mat(0x7a5530, 0.8), [0, -0.09, 0.2], null, [dir, 0, 0]);
+    mk(hc, G.sph(0.022, 12, 8), mat(0x4a2e1b, 0.8), [0, -0.105, 0.25], [1, 1.4, 1]);
+  }
+  if (s.neckerchief) mk(neck, G.cone(0.075, 0.12, 3), mat(s.neckerchief, 0.9, 0, true), [0, 0.02, 0.035], [1, 1, 0.5], [PI, 0, 0]); // платок на шее
 
   // одежда сверху
   if (s.dress) {
@@ -465,6 +521,15 @@ export function makeNPC(def) {
     mk(hips, G.cyl(0.2 * fat, d.flare ?? 0.38, len, 28), mat(d.color, 0.85, 0, true), [0, 0.05 - len / 2, 0], [1, 1, 0.9]);
     if (d.hem) mk(hips, G.tor(d.flare ?? 0.38, 0.015), mat(d.hem, 0.8), [0, 0.05 - len, 0], [1, 0.9, 1], [PI / 2, 0, 0]);
   }
+  if (s.vest) { // жилет поверх рубахи: открытый цилиндр спереди, без рукавов (как фартук, но выше)
+    const r = 0.2 * fat + 0.012;
+    mk(spine, new THREE.CylinderGeometry(r, r * 1.02, 0.4, 26, 1, true, -1.1, 2.2), mat(s.vest, 0.85, 0, true), [0, 0.27, 0], [1, 1, 0.8]);
+  }
+  if (s.bag) { // сумка-планшетка у правого бедра со стороны спины и ремень через грудь
+    mk(spine, G.box(0.13, 0.19, 0.1, 0.02), mat(s.bag, 0.9), [-0.17, -0.04, -0.1], null, [0, 0, 0.1]);
+    mk(spine, G.box(0.025, 0.62, 0.02, 0.006), mat(s.bag, 0.9), [0, 0.27, 0.2], null, [0, 0, -0.47]);
+  }
+  if (s.pouch) mk(spine, G.box(0.1, 0.1, 0.06, 0.015), mat(s.pouch, 0.9), [0.13, -0.03, 0.19]); // поясная сумка с левой стороны
   if (s.apron) {
     const a = s.apron, len = a.len ?? 0.6, r = a.r ?? (0.2 * fat + 0.015), top = a.top ?? 0.5;
     mk(spine, new THREE.CylinderGeometry(r, r * 1.04, len, 28, 1, true, -(a.arc ?? 1.9) / 2, a.arc ?? 1.9), mat(a.color, 0.9, 0, true),
@@ -792,20 +857,20 @@ export function makeNPC(def) {
 export const NPC_LIST = [
   {id: 'fisher', name: 'Рыбак Тома', role: 'Рыбак', icon: '🎣', workLabel: 'Ловит рыбу',
     skin: 0xc99567, hair: 'short', hairColor: 0x4a4a4a, beard: 'mustache', hat: 'straw', hatColor: 0xd8bd6a,
-    shirt: 0x4f7f95, pants: 0x8a7a5a, rolled: true, belt: 0x6b4a2b, itemR: 'rod', itemL: 'bucket', work: 'fish', station: 'water', stationZ: 1.64, hideInWork: {L: true},
+    shirt: 0x4f7f95, pants: 0x8a7a5a, rolled: true, belt: 0x6b4a2b, vest: 0xd9a03a, bag: 0x6b4a2b, pipe: true, itemR: 'rod', itemL: 'bucket', work: 'fish', station: 'water', stationZ: 1.64, hideInWork: {L: true},
     brow: 0.1, hold: {R: [-0.9, -0.15, -1.0], L: [-0.2, 0.15, -0.3]}, height: 1.0},
   {id: 'smith', name: 'Кузнец Горо', role: 'Кузнец', icon: '🔨', workLabel: 'Кует железо',
-    fat: 1.35, height: 1.05, skin: 0xb98258, hair: 'bald', beard: 'full', hairColor: 0x1d1a18,
+    fat: 1.35, height: 1.05, skin: 0xb98258, hair: 'wild', beard: 'full', hairColor: 0x1d1a18, hat: 'bandana', hatColor: 0x5a2a20,
     shirt: 0x8a3b2a, shortSleeve: true, pants: 0x3a3028, boots: 0x2a211a, apron: {color: 0x6b4a2b, len: 0.78, top: 0.52}, belt: 0x2a211a,
     bracers: 0x4a3524, itemR: 'hammer', work: 'swing', station: 'anvil', stationZ: 0.55, brow: 0.3, stance: 0.12,
     hold: {R: [-0.4, -0.15, -0.8], L: [-0.1, 0.2, -0.3]}},
   {id: 'merchant', name: 'Торговка Мэй', role: 'Торговка', icon: '🧺', workLabel: 'Зазывает покупателей',
-    fat: 0.9, height: 0.95, skin: 0xe0b48a, hair: 'long', hairColor: 0x2b1b14, hat: 'scarf', hatColor: 0xd9a441, blush: true,
+    fat: 0.9, height: 0.95, skin: 0xe0b48a, hair: 'long', hairColor: 0x2b1b14, hat: 'scarf', hatColor: 0xd9a441, blush: true, earring: true,
     shirt: 0xf0e4c8, sleeve: 0xf0e4c8, dress: {color: 0x9b3d5a, len: 0.86, flare: 0.36, hem: 0xd9a441}, apron: {color: 0xf1ead6, len: 0.5, top: 0.3, r: 0.18},
     itemL: 'basket', work: 'hawk', station: 'crate', stationZ: 0.7, brow: -0.1, hold: {L: [-0.3, 0.15, -1.35]}},
   {id: 'harbor_guard', name: 'Портовый страж', role: 'Страж порта', icon: '⚓', workLabel: 'Обходит с фонарём',
     fat: 1.1, skin: 0xd9a67a, hair: 'short', hairColor: 0x5b3b22, beard: 'mustache', hat: 'helmet', hatColor: 0x7d8691,
-    shirt: 0x39556e, pants: 0x3b3b44, boots: 0x2a2420, cuirass: 0x6c7480, cape: 0x2d4358, belt: 0x2a2420, gloves: 0x5a4632,
+    shirt: 0x39556e, pants: 0x3b3b44, boots: 0x2a2420, cuirass: 0x6c7480, cape: 0x2d4358, belt: 0x2a2420, gloves: 0x5a4632, pouch: 0x2a2420,
     itemR: 'halberd', itemL: 'lantern', work: 'stomp', brow: 0.2, hold: {R: [-0.45, -0.1, -0.9], L: [-0.4, 0.25, -0.6]}},
   {id: 'samurai_guard', name: 'Самурай-страж', role: 'Охрана знати', icon: '🏯', workLabel: 'Несёт караул',
     fat: 1.15, height: 1.04, skin: 0xd2a07a, hair: 'topknot', hairColor: 0x15151a, hat: 'kabuto', hatColor: 0x7a1e22,
@@ -818,36 +883,36 @@ export const NPC_LIST = [
     work: 'sentinel', hold: {R: [-0.1, -0.12, -0.2], L: [-0.1, 0.12, -0.2]}},
   {id: 'farmer', name: 'Крестьянин Эрик', role: 'Фермер', icon: '🌾', workLabel: 'Копает грядку',
     skin: 0xd8a47c, hair: 'short', hairColor: 0xa5742f, hat: 'straw', hatColor: 0xdcc27a, shirt: 0xd8c9a0, pants: 0x4a6a8a, boots: 0x5a3e22,
-    apron: {color: 0x4a6a8a, len: 0.34, top: 0.5, r: 0.2, arc: 1.4}, itemR: 'pitchfork', work: 'dig', station: 'mound', stationZ: 0.85, brow: -0.05, blush: true,
+    apron: {color: 0x4a6a8a, len: 0.34, top: 0.5, r: 0.2, arc: 1.4}, neckerchief: 0xc83a3a, pipe: true, itemR: 'pitchfork', work: 'dig', station: 'mound', stationZ: 0.85, brow: -0.05, blush: true,
     hold: {R: [-0.9, -0.1, -0.7], L: [-0.1, 0.15, -0.3]}},
   {id: 'innkeeper', name: 'Трактирщик Ганс', role: 'Трактирщик', icon: '🍺', workLabel: 'Протирает кружки',
-    fat: 1.4, height: 0.95, head: 1.15, belly: true, skin: 0xe3b08a, hair: 'bald', hairColor: 0xb0501f, beard: 'big', blush: true,
+    fat: 1.4, height: 0.95, head: 1.15, belly: true, skin: 0xe3b08a, hair: 'buzz', hairColor: 0xb0501f, beard: 'big', blush: true,
     shirt: 0xe9e2d0, pants: 0x5a4632, boots: 0x3a2a1a, apron: {color: 0xf3efe6, len: 0.9, top: 0.5, r: 0.31, z: 0.07, sz: 0.85, arc: 2.4},
-    itemR: 'mug', itemL: 'rag', work: 'pour', station: 'barrel', stationZ: 0.68, brow: -0.15, hold: {R: [-0.9, -0.2, -1.2], L: [-0.7, 0.2, -1.2]}},
+    neckerchief: 0x8a1f1f, itemR: 'mug', itemL: 'rag', work: 'pour', station: 'barrel', stationZ: 0.68, brow: -0.15, hold: {R: [-0.9, -0.2, -1.2], L: [-0.7, 0.2, -1.2]}},
   {id: 'pirate', name: 'Пират Багор', role: 'Пират', icon: '🏴‍☠️', workLabel: 'Хвастается добычей',
-    height: 1.03, skin: 0xc08a60, hair: 'long', hairColor: 0xa8431f, beard: 'braided', hat: 'tricorn', hatColor: 0x1f1f26, eyepatch: true, scar: true,
-    shirt: 0x7b1e1e, sleeve: 0x7b1e1e, pants: 0x2c2c34, boots: 0x15151a, belt: 0x3a2a1a, sash: 0xd8c9a0, itemR: 'cutlass', work: 'cheer',
+    height: 1.03, skin: 0xc08a60, hair: 'long', hairColor: 0xa8431f, beard: 'braided', hat: 'tricorn', hatColor: 0x1f1f26, eyepatch: true, scar: true, earring: true,
+    shirt: 0x7b1e1e, sleeve: 0x7b1e1e, pants: 0x2c2c34, boots: 0x15151a, belt: 0x3a2a1a, sash: 0xd8c9a0, vest: 0x2c2c34, itemR: 'cutlass', work: 'cheer',
     station: 'chest', stationZ: 0.95, brow: 0.3, stance: 0.12, hold: {R: [-0.2, -0.3, -0.6], L: [0, 0.4, -1.0]}},
   {id: 'monk', name: 'Монах Рэн', role: 'Монах', icon: '🙏', workLabel: 'Молится',
-    skin: 0xd9b08a, hair: 'bald', hairColor: 0x2a2a2a, shirt: 0xa5622e, sleeve: 0xa5622e, dress: {color: 0xa5622e, len: 0.88, flare: 0.4, hem: 0x7a4620},
-    sash: 0xe3d9bd, beads: 0x4a2e1b, itemR: 'staff', work: 'pray', hideInWork: {R: true}, brow: -0.1, hold: {R: [-0.35, -0.1, -0.7], L: [-0.1, 0.12, -0.2]}},
+    skin: 0xd9b08a, hair: 'bald', hairColor: 0x2a2a2a, hat: 'hood', hatColor: 0x8a4e24, shirt: 0xa5622e, sleeve: 0xa5622e, dress: {color: 0xa5622e, len: 0.88, flare: 0.4, hem: 0x7a4620},
+    sash: 0xe3d9bd, beads: 0x4a2e1b, itemL: 'book', itemR: 'staff', work: 'pray', hideInWork: {R: true}, brow: -0.1, hold: {R: [-0.35, -0.1, -0.7], L: [-0.1, 0.12, -0.2]}},
   {id: 'noble', name: 'Леди Изабелла', role: 'Знатная дама', icon: '👒', workLabel: 'Приветствует',
     fat: 0.88, height: 0.97, skin: 0xf0d0b0, hair: 'bun', hairColor: 0x8d3b1e, hat: 'feather', hatColor: 0x3b4f9a, blush: true,
-    shirt: 0x3b4f9a, sleeve: 0xf4efe4, dress: {color: 0x3b4f9a, len: 0.88, flare: 0.52, hem: 0xc9a13a}, belt: 0xc9a13a, itemR: 'parasol',
+    shirt: 0x3b4f9a, sleeve: 0xf4efe4, gloves: 0xf4efe4, dress: {color: 0x3b4f9a, len: 0.88, flare: 0.52, hem: 0xc9a13a}, belt: 0xc9a13a, itemR: 'parasol',
     work: 'bow', brow: -0.12, hold: {R: [-0.3, -0.25, -0.8], L: [-0.05, 0.15, -0.5]}},
   {id: 'carpenter', name: 'Плотник Лука', role: 'Плотник', icon: '🪚', workLabel: 'Пилит доску',
     skin: 0xcf9b6c, hair: 'short', hairColor: 0x5b3b22, beard: 'goatee', hat: 'cap', hatColor: 0x6b7a4f, shirt: 0xa9895a, pants: 0x59503f,
-    boots: 0x3a2a1a, apron: {color: 0x7a5a38, len: 0.45, top: 0.5}, shortSleeve: true, itemR: 'saw', work: 'saw', station: 'sawhorse', stationZ: 0.65,
+    boots: 0x3a2a1a, apron: {color: 0x7a5a38, len: 0.45, top: 0.5}, shortSleeve: true, glasses: 0x2a2a2a, pencil: true, itemR: 'saw', work: 'saw', station: 'sawhorse', stationZ: 0.65,
     brow: 0.1, hold: {R: [-0.5, -0.12, -0.9], L: [-0.1, 0.15, -0.3]}},
   {id: 'kid', name: 'Мальчишка Пип', role: 'Ребёнок', icon: '⚽', workLabel: 'Играет с мячом',
-    height: 0.62, head: 1.35, fat: 0.85, skin: 0xe3b58c, hair: 'short', hairColor: 0xc47a2c, shirt: 0x3f9e6a, pants: 0x6a5a3a, shortSleeve: true,
+    height: 0.62, head: 1.35, fat: 0.85, skin: 0xe3b58c, hair: 'curly', hairColor: 0xc47a2c, shirt: 0x3f9e6a, bag: 0xb5593a, pants: 0x6a5a3a, shortSleeve: true,
     blush: true, rolled: true, itemR: 'ball', work: 'skip', hideInWork: {R: true}, bounce: true, brow: -0.05, hold: {R: [-0.5, -0.2, -0.9]}},
   {id: 'healer', name: 'Знахарка Юй', role: 'Знахарка', icon: '🧪', workLabel: 'Варит зелье',
-    height: 0.9, hunch: 0.38, fat: 0.95, skin: 0xcaa27c, hair: 'bun', hairColor: 0xd9d9d9, hat: 'scarf', hatColor: 0x5c7a5a,
+    height: 0.9, hunch: 0.38, fat: 0.95, skin: 0xcaa27c, hair: 'braid', hairColor: 0xd9d9d9, hat: 'scarf', hatColor: 0x5c7a5a, glasses: 0x6b4a2b,
     shirt: 0x4c3b6a, sleeve: 0x4c3b6a, dress: {color: 0x4c3b6a, len: 0.86, flare: 0.4, hem: 0x8a6fb0}, shawl: 0x6c8a5e, itemR: 'ladle',
     work: 'stir', station: 'cauldron', stationZ: 0.7, brow: -0.3, hold: {R: [-0.6, -0.12, -0.8], L: [0, 0.3, -0.7]}},
   {id: 'sailor', name: 'Матрос Бо', role: 'Матрос', icon: '🧹', workLabel: 'Драит палубу',
-    height: 1.0, skin: 0xb9764c, hair: 'bald', hairColor: 0x222222, hat: 'scarf', hatColor: 0xc83a3a, beard: 'goatee',
+    height: 1.0, skin: 0xb9764c, hair: 'buzz', hairColor: 0x222222, hat: 'bandana', hatColor: 0xc83a3a, beard: 'stubble', pouch: 0x6b4a2b,
     shirt: 0xe9e4d4, stripes: [0xe9e4d4, 0x2d3f6b], sleeve: 0xe9e4d4, shortSleeve: true, pants: 0xdfd6bf, rolled: true, belt: 0x6b4a2b, itemR: 'mop',
     work: 'sweep', station: 'bucket', stationZ: 0.85, brow: 0.1, hold: {R: [-0.6, -0.1, -0.8], L: [-0.2, 0.15, -0.3]}},
 ];

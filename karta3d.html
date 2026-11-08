@@ -11,6 +11,7 @@
   html,body{margin:0;height:100%;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#9fd3e8}
   canvas{display:block;width:100vw;height:100vh;touch-action:none}
   #ui{position:fixed;right:14px;bottom:14px;width:220px;padding:12px;border-radius:14px;background:var(--card);backdrop-filter:blur(10px);box-shadow:0 6px 24px rgba(0,0,0,.18);z-index:20;max-height:70vh;overflow:auto}
+  #ui{display:none !important}      /* боковая панель «Архипелаг» убрана: режимы — G, телепорт — T, меню игроков и комнат — M */
   #ui h1{font-size:15px;margin:0 0 2px} #ui small{color:var(--mute)}
   #ui h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:10px 0 5px}
   #ui button{display:block;width:100%;text-align:left;font:inherit;border:1px solid #d6d1c6;background:#fff;border-radius:8px;padding:6px 9px;margin:3px 0;cursor:pointer;color:var(--ink)}
@@ -56,6 +57,7 @@ import { startNetwork } from './network.js';
 import { startLobby } from './lobby.js';
 import { startChat } from './chat.js';
 import { startGame } from './game.js';
+import { createDragons } from './dragon.js';
 import { startMinimap } from './minimap.js';
 import { createSky } from './sky.js';
 
@@ -64,7 +66,7 @@ if (Q.get('hud') === '0') document.body.classList.add('nohud');
 const $ = id => document.getElementById(id);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });      // логарифмический буфер глубины: убирает мерцание (z-fighting) на близких поверхностях при near 0.4 / far 14000
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); const adapt = { t: 0, n: 0, max: Math.min(devicePixelRatio, 1.75) };
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
@@ -73,6 +75,7 @@ document.body.prepend(renderer.domElement);
 
 const SKY = new THREE.Color(0xa9d6ea);
 const scene = new THREE.Scene(); scene.background = SKY; scene.fog = new THREE.Fog(SKY, 500, 2400);
+window.__canvas = renderer.domElement;      // нужен стриму: подмена «захвата мыши»
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.4, 14000);
 const hemi = new THREE.HemisphereLight(0xe3f3ff, 0x6a7a55, 1.0); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1d6, 2.4); sun.castShadow = true;
@@ -117,7 +120,8 @@ function applyTod() {
   sun.userData.dir = [Math.cos(ang) * 0.9, Math.max(0.12, el), 0.45];
   if (richard && richard.key) { richard.key.intensity = 2.3 * (0.12 + 0.88 * f); richard.rim.intensity = 1.0 * (0.2 + 0.8 * f); richard.key.color.copy(C_SUN).lerp(C_SUNW, warm); }
   sky.update(camera, ang, el, f, warm);
-  const h = ((tod.t * 24) + 24) % 24; $('todT').textContent = String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0') + (world.tod.phase === 'night' ? ' · ночь: все спят' : world.tod.phase === 'eve' ? ' · вечер: идут домой' : el < 0.3 ? ' · утро: идут на работу' : ' · день: работа');
+  const h = ((tod.t * 24) + 24) % 24; const todTxt = String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0') + (world.tod.phase === 'night' ? ' · ночь: все спят' : world.tod.phase === 'eve' ? ' · вечер: идут домой' : el < 0.3 ? ' · утро: идут на работу' : ' · день: работа');
+  if (todTxt !== applyTod.last) { applyTod.last = todTxt; $('todT').textContent = todTxt; }      // в DOM пишем только когда текст изменился
 }
 $('tod').oninput = e => { tod.t = +e.target.value; applyTod(); };
 $('todAuto').onclick = () => { tod.auto = !tod.auto; $('todAuto').textContent = '⏯ Смена дня: ' + (tod.auto ? 'вкл' : 'выкл'); };
@@ -272,15 +276,19 @@ const SEAT_DROP = 4.4;                                    // от седла д�
 const sup = { min: new V3_(), max: new V3_() }; let supOn = false;     // подвижная опора под ногами (чтобы физика Ричарда не «приземляла» его на рельеф)
 const setSup = (x, y, z) => { sup.min.set(x - 1.3, y - 0.9, z - 1.3); sup.max.set(x + 1.3, y, z + 1.3); if (!supOn && richard) { richard.solids.push(sup); supOn = true; } };
 const dropSup = () => { if (supOn && richard) { const i = richard.solids.indexOf(sup); if (i >= 0) richard.solids.splice(i, 1); } supOn = false; };
-function setRiding(r) { riding = r; window.__riding = !!r; if (richard && r) richard.clearKeys(); }
+function setRiding(r) { riding = r; window.__riding = !!r; window.__ridingKind = r ? r.kind : null; if (richard && r) richard.clearKeys(); }
 const setPos = (P, x, y, z, yaw) => { P.pos.set(x, y, z); P.vel.set(0, 0, 0); if (yaw !== undefined) P.yaw = P.yawVis = yaw; setSup(x, y, z); };
 
 /* корабли: палуба = цепочка квадратных опор вдоль корпуса, едет вместе с кораблём */
 const ships = (world.vessels || []).filter(v => v.box && v.ladder);
+for (const v of ships) if (!(v.deckY >= 0.5)) v.deckY = 0.5;      // у малых лодок настил был ниже воды (−0.35…) — твёрдая палуба оказывалась под поверхностью и коллизии «не было»; поднимаем над ватерлинией
 const wp = (v, lx, ly, lz) => { v.g.updateMatrixWorld(true); return v.g.localToWorld(new V3_(lx, ly, lz)); };
 function placeDeck(v) {
   const g = v.g, y1 = v.y0 + v.deckY * v.s, n = v.deckBoxes.length;
   v.deckBoxes.forEach((b, i) => { const t = v.deckSpec[i].t, h_ = v.deckSpec[i].h, cx = g.position.x + Math.sin(v.yaw) * t, cz = g.position.z + Math.cos(v.yaw) * t; b.min.set(cx - h_, y1 - 40, cz - h_); b.max.set(cx + h_, y1, cz + h_); b.grab = true; });      // корпус твёрдый до самого дна (внутрь не проплыть), за край палубы можно ухватиться и подтянуться
+  // бортик (фальшборт): столбики по обоим бортам и у носа/кормы — за борт не упасть; у лестницы справа проход свободен (там подтягиваются на палубу), у штурвала на корме тоже
+  const ax = Math.cos(v.yaw), az = -Math.sin(v.yaw), fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rb = v.railBoxes;
+  v.railSpec.forEach((r, i) => { const b = rb[i], cx = g.position.x + fx * r.t + ax * r.lat, cz = g.position.z + fz * r.t + az * r.lat; b.min.set(cx - r.hw, y1 - 0.3, cz - r.hw); b.max.set(cx + r.hw, y1 + r.h, cz + r.hw); });
   // посадочная площадка: точка, куда приземляет подтягивание (у борта лестницы минус 1.9 внутрь), в любом повороте корабля лежит на настиле
   const o = wp(v, v.ladder.x + 0.15, 0, v.ladder.z), yw = g.rotation.y, lx = o.x - Math.cos(yw) * 1.9, lz = o.z + Math.sin(yw) * 1.9, h = 1.6;
   v.padBox.min.set(lx - h, y1 - 40, lz - h); v.padBox.max.set(lx + h, y1, lz + h); v.padBox.grab = true;
@@ -292,7 +300,18 @@ if (richard) for (const v of ships) {
   v.deckSpec = Array.from({ length: nB }, (_, i) => { const t = ((i + 0.5) / nB - 0.5) * v.L * 0.94, tn = t / (v.L / 2); return { t, h: Math.max(1.6, v.W * 0.5 * wf(tn) * 0.82) }; });
   v.deckBoxes = v.deckSpec.map(() => ({ min: new V3_(), max: new V3_(), grab: true }));
   v.padBox = { min: new V3_(), max: new V3_(), grab: true };
-  placeDeck(v); richard.solids.push(...v.deckBoxes, v.padBox);
+  { const hw = 0.8, hh = Math.min(1.5, 0.45 + v.W * 0.12), ladT = (v.ladder.z || 0) * v.s, ladSide = Math.sign(v.ladder.x) || 1, helmT = v.helm ? v.helm.z * v.s : -v.L * 0.4;      // высота бортика растёт с шириной корабля (1.0…1.5)
+    v.railSpec = [];
+    const add = (t, lat, h) => v.railSpec.push({ t, lat, hw, h });
+    const step = hw * 1.9, tMax = v.L * 0.47;
+    for (let t = -tMax; t <= tMax; t += step) {
+      const tn = t / (v.L / 2), wfn = tn >= 0 ? Math.pow(Math.max(1 - Math.pow(tn, 2.3), 0), 0.7) : 1 - 0.4 * tn * tn, lat = Math.max(1.4, v.W * 0.5 * wfn * 0.82) - 0.1;
+      for (const sd of [-1, 1]) { if (sd === ladSide && Math.abs(t - ladT) < 3.2) continue; add(t, sd * lat, hh); }      // у лестницы — проход
+    }
+    for (const sd of [-1, 0, 1]) { add(tMax + step * 0.5, sd * Math.max(1, v.W * 0.2), hh); }      // нос (узкая часть)
+    for (const sd of [-1, 0, 1]) add(-tMax - step * 0.5, sd * Math.max(1.2, v.W * 0.28), hh);      // корма (транец)
+    v.railBoxes = v.railSpec.map(() => ({ min: new V3_(), max: new V3_(), grab: false })); }
+  placeDeck(v); richard.solids.push(...v.deckBoxes, v.padBox, ...v.railBoxes);
   if (v.box.solidRef) { const i = richard.solids.indexOf(v.box.solidRef); if (i >= 0) richard.solids.splice(i, 1); }      // прежняя общая коробка заменена цепочкой опор
 }
 /* лестница корабля — такая же, как лестницы шаблона игры: из воды W → лезешь → на верху подтягиваешься на палубу; лестница едет вместе с кораблём */
@@ -309,7 +328,7 @@ function sailsTick(dt) {
 }
 sailsTick(0);
 const deckWorldY = v => v.y0 + v.deckY * v.s;
-const nearBoat = p => { for (const v of ships) { if (v.deckY * v.s >= 1.5) continue; const dd = Math.hypot(v.g.position.x - p.x, v.g.position.z - p.z); if (dd < v.L * 0.5 + 7) return v; } return null; };      // маленькие лодки: у борта лестницы нет (палуба у самой воды) — E «садит» к рулю
+const nearBoat = () => null;      // «E — сесть в лодку» убрано: на малые лодки залезают по лестнице/с причала, а E работает только у штурвала (nearHelm)
 const nearHelm = p => { for (const v of ships) { const h = wp(v, v.helm.x, v.helm.y, v.helm.z); if (Math.hypot(h.x - p.x, h.z - p.z) < 5 && Math.abs(p.y - deckWorldY(v)) < 7) return v; } return null; };
 
 function startMount(c) {
@@ -334,7 +353,7 @@ addEventListener('keydown', e => {
   if (!richard || mode !== 'walk') return;
   if (e.code === 'Space' && riding && riding.kind === 'horse' && riding.stage === 'ride') { if (animals.controllable(riding.c)) animals.jump(riding.c); return; }
   if (e.code === 'KeyQ' && !e.repeat && riding && riding.kind === 'ship') { riding.v.sailsUp = !riding.v.sailsUp; return; }
-  if (e.code !== 'KeyE' || e.repeat) return;
+  if (e.code !== 'KeyE' || e.repeat || window.__gunner || window.__dragonOn || window.__dragonNear || window.__leverNear) return;      // у пушки клавишу E обрабатывает game.js
   const P = richard.P;
   if (riding) {
     e.stopImmediatePropagation();
@@ -344,7 +363,7 @@ addEventListener('keydown', e => {
   }
   const c = animals.nearRideable(P.pos.x, P.pos.z, 9); if (c) { e.stopImmediatePropagation(); startMount(c); return; }
   const h = nearHelm(P.pos); if (h) { e.stopImmediatePropagation(); h.rv = 0; setRiding({ kind: 'ship', v: h }); return; }
-  const bt = nearBoat(P.pos); if (bt) { e.stopImmediatePropagation(); const w = wp(bt, 0, 0, 0); P.pos.set(w.x, deckWorldY(bt) + 0.1, w.z); P.vel.set(0, 0, 0); return; }      // в лодку: Ричард встаёт на её палубу и ходит по ней; плыть — у штурвала (E у руля)
+  const bt = P.state === 'swim' && richard.ladderNear() ? null : nearBoat(P.pos); if (bt) { e.stopImmediatePropagation(); const w = wp(bt, 0, 0, 0); P.pos.set(w.x, deckWorldY(bt) + 0.1, w.z); P.vel.set(0, 0, 0); return; }      // в лодку: Ричард встаёт на её палубу и ходит по ней; плыть — у штурвала (E у руля)
 }, true);
 
 /* ход корабля: паруса подняты — плывёт сам (штурвал не обязателен, достаточно оставить паруса поднятыми), опущены — тормозит и стоит; штурвал только поворачивает */
@@ -381,11 +400,22 @@ function sailShips(dt) {          // корабли без рулевого: е�
     if (carry) { const th = v.yaw - oy, rx = P.pos.x - ox, rz = P.pos.z - oz; P.pos.x = v.g.position.x + rx * Math.cos(th) + rz * Math.sin(th); P.pos.z = v.g.position.z - rx * Math.sin(th) + rz * Math.cos(th); }
   }
 }
+function unstickShips(P) {          // упал за борт и оказался внутри коробки корпуса: выталкиваем наружу по кратчайшему пути (иначе застреваешь в борту)
+  if (!P || !['swim', 'air', 'ground'].includes(P.state)) return;
+  for (const v of ships) for (const b of v.deckBoxes) {
+    if (P.pos.y >= b.max.y - 0.35 || P.pos.y <= b.min.y) continue;
+    const px = P.pos.x, pz = P.pos.z; if (px <= b.min.x || px >= b.max.x || pz <= b.min.z || pz >= b.max.z) continue;
+    const d = [[px - b.min.x, -1, 0], [b.max.x - px, 1, 0], [pz - b.min.z, 0, -1], [b.max.z - pz, 0, 1]].sort((a, c) => a[0] - c[0])[0];
+    if (P.pos.y > b.max.y - 1.2) continue;      // стоит на самой кромке палубы — не трогаем
+    P.pos.x += d[1] * (d[0] + 0.8); P.pos.z += d[2] * (d[0] + 0.8); P.vel.x = P.vel.z = 0; return;
+  }
+}
 function rideUpdate(dt) {
   const P = richard.P, fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), turn = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0), run = keys.has('ShiftLeft') || keys.has('ShiftRight');
   sailShips(dt);
   if (!riding) {
-    const c = animals.nearRideable(P.pos.x, P.pos.z, 9), bt = c ? null : nearBoat(P.pos), h = c || bt ? null : nearHelm(P.pos), l = c || bt || h || P.state !== 'swim' ? null : richard.ladderNear();
+    if (window.__dragonOn) { rideEl.style.display = 'none'; return; }
+    const c = animals.nearRideable(P.pos.x, P.pos.z, 9), bt = c || (P.state === 'swim' && richard.ladderNear()) ? null : nearBoat(P.pos), h = c || bt ? null : nearHelm(P.pos), l = c || bt || h || P.state !== 'swim' ? null : richard.ladderNear();
     rideEl.style.display = (c || bt || h || l) && !P.dead ? 'block' : 'none';
     rideEl.textContent = bt ? 'E — сесть в лодку' : c ? (animals.controllable(c) ? 'E — сесть на лошадь (с седлом: можно управлять)' : 'E — сесть (без седла: лошадь идёт сама)') : h ? 'E — встать к штурвалу (плыть можно только отсюда)' : l ? 'W — лезть по лестнице на борт' : '';
     return;
@@ -418,6 +448,22 @@ function rideUpdate(dt) {
 }
 
 for (const v of ships) v.init = { x: v.g.position.x, z: v.g.position.z, yaw: v.yaw, y0: v.y0 };
+/* пушки: по три на каждом борту (слоты 0–2 левый, 3–5 правый). Позиции считает и сервер по тем же формулам: вдоль корпуса −0.25L / 0 / +0.25L, от борта на 1.3 внутрь */
+function buildCannons(v) {
+  const iron = new THREE.MeshStandardMaterial({ color: 0x2b2b30, roughness: 0.45, metalness: 0.7 }), wood = new THREE.MeshStandardMaterial({ color: 0x5a3a1e, roughness: 0.85 });
+  v.guns = [];
+  for (let i = 0; i < 6; i++) {
+    const side = i < 3 ? -1 : 1, along = [-0.25, 0, 0.25][i % 3], grp = new THREE.Group(), pivot = new THREE.Group(), barrel = new THREE.Group();
+    grp.position.set(side * (v.W * 0.5 - 1.3) / v.s, v.deckY, along * v.L / v.s); grp.scale.setScalar(1 / v.s);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 2.4), wood); base.position.y = 0.45; grp.add(base);
+    for (const sx of [-1, 1]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10), iron); w.rotation.z = Math.PI / 2; w.position.set(sx * 0.95, 0.42, 0); grp.add(w); }
+    pivot.position.y = 1.15; pivot.rotation.y = side * Math.PI / 2; grp.add(pivot);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.52, 3.2, 12), iron); tube.rotation.x = Math.PI / 2; tube.position.z = 0.9; barrel.add(tube);
+    const muzzle = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.1, 6, 12), iron); muzzle.position.z = 2.5; barrel.add(muzzle);
+    pivot.add(barrel); v.g.add(grp); v.guns.push({ grp, pivot, barrel, side, along, recoil: 0 });
+  }
+}
+for (const v of ships) buildCannons(v);
 const shipsApi = {                    // для режима «Морской бой» (game.js): корабли, их позы, посадка на штурвал, потопление
   list: ships,
   setPose(v, x, z, yaw) { v.g.position.x = x; v.g.position.z = z; v.yaw = yaw; v.g.rotation.y = yaw; placeDeck(v); },
@@ -425,22 +471,36 @@ const shipsApi = {                    // для режима «Морской б
   freeze(v, on) { v.frozen = on; if (on) { v.sailsUp = false; v.rv = 0; } },
   board(v) { const P = richard.P, h = wp(v, v.helm.x, v.helm.y, v.helm.z); P.pos.set(h.x, deckWorldY(v) + 0.05, h.z); P.vel.set(0, 0, 0); v.rv = 0; setRiding({ kind: 'ship', v }); },
   release() { if (riding && riding.kind === 'ship') setRiding(null); },
+  deckY: v => deckWorldY(v),
+  nearHelm: () => !!nearHelm(richard.P.pos),
+  setPoseCarry(v, x, z, yaw) {          // чужой корабль переместился: если я стою на его палубе — еду вместе с ним
+    const P = richard.P, carry = !riding && onDeck(v, P.pos), ox = v.g.position.x, oz = v.g.position.z, oy = v.yaw;
+    this.setPose(v, x, z, yaw);
+    if (carry) { const th = yaw - oy, rx = P.pos.x - ox, rz = P.pos.z - oz; P.pos.x = x + rx * Math.cos(th) + rz * Math.sin(th); P.pos.z = z - rx * Math.sin(th) + rz * Math.cos(th); }
+  },
   riding: () => (riding && riding.kind === 'ship' ? riding.v : null),
   sink(v, dt) { v.sunk = true; v.sailsUp = false; v.y0 = Math.max(v.y0 - 1.7 * dt, -16); v.heel += (0.5 - v.heel) * Math.min(1, dt * 0.6); placeDeck(v); if (v.y0 <= -15) v.g.visible = false; },
 };
 if (richard) gameMode = startGame({ net, richard, world, scene, THREE, ships: shipsApi });
-if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode });      // миникарта: где второй игрок (N — размер)
+let dragons = null; if (richard) { try { dragons = createDragons({ THREE, scene, world, richard, net, camera, renderer }); } catch (e) { console.error('драконы', e); } }
+if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode, ships: shipsApi, getDbg: () => gameMode && gameMode.dbg });      // миникарта: где второй игрок (N — размер)
 
 /* цикл */
-const clock = new THREE.Clock(); let T = 0;
+const clock = new THREE.Clock(); let T = 0, todF = 0;
+let streamSkip = false;
 renderer.setAnimationLoop(now => {
-  const dt = Math.min(clock.getDelta(), 0.1); T += dt;
-  if (tod.auto) { tod.t = (tod.t + dt / tod.len) % 1; $('tod').value = tod.t; } applyTod();
-  net.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
+  if (window.__stream) { streamSkip = !streamSkip; if (streamSkip) return; }      // стрим-вкладка: 30 кадров в секунду (больше всё равно не отправляется) — вдвое меньше работы на каждого стрим-игрока
+  const rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.25); T += dt;      // потолок 0.25 с: корабли и анимации идут в реальном времени и при низком FPS
+  { adapt.t += rawDt; adapt.n++; if (adapt.t > 1.5) { const fps = adapt.n / adapt.t; adapt.t = adapt.n = 0;      // авто-разрешение: мало кадров — снижаем чёткость, много — возвращаем
+      if (!document.hidden) { let pr = renderer.getPixelRatio(); const lowF = window.__stream ? 24 : 30, highF = window.__stream ? 28 : 56, floor = 0.75; if (fps < lowF && pr > floor) pr = Math.max(floor, pr - 0.25); else if (fps > highF && pr < adapt.max) pr = Math.min(adapt.max, pr + 0.25);
+        if (pr !== renderer.getPixelRatio()) { renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight); } } } }
+  if (tod.auto) tod.t = (tod.t + dt / tod.len) % 1;
+  if ((todF = (todF + 1) % 3) === 0) { if (tod.auto) $('tod').value = tod.t; applyTod(); }      // смена дня медленная: небо и свет пересчитываем 20 раз в секунду, а не каждый кадр
+  net.update(dt); if (dragons) dragons.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
   if (mode === 'walk' && richard) {
     const p = richard.P.pos;                                  // животные и жители твёрдые: выталкиваем Ричарда
-    rideUpdate(dt);
-    for (const b of riding ? [] : [...animals.bodies(), ...(npcs.bodies ? npcs.bodies() : []), ...net.bodies()]) {
+    rideUpdate(dt); if (!riding && !window.__dragonOn) unstickShips(richard.P);
+    for (const b of riding || window.__dragonOn ? [] : [...animals.bodies(), ...(npcs.bodies ? npcs.bodies() : []), ...net.bodies()]) {
       if (Math.abs(p.y - b.y) > 6) continue;
       const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz), m = b.r + 1.1;
       if (d < m) { const k = d > 1e-3 ? m / d : 0; if (k) { p.x = b.x + dx * k; p.z = b.z + dz * k; } else p.x += m; }

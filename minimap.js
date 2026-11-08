@@ -5,7 +5,7 @@ import { CHARS } from './network.js';
 const TEAM_COL = { red: '#ff5a4f', blue: '#4f9bff' };
 const hue = id => `hsl(${(id * 67) % 360},85%,58%)`;
 
-export function startMinimap({ world, net, richard, getGame, getMode }) {
+export function startMinimap({ world, net, richard, getGame, getMode, ships, getDbg }) {
   const WW = world.size.W, WH = world.size.H, CW = 440, CH = Math.round(CW * WH / WW);
   const css = document.createElement('style');
   css.textContent = `
@@ -57,6 +57,13 @@ export function startMinimap({ world, net, richard, getGame, getMode }) {
       if (G.points) for (const q of G.points) { const col = q.o ? TEAM_COL[q.o] : Math.abs(q.p) > 0.02 ? TEAM_COL[q.p > 0 ? 'red' : 'blue'] : '#cfcfcf', [px, py] = toP(q.x, q.z); g.fillStyle = col; g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(px, py, 8, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#000'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚑', px, py + 1); }
       if (G.flags) for (const f of G.flags) { if (f.st === 'carried') continue; const [px, py] = toP(f.x, f.z); g.font = '16px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = TEAM_COL[f.team]; g.fillText('🚩', px, py); }
     }
+    // корабли: свои/чужие цветом хозяина, пустые — серые, потонувшие — крестом
+    if (ships) { const own = new Map(); for (const a of G.pl || []) if (a[8] != null) own.set(a[8], a); const nvHp = new Map((G.nv || []).map(q => [q[0], q[1]]));
+      ships.list.forEach((v, k) => {
+        const [px, py] = toP(v.g.position.x, v.g.position.z), o = inPlay ? own.get(k) : null, dead = (o && o[7] <= 0) || (!o && nvHp.get(k) === 0), col = o ? (o[0] === net.id ? '#ff5a4f' : hue(o[0])) : '#e8e8e8';
+        g.save(); g.translate(px, py); g.rotate(Math.PI - v.yaw); g.fillStyle = dead ? 'rgba(80,80,80,.6)' : col; g.strokeStyle = '#102030'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(0, -9); g.lineTo(4.5, 3); g.lineTo(3, 8); g.lineTo(-3, 8); g.lineTo(-4.5, 3); g.closePath(); g.fill(); g.stroke(); g.restore();
+        if (dead) { g.strokeStyle = '#ff6b6b'; g.lineWidth = 2; g.beginPath(); g.moveTo(px - 5, py - 5); g.lineTo(px + 5, py + 5); g.moveTo(px + 5, py - 5); g.lineTo(px - 5, py + 5); g.stroke(); }
+      }); }
     // другие игроки (в прятках не показываем)
     const hideAll = inPlay && G.mode === 'hide', rows = [];
     if (!hideAll) for (const b of net.bodies()) {

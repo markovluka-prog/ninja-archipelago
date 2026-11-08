@@ -2,24 +2,26 @@
 // гибель/возрождение, «слепой» искатель в прятках, запрет телепорта. Режимы: battle, relics, capture, ctf, hide.
 export const MODE_INFO = {
   battle:  { icon: '⚔️', name: 'Битва', desc: 'Бей соперников — первый, у кого 10 побед, получает 🪙. Телепорт выключен.',
-    goal: 'Первым одержать 10 побед над соперниками.', rules: ['Бейте других игроков — каждое убийство = 1 победа', 'После гибели вы возрождаетесь через 3 секунды в случайном месте', 'Телепорт выключен. Время раунда — 8 минут (при ничьей победителя нет)'] },
+    goal: 'Первым одержать 10 побед над соперниками.', rules: ['Бейте других игроков — каждое убийство = 1 победа', 'После гибели вы возрождаетесь через 3 секунды в случайном месте', 'Телепорт выключен. Времени на раунд нет — только 10 побед'] },
   relics:  { icon: '💎', name: 'Поиск реликвий', desc: 'Реликвии спрятаны в сложных местах (крыши, вершины) и издалека не видны — ищите! Кто соберёт 10 — победил. Подобранные появляются снова в других местах.',
     goal: 'Первым собрать 10 реликвий.', rules: ['Все стартуют в одном месте, реликвии разбросаны случайно по миру', 'Реликвии спрятаны на крышах и вершинах — видны только вблизи (≈28 м)', 'Подойдите вплотную, чтобы подобрать', 'Подобранная реликвия через 25 секунд появится в другом месте'] },
-  capture: { icon: '🚩', name: 'Захват точек', desc: 'Две команды бьются за острова: стойте у флага, чтобы захватить. Каждая точка даёт очко в секунду, до 200.',
-    goal: 'Набрать 200 очков раньше другой команды.', rules: ['На каждом острове — одна точка; стойте у её флага, чтобы захватить (чем больше вас — тем быстрее)', 'Каждая удерживаемая точка даёт команде 1 очко в секунду', 'Бейте соперников, не давайте им захватить точки. Раунд — 7 минут'] },
+  capture: { icon: '🚩', name: 'Захват точек', desc: 'Две команды бьются за острова: стойте у флага, чтобы захватить. Побеждает команда, захватившая больше половины точек.',
+    goal: 'Первыми захватить больше половины точек (на каждом острове по одной).', rules: ['На каждом острове — одна точка с флагом; стойте у флага, чтобы захватить её (чем больше вас — тем быстрее)', 'Побеждает команда, которая первой держит больше половины точек. Таймера нет', 'Бейте соперников и не давайте им отбить точки'] },
   ctf:     { icon: '🏴', name: 'Битва флагов', desc: 'Командная битва: украдите флаг соперника и принесите на свою базу. До 3 захватов.',
-    goal: 'Первой команде совершить 3 захвата флага.', rules: ['Бой идёт на самом большом острове — там базы и флаги', 'Подбегите к флагу соперника — вы понесёте его', 'Принесите его на свою базу, пока ваш флаг лежит дома', 'Убитый носитель роняет флаг; упавший флаг сам вернётся через 20 с. Раунд — 10 минут'] },
+    goal: 'Первой команде притащить на свою базу 3 флага соперника.', rules: ['Бой идёт на самом большом острове — там базы и флаги', 'Подбегите к флагу соперника — вы понесёте его', 'Принесите его на свою базу, пока ваш флаг лежит дома', 'Убитый носитель роняет флаг; упавший флаг сам вернётся через 20 с. Таймера нет — играем до 3 флагов'] },
   hide:    { icon: '🙈', name: 'Прятки', desc: 'Один искатель (30 с слепой), остальные прячутся. Найденный (удар) становится искателем. Продержись 3 минуты!',
     goal: 'Прячущимся — продержаться 3 минуты. Искателю — найти всех.', rules: ['Один случайный игрок — искатель: первые 30 секунд он слеп, но потом бегает в 1.75 раза быстрее',  'Остальные прячутся (имена над головами скрыты)', 'Найденный (удар искателя) сам становится искателем'] },
   naval:   { icon: '🚢', name: 'Морской бой', desc: 'У каждого свой корабль. Стреляйте из пушек бортовыми залпами и топите чужие корабли — побеждает последний на плаву.',
-    goal: 'Потопить корабли соперников и остаться на плаву последним.', rules: ['Каждый стартует на своём корабле у штурвала: Q — паруса, A/D — поворот', 'Z — залп левого борта, X — залп правого (перезарядка 1 с). Цельтесь бортом: ядра летят в стороны', 'Пустые корабли тоже можно топить, но очков за них нет. Корабли сталкиваться не могут. Корпус держит ≈17 попаданий, потопленный игрок выбывает', 'Время — 8 минут: потом побеждает самый целый корабль'] },
+    goal: 'Потопить корабли соперников и остаться на плаву последним.', rules: ['Каждый стартует на своём корабле у штурвала: Q — паруса, A/D — поворот', 'Пушки стоят на бортах: подойдите к пушке и нажмите E, наведите (A/D — поворот ствола, W/S — угол; видна траектория) и стреляйте на X. E — отойти. Перезарядка 1 с', 'Пустые корабли тоже можно топить, но очков за них нет. Корабли сталкиваться не могут. Корпус держит ≈17 попаданий, потопленный игрок выбывает', 'Таймера нет — побеждает последний корабль на плаву'] },
+  dragons: { icon: '🐉', name: 'Поединки драконов', desc: 'Все верхом на драконах. Сожгите пламенем всадника чужого дракона — первый, у кого 10 побед, получает 🪙.',
+    goal: 'Первым одержать 10 побед: спалить всадника чужого дракона.', rules: ['Дракон прилетает и садится рядом — подойдите и нажмите E, чтобы забраться. В полёте: W/S — вперёд/назад, A/D — поворот, Z/X — вверх/вниз, Shift — ускорение', 'Пробел или левая кнопка мыши (зажать) — огненное дыхание. Пламя поражает всадника, дракон неуязвим', 'Всадник сгорает за пару секунд огня; убитый возрождается через 3 секунды на новом драконе', 'Хлопайте крыльями выше гор: пламя бьёт далеко, но дракон не пролетит сквозь постройки'] },
   explore: { icon: '🧭', name: 'Изучение', desc: 'Без целей и времени: просто гуляйте по архипелагу и общайтесь вдвоём. Телепорт и чат работают.',
     goal: 'Никаких целей — исследуйте острова и общайтесь.', rules: ['Все стартуют в одном месте и гуляют вместе', 'Enter — чат, N — карта с положением друга, T — телепорт по карте', 'Игра идёт, пока вы сами не закончите её в меню (M)'] },
 };
 const COL = { red: 0xe0453a, blue: 0x3a7be0 }, CSS = { red: '#ff6b6b', blue: '#6bb6ff' }, TEAM = { red: '🔴 Красные', blue: '🔵 Синие' };
 const SWING = { attack: [0.22, 20, 7.5], kick: [0.2, 12, 6.5], bash: [0.25, 15, 6.5] };      // состояние → [когда в клипе бьём (с), урон, дальность]
 const SEEKER_SPEED = 1.75;      // искатель в прятках быстрее остальных в 1.75 раза (между 1.5 и 2)
-const PVP = new Set(['battle', 'capture', 'ctf', 'hide']);
+const PVP = new Set(['battle', 'capture', 'ctf', 'hide', 'dragons']);
 
 export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
   const P = richard.P, shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -44,14 +46,35 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
     for (const sp of spots) sp.big = sp.i === bigId;
     console.log('[острова]', spots.map(s => `${s.n}: остров ${s.i}${s.big ? ' (большой)' : ''}`).join('; '));
   }
+  /* карта достижимости: суша, связанная пешком с побережьем (на остров всегда можно доплыть), без клеток внутри твёрдых построек */
+  function reachMap() {
+    const B = world.bounds, ST = 10, nx = Math.ceil((B.x1 - B.x0) / ST), nz = Math.ceil((B.z1 - B.z0) / ST), seen = new Uint8Array(nx * nz), X = i => B.x0 + i * ST, Z = j => B.z0 + j * ST;
+    const land = (i, j) => world.heightAt(X(i), Z(j)) > 0.3, free = (i, j) => land(i, j) && !(world.blockedAt && world.blockedAt(X(i), Z(j), 1.2));
+    const q = []; const push = (i, j) => { if (i < 0 || j < 0 || i >= nx || j >= nz) return; const k = j * nx + i; if (seen[k] || !free(i, j)) return; seen[k] = 1; q.push(k); };
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) if (land(i, j) && (!land(i + 1, j) || !land(i - 1, j) || !land(i, j + 1) || !land(i, j - 1))) push(i, j);      // берег
+    for (let h = 0; h < q.length; h++) { const k = q[h], i = k % nx, j = (k / nx) | 0; push(i + 1, j); push(i - 1, j); push(i, j + 1); push(i, j - 1); }
+    return { has: (x, z) => { const i = Math.round((x - B.x0) / ST), j = Math.round((z - B.z0) / ST); return i >= 0 && j >= 0 && i < nx && j < nz && seen[j * nx + i] === 1; }, size: q.length };
+  }
   function buildInfo() {
     const spots = Object.entries(world.spots).map(([n, s]) => ({ n, x: +s.x.toFixed(1), z: +s.z.toFixed(1), y: +Math.max(0, world.heightAt(s.x, s.z)).toFixed(1), yaw: s.yaw || 0 }));
     markIslands(spots);
-    const cand = [], B = world.bounds;
-    const boxes = (world.solidBoxes || []).filter(b => { const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, gr = Math.max(0, world.heightAt(cx, cz)); return b.y1 - gr >= 8 && b.x1 - b.x0 >= 4 && b.z1 - b.z0 >= 4 && b.y1 < 500; });
+    const cand = [], B = world.bounds, reach = reachMap(), CLIMB = 14;      // CLIMB: с земли персонаж забирается на выступ до ~14 ед. (прыжок ≈5.5 + подтягивание за кромку на 6…10.8)
+    // крыши/верхушки построек: только то, на что реально можно забраться — не выше CLIMB над ближайшей достижимой землёй, без домов с дверью (их крыши не твёрдые) и без кораблей/деревьев
+    const roofOk = b => {
+      if (b.houses || b.kind === 'ship' || b.kind === 'boat' || b.kind === 'tree' || b.grab === false || b.removed) return false;
+      let best = -1; for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [-1, 1], [1, -1]]) {
+        const px = dx < 0 ? b.x0 - 3 : dx > 0 ? b.x1 + 3 : (b.x0 + b.x1) / 2, pz = dz < 0 ? b.z0 - 3 : dz > 0 ? b.z1 + 3 : (b.z0 + b.z1) / 2;
+        if (reach.has(px, pz)) best = Math.max(best, Math.max(0, world.heightAt(px, pz)));
+      }
+      return best >= 0 && b.y1 - best <= CLIMB;
+    };
+    const boxes = (world.solidBoxes || []).filter(b => { const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, gr = Math.max(0, world.heightAt(cx, cz)); return b.y1 - gr >= 3 && b.x1 - b.x0 >= 4 && b.z1 - b.z0 >= 4 && b.y1 < 500 && roofOk(b); });
     for (const b of shuffle(boxes).slice(0, 70)) cand.push([(b.x0 + b.x1) / 2, b.y1 + 1.6, (b.z0 + b.z1) / 2]);
-    const pts = []; for (let x = B.x0; x < B.x1; x += 60) for (let z = B.z0; z < B.z1; z += 60) { const h = world.heightAt(x, z); if (h > 25) pts.push([x, h, z]); }
+    // вершины рельефа: идти пешком можно везде (подъём до 45 ед/с), поэтому важно только, чтобы точка была связана с побережьем и не стояла внутри постройки
+    const pts = []; for (let x = B.x0; x < B.x1; x += 60) for (let z = B.z0; z < B.z1; z += 60) { const h = world.heightAt(x, z); if (h > 25 && reach.has(x, z)) pts.push([x, h, z]); }
     pts.sort((a, b) => b[1] - a[1]); for (const p of shuffle(pts.slice(0, Math.max(40, Math.floor(pts.length * 0.25)))).slice(0, 70)) cand.push([p[0], p[1] + 1.6, p[2]]);
+    // низкие места: полянки на суше (если высоких мест мало — реликвии всё равно должны быть в мире)
+    if (cand.length < 30) { const flat = []; for (let x = B.x0; x < B.x1; x += 80) for (let z = B.z0; z < B.z1; z += 80) { const h = world.heightAt(x, z); if (h > 2 && reach.has(x, z)) flat.push([x, h + 1.6, z]); } for (const p of shuffle(flat).slice(0, 40)) cand.push(p); }
     if (cand.length < 10) for (const s of spots) cand.push([s.x + 6, s.y + 1.6, s.z + 6]);
     const shipsInfo = SH ? SH.list.map((v, k) => ({ k, x: +v.g.position.x.toFixed(1), z: +v.g.position.z.toFixed(1), yaw: +v.yaw.toFixed(3), L: +v.L.toFixed(1), W: +v.W.toFixed(1) })) : [];
     return { spots, ships: shipsInfo, relic: cand.map(c => c.map(v => +v.toFixed(1))) };
@@ -73,6 +96,7 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
   #gIntro{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:48;display:none;width:min(520px,92vw);background:rgba(10,20,30,.88);color:#fff;border-radius:18px;padding:18px 24px;font:15px/1.45 -apple-system,"Segoe UI",sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.6);pointer-events:none;text-align:left}
   #gIntro h2{margin:0 0 2px;font-size:28px;text-align:center;color:#ffd84a} #gIntro h3{margin:0 0 10px;font-size:19px;text-align:center}
   #gIntro b{color:#ffd84a} #gIntro ul{margin:4px 0 0;padding-left:20px} #gIntro .who{margin-top:10px;text-align:center;font-weight:700}
+  #gPrompt{position:fixed;left:50%;bottom:26%;transform:translateX(-50%);z-index:46;display:none;max-width:90vw;background:rgba(10,20,30,.82);color:#fff;border-radius:12px;padding:8px 16px;font:700 16px -apple-system,sans-serif;pointer-events:none;text-align:center}
   #gDead{position:fixed;inset:0;z-index:43;display:none;place-items:center;background:rgba(120,0,0,.35);color:#fff;font:800 26px -apple-system,sans-serif;pointer-events:none;text-shadow:0 2px 6px #000}`;
   document.head.appendChild(css);
   const mk = (id, cls) => { const d = document.createElement('div'); d.id = id; document.body.appendChild(d); return d; };
@@ -119,7 +143,7 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
   const myTeam = () => { const a = my(); return a ? a[3] : null; };
 
   /* ───── морской бой ───── */
-  let navalUsed = false, sendShipT = 0; const balls = new Map(), fx = [], reloadAt = { '-1': 0, '1': 0 };
+  let navalUsed = false, sendShipT = 0; const balls = new Map(), fx = [];
   const fxRoot = new THREE.Group(); scene.add(fxRoot);
   const mat = (c, o = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false });
   const ballGeo = new THREE.SphereGeometry(0.55, 10, 8), ballMat = new THREE.MeshStandardMaterial({ color: 0x1b1b1b, roughness: 0.5, metalness: 0.6 });
@@ -134,32 +158,98 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
     if (was && now && was[7] > 0 && now[7] <= 0) banner('⚓ Ваш корабль потоплен! Вы выбыли — плывите к берегу', 6);
   }
   const myShip = () => { const a = my(); return a && a[8] != null && SH ? SH.list[a[8]] : null; };
-  net.on('ship', m => { if (!SH) return; const a = (G.pl || []).find(x => x[0] === m.id), v = a && SH.list[a[8]]; if (v) { v.tgt = { x: m.x, z: m.z, yaw: m.yaw }; v.sailsUp = !!m.su; } });
+  const shipDbg = { rx: 0, tx: 0, lastRx: -99, lastK: -1, mine: -1 };      // счётчики для строки диагностики на миникарте
+  net.on('ship', m => { if (!SH) return; shipDbg.rx++; shipDbg.lastRx = T(); shipDbg.lastK = m.k; const v = SH.list[m.k]; if (!v || SH.riding() === v) return; v.remote = true; v.lastNet = T(); v.tgt = { x: m.x, z: m.z, yaw: m.yaw }; v.sailsUp = !!m.su; });      // кто-то правит этим кораблём — повторяем за ним
   net.on('shot', m => {
     const mesh = new THREE.Mesh(ballGeo, ballMat); mesh.position.set(m.x, m.y, m.z); fxRoot.add(mesh); balls.set(m.b, { m: mesh, vx: m.vx, vy: m.vy, vz: m.vz });
     puff(m.x, m.y + 0.3, m.z, 0xdddddd, 0.6, 3.2, 1.1); bang(vol(m.x, m.z) * 0.6);
+    { const sv = SH && SH.list[m.s], q = sv && sv.guns && sv.guns[m.gun]; if (q) q.recoil = 1; }
   });
   net.on('boom', m => {
     const b = balls.get(m.b); if (b) { b.m.removeFromParent(); balls.delete(m.b); }
     if (m.h) { puff(m.x, m.y, m.z, 0xff8a1f, 0.8, 5.5, 0.7); puff(m.x, m.y + 1, m.z, 0x333333, 0.6, 6.5, 1.6); bang(vol(m.x, m.z)); }
     else { puff(m.x, 0.3, m.z, 0xbfe6ff, 0.5, 4.2, 0.8); }
   });
+  /* ───── пушки: подойти → E (встать за пушку) → A/D поворот ствола, W/S угол, X выстрел, E отойти. Сервер проверяет, что вы стоите у пушки ───── */
+  const AIM = { speed: 88, g: 30, elMin: 0.03, elMax: 0.62, relMax: 1.1 }, reloadGun = {}, keysG = new Set(); let gunner = null;
+  const gPrompt = mk('gPrompt'), aimGeo = new THREE.BufferGeometry();
+  aimGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(70 * 3), 3));
+  const aimLine = new THREE.Line(aimGeo, new THREE.LineBasicMaterial({ color: 0xffe14a, transparent: true, opacity: 0.95, depthTest: false, fog: false })), aimRing = makeRing(7, 0xffe14a);
+  aimLine.frustumCulled = false; aimLine.renderOrder = 40; aimLine.visible = false; aimRing.material.depthTest = false; aimRing.renderOrder = 40; aimRing.visible = false; fxRoot.add(aimLine, aimRing);
+  const gunWorld = (v, i) => { const q = v.guns[i], fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), off = v.W * 0.5 - 1.3, al = q.along * v.L; return { x: v.g.position.x + Math.cos(v.yaw) * q.side * off + fx * al, z: v.g.position.z - Math.sin(v.yaw) * q.side * off + fz * al }; };
+  const aimYaw = () => gunner.v.yaw + gunner.v.guns[gunner.i].side * Math.PI / 2 + gunner.rel;
+  function nearGun(mine) { const y = SH.deckY(mine); let best = null; for (let i = 0; i < mine.guns.length; i++) { const w = gunWorld(mine, i), d = Math.hypot(w.x - P.pos.x, w.z - P.pos.z); if (d < 3.4 && Math.abs(P.pos.y - y) < 3 && (!best || d < best.d)) best = { i, d }; } return best; }
+  function takeGun(v, i) { gunner = { v, i, rel: 0, el: 0.2 }; window.__gunner = true; richard.clearKeys(); }
+  function leaveGun() { if (!gunner) return; const q = gunner.v.guns[gunner.i]; q.pivot.rotation.y = q.side * Math.PI / 2; q.barrel.rotation.x = 0; gunner = null; window.__gunner = false; aimLine.visible = aimRing.visible = false; gPrompt.style.display = 'none'; }
+  function fireGun() { const t = T(); if (!gunner || (reloadGun[gunner.i] || 0) > t) return; reloadGun[gunner.i] = t + 1; net.send({ t: 'fire', gun: gunner.i, yaw: +aimYaw().toFixed(4), el: +gunner.el.toFixed(4) }); }
   addEventListener('keydown', e => {
-    if (e.repeat || !meIn() || G.mode !== 'naval' || (e.code !== 'KeyZ' && e.code !== 'KeyX')) return;
-    if (/^(INPUT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName)) return;
-    const a = my(); if (!a || a[7] <= 0) return; const side = e.code === 'KeyZ' ? -1 : 1, t = T(); if (reloadAt[side] > t) return;
-    reloadAt[side] = t + 1; net.send({ t: 'fire', side });
+    if (e.repeat || !SH || /^(INPUT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName)) return;
+    if (e.code === 'KeyE') {
+      if (gunner) { leaveGun(); return; }
+      const mine = meIn() && G.mode === 'naval' && !P.dead ? myShip() : null; if (!mine || !mine.guns || SH.nearHelm() || SH.riding()) return;
+      const c = nearGun(mine); if (c) takeGun(mine, c.i); return;
+    }
+    keysG.add(e.code); if (gunner && e.code === 'KeyX') fireGun();
   });
+  addEventListener('keyup', e => keysG.delete(e.code)); addEventListener('blur', () => keysG.clear());
+  function gunnerUpdate(dt, mine, naval) {
+    for (const v of SH.list) if (v.guns) for (const q of v.guns) if (q.recoil > 0) { q.recoil = Math.max(0, q.recoil - dt * 3.2); q.barrel.position.z = -0.7 * q.recoil; }      // откат ствола после выстрела
+    const a = my();
+    if (gunner && (!naval || !mine || mine !== gunner.v || !a || a[7] <= 0 || P.dead)) leaveGun();
+    if (!gunner) {
+      aimLine.visible = aimRing.visible = false;
+      const c = naval && mine && mine.guns && a && a[7] > 0 && !P.dead && !SH.riding() && !SH.nearHelm() ? nearGun(mine) : null;
+      gPrompt.style.display = c ? 'block' : 'none'; if (c) gPrompt.textContent = '🎯 E — встать к пушке №' + (c.i + 1) + ' (прицелиться и стрелять)';
+      return;
+    }
+    const q = gunner.v.guns[gunner.i], sh = keysG.has('ShiftLeft') || keysG.has('ShiftRight') ? 0.3 : 1;
+    gunner.rel = Math.max(-AIM.relMax, Math.min(AIM.relMax, gunner.rel + ((keysG.has('KeyA') ? 1 : 0) - (keysG.has('KeyD') ? 1 : 0)) * dt * 0.7 * sh));      // A — ствол влево, D — вправо
+    gunner.el = Math.max(AIM.elMin, Math.min(AIM.elMax, gunner.el + ((keysG.has('KeyW') ? 1 : 0) - (keysG.has('KeyS') ? 1 : 0)) * dt * 0.35 * sh));        // W — выше, S — ниже
+    q.pivot.rotation.y = q.side * Math.PI / 2 + gunner.rel; q.barrel.rotation.x = -gunner.el;
+    const w = gunWorld(gunner.v, gunner.i), yaw = aimYaw(), dx = Math.sin(yaw), dz = Math.cos(yaw);
+    P.pos.set(w.x - dx * 2.4, SH.deckY(gunner.v) + 0.05, w.z - dz * 2.4); P.vel.set(0, 0, 0); P.yaw = P.yawVis = yaw; richard.clearKeys();      // стоим позади ствола и смотрим по линии огня
+    // траектория: те же формулы, что у сервера
+    const pos = aimGeo.attributes.position.array, hv = AIM.speed * Math.cos(gunner.el); let x = w.x + dx * 2.6, y = 3.4, z = w.z + dz * 2.6, vy = AIM.speed * Math.sin(gunner.el), n = 0;
+    for (; n < 70; n++) { pos[n * 3] = x; pos[n * 3 + 1] = y; pos[n * 3 + 2] = z; if (y < 0 && n > 0) break; x += dx * hv * 0.07; z += dz * hv * 0.07; y += vy * 0.07; vy -= AIM.g * 0.07; }
+    aimGeo.setDrawRange(0, Math.min(n + 1, 70)); aimGeo.attributes.position.needsUpdate = true; aimLine.visible = true;
+    aimRing.position.set(x, 0.6, z); aimRing.visible = true;
+    const wait = Math.max(0, Math.ceil((reloadGun[gunner.i] || 0) - T()));
+    gPrompt.style.display = 'block'; gPrompt.textContent = `🎯 Пушка №${gunner.i + 1} · дальность ≈ ${Math.round(Math.hypot(x - w.x, z - w.z))} м · A/D — поворот, W/S — угол, Shift — точнее · X — ВЫСТРЕЛ ${wait ? '(перезарядка ' + wait + ' с)' : '✔'} · E — отойти`;
+  }
+  /* метки над чужими кораблями: за туманом (с 500 м) корабль не разглядеть — метка с именем и расстоянием видна всегда */
+  const markers = new Map(), mhue = id => `hsl(${(id * 67) % 360},85%,58%)`;
+  function drawMarker(m, name, dist) { const g = m.cv.getContext('2d'); g.clearRect(0, 0, 256, 96); g.fillStyle = 'rgba(10,20,30,.72)'; g.beginPath(); g.roundRect(4, 6, 248, 58, 14); g.fill(); g.font = 'bold 28px -apple-system,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = m.col; g.fillText('⚓ ' + name, 128, 24); g.fillStyle = '#fff'; g.font = '24px -apple-system,sans-serif'; g.fillText(dist + ' м', 128, 49); g.fillStyle = m.col; g.beginPath(); g.moveTo(112, 66); g.lineTo(144, 66); g.lineTo(128, 90); g.closePath(); g.fill(); m.tex.needsUpdate = true; }
+  function clearMarkers() { for (const m of markers.values()) { m.sp.removeFromParent(); m.tex.dispose(); m.sp.material.dispose(); } markers.clear(); }
+  function updateMarkers() {
+    const seen = new Set(), nm = new Map((net.roster || []).map(p => [p.id, p.name]));
+    for (const a of G.pl || []) {
+      const v = a[0] !== net.id && SH.list[a[8]]; if (!v || a[7] <= 0) continue; seen.add(a[0]);
+      let m = markers.get(a[0]);
+      if (!m) { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 96; const tex = new THREE.CanvasTexture(cv), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false })); sp.renderOrder = 30; fxRoot.add(sp); m = { cv, tex, sp, col: mhue(a[0]), last: -1 }; markers.set(a[0], m); }
+      const dist = Math.hypot(v.g.position.x - P.pos.x, v.g.position.z - P.pos.z);
+      m.sp.position.set(v.g.position.x, v.y0 + 26, v.g.position.z); const s = Math.min(90, Math.max(5, dist * 0.04)); m.sp.scale.set(s * 2.67, s, 1); m.sp.visible = dist > 50;
+      const d10 = Math.round(dist / 10) * 10; if (d10 !== m.last) { m.last = d10; drawMarker(m, nm.get(a[0]) || 'Игрок', d10); }
+    }
+    for (const [id, m] of [...markers]) if (!seen.has(id)) { m.sp.removeFromParent(); m.tex.dispose(); m.sp.material.dispose(); markers.delete(id); }
+  }
   function navalUpdate(dt) {
     const t = T();
     for (const [id, b] of balls) { b.m.position.x += b.vx * dt; b.m.position.z += b.vz * dt; b.m.position.y += b.vy * dt; b.vy -= 30 * dt; if (b.m.position.y < -3) { b.m.removeFromParent(); balls.delete(id); } }
     for (let i = fx.length - 1; i >= 0; i--) { const f = fx[i]; f.t += dt; const u = f.t / f.dur; if (u >= 1) { f.m.removeFromParent(); f.m.material.dispose(); f.m.geometry.dispose(); fx.splice(i, 1); continue; } f.m.scale.setScalar(f.s0 + (f.s1 - f.s0) * Math.sqrt(u)); f.m.material.opacity = 0.85 * (1 - u); }
-    if (!SH || !navalUsed) return;
-    const k = 1 - Math.exp(-10 * dt), mine = myShip();
-    for (const v of SH.list) {
-      if (v.hp != null && v.hp <= 0 && (G.mode === 'naval')) { SH.sink(v, dt); if (v === mine && SH.riding() === v) SH.release(); continue; }
-      if (v.remote && v.tgt) { const x = v.g.position.x + (v.tgt.x - v.g.position.x) * k, z = v.g.position.z + (v.tgt.z - v.g.position.z) * k, d = Math.atan2(Math.sin(v.tgt.yaw - v.yaw), Math.cos(v.tgt.yaw - v.yaw)); SH.setPose(v, x, z, v.yaw + d * k); }
-    }
+    if (!SH) return;
+    const k = 1 - Math.exp(-10 * dt), mine = myShip(), naval = navalUsed && G.mode === 'naval', riden = SH.riding();
+    gunnerUpdate(dt, mine, naval && G.phase === 'play');
+    SH.list.forEach((v, k_) => {
+      if (naval && v.hp != null && v.hp <= 0) { SH.sink(v, dt); if (v === mine && riden === v) SH.release(); return; }
+      if (!naval) {                                                      // свободная игра: корабли общие. Правит тот, кто у штурвала (и пока корабль плывёт сам после него)
+        if (riden === v) { v.remote = false; v.mineT = t; }
+        else if (v.remote && t - (v.lastNet || 0) > 1.5) v.remote = false;      // давно нет вестей — корабль снова «свой»
+        if (!v.remote && (riden === v || (v.mineT && t - v.mineT < 600 && (v.sailsUp || Math.abs(v.rv) > 0.05))) && (v.sendT = (v.sendT || 0) + dt) > 0.1) { v.sendT = 0; shipDbg.tx++; shipDbg.mine = k_; net.send({ t: 'ship', k: k_, x: +v.g.position.x.toFixed(2), z: +v.g.position.z.toFixed(2), yaw: +v.yaw.toFixed(3), su: v.sailsUp ? 1 : 0 }); }
+      }
+      if (v.remote && v.tgt && !(naval && v.hp != null && v.hp <= 0)) { const x = v.g.position.x + (v.tgt.x - v.g.position.x) * k, z = v.g.position.z + (v.tgt.z - v.g.position.z) * k, d = Math.atan2(Math.sin(v.tgt.yaw - v.yaw), Math.cos(v.tgt.yaw - v.yaw)); SH.setPoseCarry(v, x, z, v.yaw + d * k); }
+    });
+    if (!naval) { if (markers.size) clearMarkers(); return; }
+    updateMarkers();
     if (G.phase === 'play' && mine && mine.hp > 0 && (sendShipT += dt) > 0.1) { sendShipT = 0; net.send({ t: 'ship', x: +mine.g.position.x.toFixed(2), z: +mine.g.position.z.toFixed(2), yaw: +mine.yaw.toFixed(3), su: mine.sailsUp ? 1 : 0 }); }
   }
 
@@ -175,7 +265,7 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
     window.__gameLock = meIn() && m.mode !== 'explore';     // телепорт и облёт выключены в любом активном режиме, кроме «Изучения»
     if (m.phase === 'over') banner('🏆 ' + (m.winner || 'Конец игры'), 9);
     if (SH && (m.phase === 'play' || m.phase === 'over') && m.mode === 'naval') applyNaval(m, prev);
-    if (m.phase === 'idle' && navalUsed) { navalUsed = false; SH.release(); SH.reset(); for (const b of balls.values()) disposeObj(b.m); balls.clear(); }
+    if (m.phase === 'idle' && navalUsed) { navalUsed = false; SH.release(); SH.reset(); for (const b of balls.values()) disposeObj(b.m); balls.clear(); clearMarkers(); leaveGun(); }
     if (m.phase !== 'play') return;
     net.hideLabels = m.mode === 'hide';
     if (m.mode === 'capture' || m.mode === 'ctf') { const map = {}; for (const a of m.pl) if (a[3]) map[a[0]] = CSS[a[3]]; net.setTeams(map); }
@@ -220,12 +310,12 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
     if (!G.mode) { hud.style.display = 'none'; return; }
     const info = MODE_INFO[G.mode], a = my(); let l1 = `${info.icon} ${info.name}`, l2 = '';
     if (G.left != null && G.phase === 'play') l1 += ` · ${fmt(G.left)}`;
-    if (G.mode === 'battle') l2 = `Ваши победы: ${a ? a[1] : 0} / ${G.limit}` + topLine();
+    if (G.mode === 'battle' || G.mode === 'dragons') l2 = `Ваши победы: ${a ? a[1] : 0} / ${G.limit}` + topLine();
     else if (G.mode === 'relics') l2 = `Реликвии: ${a ? a[1] : 0} / ${G.limit} · ищите по всему миру` + topLine();
-    else if (G.mode === 'capture') l2 = `🔴 ${G.sc.red} : ${G.sc.blue} 🔵 (до ${G.limit})` + (myTeam() ? ` · вы: ${TEAM[myTeam()]}` : '');
+    else if (G.mode === 'capture') l2 = `Точки: 🔴 ${G.sc.red} : ${G.sc.blue} 🔵 · нужно больше половины (${G.limit})` + (myTeam() ? ` · вы: ${TEAM[myTeam()]}` : '');
     else if (G.mode === 'ctf') l2 = `🔴 ${G.sc.red} : ${G.sc.blue} 🔵 (до ${G.limit})` + (myTeam() ? ` · вы: ${TEAM[myTeam()]}` : '') + (a && a[5] ? ' · 🚩 вы несёте флаг!' : '');
     else if (G.mode === 'explore') { const nm = new Map((net.roster || []).map(p => [p.id, p.name])); l2 = 'Гуляйте и общайтесь (Enter — чат, N — карта, T — телепорт) · рядом: ' + ((G.pl || []).filter(x => x[0] !== net.id).map(x => nm.get(x[0]) || x[0]).join(', ') || 'никого'); }
-    else if (G.mode === 'naval') { const rl = s => { const w = Math.ceil(reloadAt[s] - T()); return w > 0 ? w + ' с' : '✔'; }, nm = new Map((net.roster || []).map(p => [p.id, p.name])); l2 = a && a[7] <= 0 ? '⚓ Ваш корабль потоплен — вы выбыли' : `⚓ Корпус ${a ? a[7] : 0}% · потоплено ${a ? a[2] : 0} · Z левый борт ${rl(-1)} · X правый ${rl(1)}`; l2 += ' · ' + (G.pl || []).filter(x => x[0] !== net.id).map(x => `${nm.get(x[0]) || x[0]}: ${x[7]}%`).join(' | '); }
+    else if (G.mode === 'naval') { const rl = s => { const w = Math.ceil(reloadAt[s] - T()); return w > 0 ? w + ' с' : '✔'; }, nm = new Map((net.roster || []).map(p => [p.id, p.name])); l2 = a && a[7] <= 0 ? '⚓ Ваш корабль потоплен — вы выбыли' : `⚓ Корпус ${a ? a[7] : 0}% · потоплено ${a ? a[2] : 0} · пушки: подойдите и нажмите E`; l2 += ' · ' + (G.pl || []).filter(x => x[0] !== net.id).map(x => `${nm.get(x[0]) || x[0]}: ${x[7]}%`).join(' | '); }
     else if (G.mode === 'hide') l2 = mySeeker() ? (G.sub === 'hiding' ? `Вы искатель: ждите ${G.hideLeft} с` : 'Вы ищете — бейте прячущихся!') : (G.sub === 'hiding' ? `Прячьтесь! ${G.hideLeft} с` : 'Не попадитесь искателю!');
     hud.innerHTML = `<div class="bx">${l1}<small>${l2}</small></div>`; hud.style.display = 'block';
   }
@@ -288,5 +378,5 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
     }
     if (G.mode === 'naval' || G.mode === 'relics' || G.mode === 'hide' || G.mode === 'capture' || G.mode === 'ctf') { if ((G._hudT = (G._hudT || 0) + dt) > 0.25) { G._hudT = 0; renderHud(); } }
   }
-  return { update, get active() { return meIn(); }, get state() { return G; } };
+  return { update, get dbg() { return { ...shipDbg, ago: T() - shipDbg.lastRx, ships: SH ? SH.list.length : 0, riding: SH && SH.riding() ? SH.list.indexOf(SH.riding()) : -1, ridingId: SH && SH.riding() ? SH.riding().id : '', remote: SH ? SH.list.map((v, i) => v.remote ? i : -1).filter(i => i >= 0) : [] }; }, get active() { return meIn(); }, get state() { return G; } };
 }

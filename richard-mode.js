@@ -9,6 +9,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 import { makeHousePlanner } from './house-collision.js';
+import { createTraining } from './training.js';
+import { createBow } from './bow.js';
 
 const DRESS = {};      // имя героя → dress(фигура, {THREE, RoundedBoxGeometry}); файлы лежат в chars/<имя>.js
 export async function loadRichard({ renderer, scene, camera, world, url, start }) {
@@ -36,6 +38,7 @@ const relic = new THREE.Object3D();
   rep(/function groundAt\(x, z, y, tol\)\{\s*let best = -Infinity;/, 'function groundAt(x, z, y, tol){\n  let best = -Infinity; { const t = __gh(x, z); if (t <= y + tol) best = t; }');
   rep(/const inWater = \(\) => \{[^\n]*\n/, "const __W = {x0:-1e9, x1:1e9, z0:-1e9, z1:1e9, y:0}; const __onSolid = () => { for (const b of solids){ if (Math.abs(b.max.y - P.pos.y) < 0.9 && ovXZ(b, P.pos.x, P.pos.z, R*0.55)) return true; } return false; }; const inWater = () => (__gh(P.pos.x, P.pos.z) < (P.state === 'swim' ? -1.6 : -2.2) && !__onSolid()) ? __W : null;\n");   // стоим на твёрдом (палуба корабля, настил пирса над глубокой водой) — это не вода: раньше игра по глубине дна сразу переводила в плавание и «проваливала» сквозь палубу
   rep('vmax = (walk ? 6 : 13)*mul;', 'vmax = (walk ? 6 : 13)*mul*(P.speedMul || 1);');
+  rep('const dt = Math.min((now - last)/1000, 0.05); last = now; acc += dt; let n = 0; while (acc >= H && n++ < 6){ gStep(H); acc -= H; }', 'const dt = Math.min((now - last)/1000, 0.25); last = now; acc += dt; let n = 0; while (acc >= H && n++ < 15){ gStep(H); acc -= H; }');      // раньше потолок 0.05 с/кадр: при <20 FPS физика шла медленнее реального времени (ходьба, плавание «в замедлении»)
   rep(/function stGround\(h\)\{\s*const mv = moveInput\(\);/, "function stGround(h){\n  { const w = inWater(); if (w){ P.swimW = w; setState('swim'); P.vel.multiplyScalar(0.2); return; } }\n  const mv = moveInput();");
   rep(/function stSwim\(h\)\{\s*const w = P.swimW,/, "function stSwim(h){\n  if (!inWater()){ P.pos.y = Math.max(P.pos.y, __gh(P.pos.x, P.pos.z) + 0.3); setState('air'); P.air = 0; P.hasJumped = false; return; }\n  const w = P.swimW,");
   /* — блок «просто стоит»: не разворачивается к ближайшему врагу и не меняет позу на «Парирование» при ударе — */
@@ -44,6 +47,10 @@ const relic = new THREE.Object3D();
   /* — режимы игры: игра отдаёт наружу playerHit и respawn; удар «другого игрока» — это фиктивный враг (remote), без стагера/состояний врагов — */
   rep("estate(e, 'stagger'); e.stunDur = 1.9; e.vel.addScaledVector(to, 9);", "if (!e.remote){ estate(e, 'stagger'); e.stunDur = 1.9; e.vel.addScaledVector(to, 9); }");
   rep("if (pressed.has('KeyR') && (P.dead || kd.has('ShiftLeft'))) respawn();", "if (pressed.has('KeyR') && !window.__gameLock && (P.dead || kd.has('ShiftLeft'))) respawn();");
+  rep("if (pressed.has('KeyV') && sp > 8) return startSlide();", '');      // V теперь зовёт дракона — подкат убран
+  rep('C — кувырок · V — подкат (на бегу)', 'C — кувырок');
+  rep('camera.lookAt(camTgt.x, camTgt.y + 0.5, camTgt.z);', 'if (window.__camHook) window.__camHook(camera, camTgt); camera.lookAt(camTgt.x, camTgt.y + 0.5, camTgt.z);');      // дракон ставит камеру сам
+  rep("addEventListener('mousedown', e => { if (document.pointerLockElement !== renderer.domElement) return;", "addEventListener('mousedown', e => { if (window.__dragonOn) return; if (document.pointerLockElement !== renderer.domElement) return;");      // ЛКМ на драконе — огонь, а не удар героя
   /* — ввод работает только пока режим включён — */
   rep("renderer.domElement.addEventListener('click', () => {", "renderer.domElement.addEventListener('click', () => { if (!window.__richardActive) return;");
   rep("addEventListener('keydown', e => { if (GK.has(e.code)){", "addEventListener('keydown', e => { if (!window.__richardActive || window.__riding) return; if (GK.has(e.code)){");
@@ -52,7 +59,7 @@ const relic = new THREE.Object3D();
   rep(/function ladderNear\(\)\{[\s\S]*?\n\}\n/, `function ladderNear(){
   for (const l of ladders){
     const dx = P.pos.x - l.px, dz = P.pos.z - l.pz, d = dx*l.n.x + dz*l.n.z, tt = dx*(-l.n.z) + dz*l.n.x;
-    if (Math.abs(tt) > l.hw + 0.8 || d < -1.6 || d > R + 2.4) continue; if (P.pos.y < l.bottom - 0.5 || P.pos.y > l.top - HANG_H + 0.5) continue; return l; }
+    if (Math.abs(tt) > l.hw + 1.6 || d < -2.2 || d > R + 4.6) continue; if (P.pos.y < l.bottom - 0.5 || P.pos.y > (P.state === 'swim' ? l.top + 0.5 : l.top - HANG_H + 0.5)) continue; return l; }
   return null;
 }
 `);
@@ -93,6 +100,22 @@ const GCLIP = {
   /* — камера: после расчёта третьего лица даём шанс перейти на первое лицо (см. fpTick ниже) — */
   rep('camera.lookAt(camTgt.x, camTgt.y + 0.5, camTgt.z);', 'camera.lookAt(camTgt.x, camTgt.y + 0.5, camTgt.z); __fpCam(camera, camTgt, dt);');
 
+  rep('return b && b.max.y - b.min.y >= 14 && b.max.y > P.pos.y + 7 ? {n, b} : null;', 'return b && !b.nowall && b.max.y - b.min.y >= 14 && b.max.y > P.pos.y + 7 ? {n, b} : null;');      // по городской стене нельзя лезть отталкиваясь от неё
+  /* — новые приёмы: удар в воздухе и в планировании, второй прыжок в полёте, лук, попадания по тренировочным чучелам — */
+  rep("function stAir(h){\n  const mv = moveInput(); P.air += h;", "function stAir(h){\n  airAtkTick(h);\n  const mv = moveInput(); P.air += h;");
+  rep("setAnim(P.vel.y > 3 ? 'Взлёт' : 'Падение', {fade:0.12, loop:P.vel.y <= 3});", "if (!(P.aa > 0)) setAnim(P.vel.y > 3 ? 'Взлёт' : 'Падение', {fade:0.12, loop:P.vel.y <= 3});");
+  rep("  // планирование\n  if (pressed.has('Space') && P.hasJumped && P.air > 0.2 && P.vel.y < 6){",
+      "  // удар в прыжке и второй прыжок в полёте\n  if (pressed.has('KeyJ') && !(P.aa > 0)) airAttack();\n  if (pressed.has('Space') && P.hasJumped && !P.dj && P.air > 0.12){ P.dj = true; P.vel.y = 21; P.jumpHeld = true; setAnim('Взлёт', {loop:false, fade:0.04, restart:true}); burst(P.pos.clone().setY(P.pos.y + 0.3), 6, 'dust', 8, 3); logEv('doublejump'); return; }\n  // планирование (после второго прыжка)\n  if (pressed.has('Space') && P.hasJumped && P.dj && P.air > 0.2 && P.vel.y < 6){");
+  rep("function stGlide(h){\n  const mv = moveInput(); P.air += h; curMeta = {wind:2.8};",
+      "function stGlide(h){\n  airAtkTick(h); if (pressed.has('KeyJ') && !(P.aa > 0)) airAttack();\n  if (pressed.has('Space') && !P.dj){ P.dj = true; P.gliding = false; curMeta = {}; setState('air'); P.vel.y = 21; P.jumpHeld = true; setAnim('Взлёт', {loop:false, fade:0.04, restart:true}); burst(P.pos.clone().setY(P.pos.y + 0.3), 6, 'dust', 8, 3); logEv('doublejump'); return; }\n  const mv = moveInput(); P.air += h; curMeta = {wind:2.8};");
+  rep("  setAnim('Планирование', {fade:0.15});", "  if (!(P.aa > 0)) setAnim('Планирование', {fade:0.15});");
+  rep("function startJump(){", "function airAtkTick(h){ if (P.aa > 0){ P.aaT += h; P.aa -= h; if (P.aaT > 0.12 && P.aaT < 0.34) meleeHits(9.5, 0.2, 11, 8, 0); } }\nfunction airAttack(){\n  if (window.__bow){ window.__bowShoot && window.__bowShoot(); return; }\n  P.aa = 0.5; P.aaT = 0; P.atkHit = new Set(); const e = nearestEnemy(16); if (e) snapFaceTo(e.g.position.clone().sub(P.pos));\n  P.aaN = ((P.aaN || 0) + 1) % 3; setAnim(['Атака 1', 'Атака 2', 'Атака 3'][P.aaN], {fade:0.05, loop:false, restart:true}); logEv('airattack');\n}\nfunction startJump(){ P.dj = false;");
+  rep("function onLand(){\n  const imp = P.fallV;", "function onLand(){\n  P.dj = false; P.aa = 0;\n  const imp = P.fallV;");
+  rep("function setState(s){ if (s !== P.state)", "function setState(s){ if (s === 'ground' || s === 'hang' || s === 'ladder' || s === 'swim' || s === 'wallslide' || s === 'climb') P.dj = false; if (s !== P.state)");
+  rep("function startAttack(n){\n  setState('attack');", "function startAttack(n){\n  if (window.__bow){ window.__bowShoot && window.__bowShoot(); return; }\n  setState('attack');");
+  rep("    P.atkHit.add(e); any = true; damageEnemy(e, dmg, f, push, stun); hitStop = 0.07; shake = Math.max(shake, 0.25); }\n  return any;", "    P.atkHit.add(e); any = true; damageEnemy(e, dmg, f, push, stun); hitStop = 0.07; shake = Math.max(shake, 0.25); }\n  if (window.__trainHit && window.__trainHit(f, reachR, cosArc, dmg, push, P.atkHit)){ any = true; hitStop = 0.07; shake = Math.max(shake, 0.25); }\n  return any;");
+  rep("window.__g = {playerHit:", "window.__g = {damageEnemy: (e, d, f, p, s) => damageEnemy(e, d, f, p, s), playerHit:");
+
   /* — рабочее окружение — */
   const dom = document.createElement('div'); dom.id = '__rdom'; dom.style.display = 'none'; dom.innerHTML = bodyHtml; document.body.appendChild(dom);
   const loopRef = { fn: null };
@@ -105,7 +128,7 @@ const GCLIP = {
   const __at = (dx, dz, dy = 0) => [SX + dx, world.heightAt(SX + dx, SZ + dz) + dy, SZ + dz];
   // коробки построек → solids (V3 доступен через THREE)
   /* ───── двери в домах: настоящие двери моделей (build-map: box.house), E — открыть/закрыть;
-     внутри дома и в бою камера от первого лица ───── */
+     внутри дома камера от первого лица ───── */
   const V = THREE.Vector3;
   const doors = [];
   let G = null;                                       // window.__g Ричарда (заполняется ниже)
@@ -139,25 +162,106 @@ const GCLIP = {
   doorPrompt.style.cssText = 'position:fixed;left:50%;bottom:20%;transform:translateX(-50%);font:600 16px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.45);padding:6px 14px;border-radius:10px;pointer-events:none;display:none';
   document.body.appendChild(doorPrompt);
   addEventListener('keydown', e => {
-    if (e.code !== 'KeyE' || e.repeat || !window.__richardActive || window.__riding || !G) return;
+    if (e.code !== 'KeyE' || e.repeat || !window.__richardActive || window.__riding || window.__dragonNear || window.__leverNear || !G) return;
     const d = nearDoor();
     if (!d || !['ground', 'air'].includes(P.state) || G.interactNear()) return;   // у сундука/рычага E достаётся им
     if (d.want === 1 && Math.hypot(d.h.dx - P.pos.x, d.h.dz - P.pos.z) < 2.2) return;   // в проёме дверь не закрыть
     d.want = 1 - d.want;
   });
-  // камера: первое лицо внутри дома или через 1 сек после боя; плавный переход
-  let fpV = 0, combatT = 0;
+  /* оружие по команде: в ножнах (скрыто) при ходьбе, плавании и лазании; X — достать/убрать; удар, блок и парирование достают его сами */
+  let armed = false, bowOn = false;
+  const NOWEAPON = ['swim', 'ladder', 'climb', 'hang', 'wallslide', 'glide'];
+  const weaponToast = document.createElement('div');
+  weaponToast.style.cssText = 'position:fixed;left:50%;bottom:26%;transform:translateX(-50%);font:600 15px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:5px 14px;border-radius:10px;pointer-events:none;display:none';
+  document.body.appendChild(weaponToast); let toastT = 0;
+  const say = t => { weaponToast.textContent = t; weaponToast.style.display = 'block'; toastT = 1.6; };
+  // меч и щит: в ножнах — меч на левом бедре, щит за спиной (персонаж не выглядит «пустым»); при доставании переходят в руки с «выскоком» масштаба, при убирании — сжимаются в руках и появляются на теле
+  const HOLSTER = {
+    Sword: { pos: [-1.38, 0.5, -0.15], rot: [1.45, 0.12, 0.1], sc: 0.9 },      // блеск вдоль +z → клинок вниз вдоль бедра
+    Shield: { pos: [0, 1.35, -0.98], rot: [0, Math.PI, 0], sc: 0.7 },          // лицом наружу, на лопатках
+  };
+  const WCACHE = new WeakMap(), HANDS = new WeakMap();      // кэш частей по фигуре (в userData нельзя: клон копирует его как обычный объект)
+  function applyWeapon(fig, want, dt = 0.016){
+    let wc = WCACHE.get(fig); if (!wc) WCACHE.set(fig, wc = {}); const body = wc.body || (wc.body = fig.getObjectByName('Torso') || fig.getObjectByName('Body'));
+    let k = fig.userData.wk ?? 0; const tgt = want ? 1 : 0;
+    if (k !== tgt) k = want ? Math.min(1, k + dt / 0.35) : Math.max(0, k - dt / 0.2);
+    fig.userData.wk = k;
+    const e = want ? 1 + 2.70158 * Math.pow(k - 1, 3) + 1.70158 * Math.pow(k - 1, 2) : k;      // easeOutBack при доставании
+    for (const n of ['Sword', 'Shield']){
+      const o = wc[n] || fig.getObjectByName(n); if (!o) continue; wc[n] = o;
+      let H = HANDS.get(o); if (!H) HANDS.set(o, H = { parent: o.parent, pos: o.position.clone(), quat: o.quaternion.clone(), sc: o.scale.clone() });
+      const hol = HOLSTER[n];
+      const inHand = o.parent === H.parent;
+      if (want || k > 0){                                     // в руке (достаём или ещё убираем)
+        if (!inHand){ H.parent.add(o); o.position.copy(H.pos); o.quaternion.copy(H.quat); }
+        o.visible = true; o.scale.copy(H.sc).multiplyScalar(Math.max(0.001, e));
+      } else if (body){                                       // в ножнах: на теле
+        if (inHand){ body.add(o); o.position.set(...hol.pos); o.rotation.set(...hol.rot); }
+        o.visible = true; o.scale.copy(H.sc).multiplyScalar(hol.sc);
+      } else o.visible = false;
+    }
+  }
+  // достать оружие можно, только если им можно пользоваться (не в воде, не на лестнице/стене, не верхом, не на драконе); убрать — всегда
+  const typingNow = () => /INPUT|TEXTAREA/.test(document.activeElement?.tagName || '');
+  function drawBlocked(quiet){
+    const bad = window.__riding || window.__dragonOn || P.dead || NOWEAPON.includes(P.state) || P.state === 'dead';
+    if (bad && !armed && !bowOn){ if (!quiet) say(window.__riding || window.__dragonOn ? 'Верхом оружие не достать' : 'Сейчас оружием не воспользоваться'); return true; }
+    return false;
+  }
+  addEventListener('keydown', e => {
+    if (e.code !== 'KeyX' || e.repeat || !window.__richardActive || !G || window.__dragonOn || typingNow()) return;
+    if (drawBlocked() && !armed) return; if (window.__riding && !armed) return;
+    armed = !armed; if (armed) bowOn = false; say(armed ? 'Оружие достано' : 'Оружие убрано');
+  });
+  addEventListener('keydown', e => {      // 1 — меч, 2 — лук (повторное нажатие убирает оружие)
+    if ((e.code !== 'Digit1' && e.code !== 'Digit2') || e.repeat || !window.__richardActive || !G || typingNow()) return;
+    if (document.querySelector('#tp.on')) return;
+    if (drawBlocked() && (e.code === 'Digit1' ? !armed : !bowOn)) return;      // в окне телепорта цифры выбирают место
+    if (e.code === 'Digit1') { armed = !armed; bowOn = false; say(armed ? 'Меч и щит' : 'Оружие убрано'); }
+    else { bowOn = !bowOn; if (bowOn) armed = false; say(bowOn ? 'Лук — зажмите ЛКМ/J, отпустите для выстрела' : 'Оружие убрано'); }
+  });
+  addEventListener('keydown', e => {      // Z — лук: ЛКМ/J стреляет по центру экрана (в том числе в прыжке)
+    if (e.code !== 'KeyZ' || e.repeat || !window.__richardActive || !G || window.__dragonOn || typingNow()) return;
+    if (drawBlocked() && !bowOn) return;
+    bowOn = !bowOn; if (bowOn) armed = false; say(bowOn ? 'Лук — зажмите ЛКМ/J, отпустите для выстрела' : 'Лук убран');
+  });
+  /* защита от застревания в стенах (башни, дома, корабли): если ноги внутри твёрдого бокса дольше 0.35 с — выталкиваем к ближайшей свободной грани */
+  let embT = 0;
+  function unstick(dt){
+    const st = P.state; if (['ladder', 'climb', 'hang', 'wallslide', 'dead', 'swim'].includes(st) || window.__riding) { embT = 0; return; }
+    const p = P.pos; let hit = null;
+    for (const b of G.solids){
+      if (p.x <= b.min.x + 0.05 || p.x >= b.max.x - 0.05 || p.z <= b.min.z + 0.05 || p.z >= b.max.z - 0.05) continue;
+      if (p.y <= b.min.y + 0.1 || p.y >= b.max.y - 0.6) continue;      // стоит на верхней грани или прыгает над ней — не застряли
+      hit = b; break;
+    }
+    if (!hit){ embT = 0; return; }
+    embT += dt; if (embT < 0.35) return;
+    const free = (x, z) => !G.solids.some(b => x > b.min.x - 0.3 && x < b.max.x + 0.3 && z > b.min.z - 0.3 && z < b.max.z + 0.3 && p.y > b.min.y + 0.1 && p.y < b.max.y - 0.6);
+    const opts = [[p.x - hit.min.x, -1, 0], [hit.max.x - p.x, 1, 0], [p.z - hit.min.z, 0, -1], [hit.max.z - p.z, 0, 1]].sort((a, c) => a[0] - c[0]);
+    for (const [d, sx, sz] of opts){ const nx = p.x + sx * (d + 0.6), nz = p.z + sz * (d + 0.6); if (free(nx, nz)){ p.x = nx; p.z = nz; P.vel.set(0, Math.min(P.vel.y, 0), 0); embT = 0; return; } }
+    p.y = hit.max.y + 0.1; P.vel.set(0, 0, 0); embT = 0;      // со всех сторон закрыто — поднимаем на верхнюю грань
+  }
+  const curFig = () => (char === 'richard' || hidden || !locals[char]) ? G.figure : locals[char].group;      // фигура, которую игрок реально видит (у Соколина, Бэна и др. это клон, а не Ричард)
+  function weaponTick(dt){
+    const st = P.state;
+    if ((window.__dragonOn || P.dead || NOWEAPON.includes(st) || window.__ridingKind === 'ship') && (armed || bowOn)){ if (window.__dragonOn || window.__ridingKind === 'ship'){ armed = false; bowOn = false; } }
+    if (!armed && !window.__dragonOn && window.__ridingKind !== 'ship' && ['attack', 'bash', 'block', 'parry'].includes(st)){ armed = true; { const F = curFig(); F.userData.wk = Math.max(F.userData.wk || 0, 0.85); } say('Оружие достано'); }
+    if (toastT > 0){ toastT -= dt; if (toastT <= 0) weaponToast.style.display = 'none'; }
+    applyWeapon(curFig(), armed && !NOWEAPON.includes(st), dt);
+    window.__bow = bowOn && !NOWEAPON.includes(st); bow.set(window.__bow, curFig()); bow.tick(dt); training.tick(dt, camera.position, P);
+  }
+  // камера: первое лицо внутри дома; плавный переход
+  let fpV = 0;
   const fwd = new V(), fpPos = new V(), fpLook = new V(), tpPos = new V(), tpLook = new V(), head = new V();
   function fpTick(cam, tgt, dt){
     if (!G) return;
-    doorsTick(dt);
+    doorsTick(dt); weaponTick(dt); unstick(dt);
     const nd = nearDoor(), showP = !!nd && !G.interactNear() && ['ground', 'air'].includes(P.state) && window.__richardActive;
     doorPrompt.style.display = showP ? 'block' : 'none';
     if (showP) doorPrompt.textContent = nd.want ? 'E — закрыть дверь' : 'E — открыть дверь';
     const inside = doors.some(insideOf);
-    const fight = ['attack', 'kick', 'bash', 'block', 'parry', 'hit'].includes(P.state) || G.enemies.some(e => e.state !== 'idle' && e.state !== 'dead' && e.g.position.distanceTo(P.pos) < 25);
-    combatT = fight ? 1 : Math.max(0, combatT - dt);
-    fpV += ((inside ? 1 : 0) - fpV) * (1 - Math.exp(-6 * dt));      // первое лицо — только внутри дома; в бою камера обычная
+    fpV += ((inside ? 1 : 0) - fpV) * (1 - Math.exp(-6 * dt));      // первое лицо — только внутри дома
     const cape = scene.getObjectByName('Cape');       // плащ добавлен в сцену отдельно от фигуры — прячем его вместе с ней
     if (fpV < 0.002){ G.figure.visible = true; if (cape) cape.visible = true; return; }
     G.figure.getObjectByName('Head').getWorldPosition(head);
@@ -167,6 +271,17 @@ const GCLIP = {
     cam.position.lerpVectors(tpPos, fpPos, fpV);
     cam.lookAt(tpLook.lerp(fpLook, fpV));
     G.figure.visible = fpV < 0.5; if (cape) cape.visible = fpV < 0.5;
+  }
+  /* камера внутри дома/башни не выходит за внутреннюю поверхность стен (на любой высоте): круглая башня — по радиусу, прямоугольный дом — по габариту */
+  function clampInside(cam){
+    const d = doors.find(insideOf); if (!d || fpV < 0.01) return;
+    const h = d.h, c = cam.position, m = (h.t || 0.6) + 0.45;
+    if (h.round){
+      const rd = h.round, f = Math.min(1, Math.max(0, (c.y - rd.y) / rd.H)), Rin = rd.R0 + (rd.R1 - rd.R0) * f - rd.t - 0.45, dx = c.x - rd.cx, dz = c.z - rd.cz, r = Math.hypot(dx, dz);
+      if (r > Rin && r > 0.01){ c.x = rd.cx + dx / r * Rin; c.z = rd.cz + dz / r * Rin; }
+    } else {
+      c.x = Math.min(h.bx1 - m, Math.max(h.bx0 + m, c.x)); c.z = Math.min(h.bz1 - m, Math.max(h.bz0 + m, c.z));
+    }
   }
   /* камера не лезет в стены, объекты, пол и воду: луч от головы Ричарда до камеры; ближайшее пересечение с твёрдыми боксами или рельефом — камера ставится перед ним;
      затем камера поднимается над землёй (≥ 0.9) и над водой (не уходит под воду) */
@@ -197,7 +312,7 @@ const GCLIP = {
     if (c.y < minY){ c.y = minY; moved = true; }
     if (moved) cam.lookAt(_o);
   }
-  const fpHook = (cam, tgt, dt) => { fpTick(cam, tgt, dt); camCollide(cam, tgt); };
+  const fpHook = (cam, tgt, dt) => { fpTick(cam, tgt, dt); camCollide(cam, tgt); clampInside(cam); };
 
   const fn = new Function('THREE', 'OrbitControls', 'RoomEnvironment', 'RoundedBoxGeometry', 'GLTFExporter', 'location', '__gh', '__at', '__ox', '__oz', '__fpCam', code);
   window.__richardActive = false;
@@ -205,11 +320,21 @@ const GCLIP = {
   fn(T, OrbitControls, RoomEnvironment, RoundedBoxGeometry, GLTFExporter, { search: '?game=1' }, world.heightAt, __at, SX, SZ, fpHook);
   if (miss.length) console.warn('richard-mode: не сработали патчи: ' + miss.join(' ||| '));
   if (!window.__g) throw new Error('richard-mode: игра не запустилась');
+  setTimeout(() => { const h = [...document.querySelectorAll('div')].find(d => d.innerHTML.includes('Управление') && d.innerHTML.includes('Пробел')); if (h && !h.innerHTML.includes('X —')) h.innerHTML += '<br>1 — меч и щит · 2 — лук<br>V — позвать дракона, E — залезть/слезть · в полёте: WASD по горизонтали, Z/X вверх/вниз, Пробел — огонь<br>Лук: зажать ЛКМ/J — натянуть, отпустить — выстрел<br>В прыжке: J — удар · Пробел — 2-й прыжок, затем планирование'; }, 0);
   const uiEls = [...document.body.children].filter(c => !before.has(c) && c.id !== '__rdom');
   const g = window.__g; G = g; uiEls.push(doorPrompt);
+  // тренировочная площадка в городе и лук
+  const sp_ = (world.spots && world.spots['Город короля']) || { x: start.x, z: start.z };
+  const training = createTraining({ THREE, scene, world, solids: g.solids, anchor: sp_ });
+  const bow = createBow({ THREE, scene, world, getG: () => G, getCam: () => camera, training });
+  window.__trainHit = (f, reachR, cosArc, dmg, push, set) => training.hitMelee(G.P, f, reachR, cosArc, dmg, push, set);
+  training.setBow(bow);
+  window.__bowShoot = () => bow.begin();      // нажатие начинает натяжение; выстрел — при отпускании кнопки
+  window.__bow = false;
+  for (const b of world.subSolids || []) g.solids.push({ min: new THREE.Vector3(b.x0, b.y0, b.z0), max: new THREE.Vector3(b.x1, b.y1, b.z1), grab: false });      // подводные «юбки» скал
   // дома с настоящей дверью: сплошной бокс заменяем стенами с проёмом; остальные постройки — сплошные боксы
   for (const b of world.solidBoxes){
-    if (!b.houses){ b.solidRef = { min: new THREE.Vector3(b.x0, b.y0, b.z0), max: new THREE.Vector3(b.x1, b.y1, b.z1), grab: b.grab }; g.solids.push(b.solidRef); continue; }
+    if (!b.houses){ b.solidRef = { min: new THREE.Vector3(b.x0, b.y0, b.z0), max: new THREE.Vector3(b.x1, b.y1, b.z1), grab: b.grab, nowall: b.nowall }; g.solids.push(b.solidRef); continue; }
     for (const w of b.walls || []) g.solids.push(box(w.x0, w.x1, w.y0, w.y1, w.z0, w.z1));      // ограда замка
     for (const h of b.houses){          // у каждого корпуса (у фермы их два: дом и сарай) свои стены; пристройки без корпуса коллизии не имеют — только видимые стены
       if (!h.hasDoor){ g.solids.push(box(h.bx0, h.bx1, b.y0, Math.min(b.y1, h.top + 8), h.bz0, h.bz1)); continue; }
@@ -373,6 +498,7 @@ const GCLIP = {
   }
   // смена персонажа — только через меню лобби (там следят, чтобы двое не выбрали одного и того же)
   const api = {
+    get armed() { return armed && !NOWEAPON.includes(P.state); }, applyWeapon,
     P, figure: g.figure, key: g.key, rim: g.rim, clearKeys: () => g.kd.clear(), solids: g.solids, ladders: g.ladders, ladderNear: () => g.ladderNear(),
     get character() { return char; }, setCharacter, setVisible(v) { hidden = !v; applyVis(); }, makeRemoteAvatar, animName: () => g.animName(), animOnce: () => { const a = g.animAct(); return !!a && a.loop === THREE.LoopOnce; },
     play(name, o) { window.__forceAnim = { name, o }; }, release() { window.__forceAnim = null; }, loop: now => { const B = world.bounds, p = P.pos; if (p.x < B.x0 || p.x > B.x1 || p.z < B.z0 || p.z > B.z1) { p.x = Math.min(B.x1, Math.max(B.x0, p.x)); p.z = Math.min(B.z1, Math.max(B.z0, p.z)); P.vel.x = P.vel.z = 0; } { const t = world.heightAt(p.x, p.z); if (p.y < t - 2.5 && !['swim', 'hang', 'climb'].includes(P.state)) { p.y = Math.max(t, 0) + 0.3; P.vel.y = 0; } if (p.y < -30) { p.y = Math.max(t, 0) + 0.3; P.vel.y = 0; } } loopRef.fn && loopRef.fn(now); syncLocal(); },

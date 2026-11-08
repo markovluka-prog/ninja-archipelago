@@ -6,3 +6,8 @@ out2.txt
 .DS_Store
 node_modules/
 nohup.out
+
+# секреты (ключи Supabase и т.п.) — никогда в git
+.env
+.env.*
+*.log

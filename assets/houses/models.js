@@ -237,14 +237,14 @@ function ctx(THREE, seed, opts) {
     const fm = s.frame || 0x5a3a20;
     for (const k in ops) for (const o of ops[k]) {
       if (o.door) {
-        const x = o.c; B(k, x - o.w / 2 - .25, 0, .5, o.y1 + .3, t + .3, fm); B(k, x + o.w / 2 + .25, 0, .5, o.y1 + .3, t + .3, fm); B(k, x, o.y1, o.w + 1.2, .5, t + .3, fm);
+        const x = o.c; B(k, x - o.w / 2 - .25, 0, .5, o.y1 + .3, t + .3, fm); B(k, x + o.w / 2 + .25, 0, .5, o.y1 + .3, t + .3, fm); B(k, x, o.y1, o.w + 1.2, .5, t + .45, fm);
         c.box(body, o.w + 1.8, .3, 1.6, x, y0, D / 2 + .5, s.stepMat || 0x9b958c);
       } else {
         const hh = o.y1 - o.y0, am = (o.y0 + o.y1) / 2;
         if (o.fill) B(k, o.c, o.y0, o.w, hh, .2, o.fill);
         B(k, o.c, o.y1, o.w + .6, .3, t + .3, fm); B(k, o.c, o.y0 - .3, o.w + .8, .3, t + .5, fm);
         B(k, o.c - o.w / 2 - .15, o.y0, .3, hh, t + .3, fm); B(k, o.c + o.w / 2 + .15, o.y0, .3, hh, t + .3, fm);
-        if (!o.fill && o.w >= 2.4) { B(k, o.c, o.y0, .2, hh, t, fm); B(k, o.c, am - .1, o.w, .2, t, fm); }
+        if (!o.fill && o.w >= 2.4) { B(k, o.c, o.y0, .2, hh, t - .15, fm); B(k, o.c, am - .1, o.w, .2, t - .3, fm); }
         if (o.shut) { const d = defs[k]; for (const sd of [-1, 1]) { const a = o.c + sd * (o.w / 2 + o.w * .2 + .3); if (d.ax === 'x') c.box(body, o.w * .4, hh, .2, a, y0 + o.y0, d.f + (k === 'F' ? t / 2 + .15 : -t / 2 - .15), o.shut); } }
       }
     }
@@ -332,7 +332,63 @@ function ctx(THREE, seed, opts) {
     for (const sx of [-.3, .3]) c.box(g, .8, .3, B * .8, sx * L, dp * .55, 0, inner);
     return g;
   };
+  for (const k_ of ['table', 'bench', 'stool', 'bed', 'chest', 'crate', 'shelf', 'counter', 'hearth', 'barrel']) { const f_ = c[k_]; if (f_) c[k_] = (...a) => { const r_ = f_(...a); if (r_) r_.userData.solid = true; return r_; }; }      // мебель — твёрдая (build-map собирает userData.solid в коллизию)
+  // добавляет мебель по стенам там, где её мало: считаем твёрдые предметы на каждом этаже и добираем до нормы по площади (не трогая проход от двери и лестницы)
+  c.furnish = (g) => {
+    const I = []; g.traverse(o => { if (!o.isMesh && o.name === 'Interior') I.push(o); }); if (!I.length) return;
+    const In = I[0]; if (Math.abs(In.rotation.y) > 1e-3) return;
+    g.updateMatrixWorld(true);
+    const B3 = o => new THREE.Box3().setFromObject(o), floors = [];
+    const slabBox = (root, y0lim) => { const u = new THREE.Box3(); let any = false; root.traverse(m => { if (!m.isMesh) return; const b = B3(m), z = b.getSize(new THREE.Vector3()); if (z.y > .2 && z.y < .6 && z.x > 2 && z.z > 2 && (y0lim == null || Math.abs(b.min.y - y0lim) < 1)) { u.union(b); any = true; } }); return any ? u : null; };
+    g.traverse(o => { if (!o.isMesh && o.name === 'Body') { const f = slabBox(o); if (f) floors.push(f); } });
+    g.traverse(o => { if (!o.isMesh && o.name === 'Floor2') { const f = B3(o); if (f.max.x - f.min.x > 4) floors.push(f); } });
+    const avoid = []; g.traverse(o => { if (!o.isMesh && (o.name === 'Stairs' || o.name === 'Ladder')) avoid.push(B3(o).expandByVector(new THREE.Vector3(2.4, 0, 2.4))); });
+    for (const d of c.doors) { if (!d.isObject3D) continue; const b = B3(d), cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2, w = Math.max(b.max.x - b.min.x, b.max.z - b.min.z); avoid.push(new THREE.Box3(new THREE.Vector3(cx - w / 2 - 1.8, -1e3, cz - w / 2 - 1.8), new THREE.Vector3(cx + w / 2 + 1.8, 1e3, cz + w / 2 + 1.8)).expandByVector(new THREE.Vector3(0, 0, 0))); }
+    const items = () => { const r = []; In.children.forEach(ch => { const b = B3(ch), z = b.getSize(new THREE.Vector3()); if (z.y >= .6) { b.solid = !!ch.userData.solid; r.push(b); } }); return r; };
+    const rect = (x, z, w, d) => new THREE.Box3(new THREE.Vector3(x - w / 2, -1e3, z - d / 2), new THREE.Vector3(x + w / 2, 1e3, z + d / 2));
+    const hit2 = (a, b, pad = 0) => a.min.x < b.max.x + pad && a.max.x > b.min.x - pad && a.min.z < b.max.z + pad && a.max.z > b.min.z - pad;
+    for (const F of floors) {
+      const fy = F.max.y, x0 = F.min.x + 1.4, x1 = F.max.x - 1.4, z0 = F.min.z + 1.4, z1 = F.max.z - 1.4; if (x1 - x0 < 4 || z1 - z0 < 4) continue;
+      const area = (x1 - x0) * (z1 - z0), want = Math.max(4, Math.min(11, Math.round(area / 32)));
+      const onFloor = b => b.min.y > fy - 1.5 && b.min.y < fy + 1.2 && b.min.x < F.max.x && b.max.x > F.min.x && b.min.z < F.max.z && b.max.z > F.min.z;
+      let have = items().filter(onFloor), n = have.filter(b => b.solid).length; if (n >= want) continue;
+      const kinds = [['barrel', 2.4, 2.4], ['crate', 2, 2], ['chest', 3.2, 2], ['shelf', 4, 1.2], ['crate', 2, 2], ['barrel', 2.4, 2.4], ['chest', 3.2, 2], ['stool', 1.6, 1.6]];
+      const spots = [];
+      for (let x = x0; x <= x1; x += 2.6) { spots.push([x, z0, 0, 0]); spots.push([x, z1, Math.PI, 0]); }
+      for (let z = z0; z <= z1; z += 2.6) { spots.push([x0, z, Math.PI / 2, 1]); spots.push([x1, z, -Math.PI / 2, 1]); }
+      for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(c.rnd() * (i + 1)); [spots[i], spots[j]] = [spots[j], spots[i]]; }
+      let ki = 0;
+      for (const [sx, sz, ry, side] of spots) {
+        if (n >= want) break;
+        const [kind, kw, kd] = kinds[ki % kinds.length], w = side ? kd : kw, d = side ? kw : kd;
+        const cx = side ? sx + (sx < (x0 + x1) / 2 ? kd / 2 : -kd / 2) : sx, cz = side ? sz : sz + (sz < (z0 + z1) / 2 ? kd / 2 : -kd / 2), fp = rect(cx, cz, w, d);
+        if (cx - w / 2 < x0 - 1 || cx + w / 2 > x1 + 1 || cz - d / 2 < z0 - 1 || cz + d / 2 > z1 + 1) continue;
+        if (have.some(b => onFloor(b) && hit2(fp, b, .9)) || avoid.some(a => hit2(fp, a) && (a.min.y < -999 ? fy < 2 : fy > a.min.y - 3 && fy < a.max.y + 3))) continue;
+        const lx = cx - In.position.x, lz = cz - In.position.z, ly = fy - In.position.y;
+        let m; if (kind === 'barrel') m = c.barrel(In, lx, ly, lz, 1.1, 2.6); else if (kind === 'crate') m = c.crate(In, lx, ly + .8, lz, 1.6, ry); else if (kind === 'chest') m = c.chest(In, lx, ly, lz, ry); else if (kind === 'shelf') m = c.shelf(In, lx, ly, lz, 3.4, ry, 3); else m = c.stool(In, lx, ly, lz);
+        ki++; n++; g.updateMatrixWorld(true); have = items();
+      }
+    }
+  };
+  // мебель наверху не должна перекрывать лестницу: убираем предметы верхнего этажа над проёмом и на выходе (по ходу подъёма), иначе кровать/стол мешают спуститься
+  c.clearStairs = (g) => {
+    const I = []; g.traverse(o => { if (!o.isMesh && o.name === 'Interior') I.push(o); });
+    const st = []; g.traverse(o => { if (!o.isMesh && o.name === 'Stairs') st.push(o); });
+    g.updateMatrixWorld(true);
+    for (const S of st) {
+      const sb = new THREE.Box3().setFromObject(S); if (sb.max.y < 6) continue;
+      let lo = null, hi = null; S.children.forEach(ch => { const b = new THREE.Box3().setFromObject(ch), cy = b.max.y; if (!lo || cy < lo.y) lo = { y: cy, b }; if (!hi || cy > hi.y) hi = { y: cy, b }; });
+      const zone = [sb.clone().expandByVector(new THREE.Vector3(1, 0, 1))];
+      if (lo && hi){ const lc = lo.b.getCenter(new THREE.Vector3()), hc = hi.b.getCenter(new THREE.Vector3()), d = new THREE.Vector3(hc.x - lc.x, 0, hc.z - lc.z); if (d.lengthSq() > 1e-4){ d.normalize(); const c = hc.clone().addScaledVector(d, 3); zone.push(new THREE.Box3(new THREE.Vector3(c.x - 2.6, -1e3, c.z - 2.6), new THREE.Vector3(c.x + 2.6, 1e3, c.z + 2.6))); } }
+      for (const In of I) for (const ch of [...In.children]) {
+        const b = new THREE.Box3().setFromObject(ch); if (b.min.y < sb.max.y - 2 || b.getSize(new THREE.Vector3()).y < .6) continue;      // только верхний этаж
+        if (zone.some(z => b.min.x < z.max.x && b.max.x > z.min.x && b.min.z < z.max.z && b.max.z > z.min.z)) ch.removeFromParent();
+      }
+    }
+  };
   c.done = (g) => {
+    try { c.clearStairs(g); } catch (e) { /* необязательно */ }
+    try { c.furnish(g); } catch (e) { /* автомебель необязательна */ }
     g.userData.doors = c.doors; g.userData.roofs = c.roofs;
     g.userData.animate = (t) => { for (const f of c.anims) f(t); };
     g.userData.setDoorOpen = (b) => c.doors.forEach(d => d.userData.setOpen(b));

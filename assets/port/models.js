@@ -165,7 +165,7 @@ function hullFn(o) {
       tri(a, b, c, k); tri(a, c, d, k);
     }
   }
-  if (!ps) { const r = ang.map(a => pt(-1, a)), c = [0, (top(-1) + bot(-1)) / 2, -L / 2]; for (let j = 0; j < r.length - 1; j++) tri(c, r[j], r[j + 1], cH); }
+  if (!ps) { const r = ang.map(a => pt(-1, a)), c = [0, (top(-1) + bot(-1)) / 2, -L / 2]; for (let j = 0; j < r.length - 1; j++) tri(c, r[j], r[j + 1], cH); tri(c, r[r.length - 1], r[0], cH); }      // + верхний треугольник транца (раньше между центром и бортами сверху оставался треугольный вырез)
   const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new T.Float32BufferAttribute(col, 3)); geo.computeVertexNormals();
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const half = (z, y) => { const t = clamp(z / (L / 2), -1, 1), tp = top(t), bt = bot(t), c = clamp((tp - y) / (tp - bt), 0, 1); return wf(t) * Math.sqrt(1 - c * c); };
@@ -177,6 +177,7 @@ function hullFn(o) {
   return { geo, half, deck, topZ: z => top(clamp(z / (L / 2), -1, 1)), rail: z => half(z, 99) };
 }
 function hullMeshes(B, o, floorY, floorCol) {
+  floorY = Math.max(floorY, 0.45);      // настил не ниже ватерлинии: раньше у малых лодок он был под водой, и внутри лодки просвечивало море
   const h = hullFn(o);
   const hm = new T.Mesh(h.geo, mat('#ffffff', { vc: true, side: true })); hm.castShadow = hm.receiveShadow = true; hm.name = 'Hull'; B.f.add(hm);
   const dm = new T.Mesh(h.deck(floorY), floorCol ? mat(floorCol, { side: true }) : mat('#ffffff', { map: deckTex(), side: true, flat: false, mk: 'deck' })); dm.receiveShadow = true; dm.name = 'Deck'; B.f.add(dm);
@@ -216,6 +217,77 @@ function coilMesh(R, layers, col = P.rope) {
   return g;
 }
 function bollard(F, x, y, z) { F.add(cyl(.5, .62, 1.3, P.iron, x, y + .65, z, 8), cyl(.85, .5, .55, P.iron, x, y + 1.55, z, 8)); }
+
+/* ---------- детали бортов и палубы (лодки и корабли) ---------- */
+// полосы z по борту s (±1), где есть планширь: на правом борту (s>0) пропуск gap=[z0,z1] — лестница корабля
+function sideZs(L, s, gap, N, keep) {
+  const runs = []; let cur = [];
+  for (let i = 0; i <= N; i++) {
+    const z = -L / 2 + L * i / N;
+    if ((gap && s > 0 && z > gap[0] && z < gap[1]) || (keep && !keep(z))) { if (cur.length > 1) runs.push(cur); cur = []; } else cur.push(z);
+  }
+  if (cur.length > 1) runs.push(cur);
+  return runs;
+}
+// планширь: брус по верхней кромке борта снаружи и стойки фальшборта изнутри, от настила до кромки.
+// h — из hullFn: rail(z) — полуширина на кромке, topZ(z) — высота кромки, half(z,y) — полуширина на высоте y.
+// o: color, r (толщина бруса), posts (стойки, по умолчанию есть), gap (пропуск на правом борту),
+// minX (на корме брус и стойки не подходят к оси ближе minX — там проход и штурвал; по умолчанию 1.5)
+function sheerRail(F, h, L, floorY, o = {}) {
+  const c = o.color || P.wd, r = o.r || .13, fl = Math.max(floorY, .45), N = Math.max(12, Math.round(L / 1.2)), mx = o.minX ?? 1.5;
+  const keep = z => !(z < 0 && h.rail(z) < mx + .25);      // запас на толщину бруса
+  for (const s of [-1, 1]) for (const zs of sideZs(L, s, o.gap, N, keep)) {
+    const pts = zs.map(z => new T.Vector3(s * (h.rail(z) + .04), h.topZ(z) + .12, z));
+    F.add(mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts), zs.length * 2, r, 4, false), c, 0, 0, 0, { cs: false }));
+    if (o.posts === false) continue;
+    for (let z = zs[0] + 1.2; z < zs[zs.length - 1] - .8; z += 2.4) {
+      const x = s * h.half(z, fl) * .96, y1 = h.topZ(z) + .12;
+      if (z < 0 && Math.abs(x) < mx) continue;
+      F.add(cyl(.05, .06, y1 - fl, c, x, (fl + y1) / 2, z, 4, { cs: false }));
+    }
+  }
+}
+// пушечные порты: тёмные проёмы на борту на высоте ствола пушки (напротив пушек); на правом борту у лестницы не ставятся (с запасом 1 м)
+function gunPorts(F, h, dy, zs, gap) {
+  for (const z of zs) for (const s of [-1, 1]) {
+    if (gap && s > 0 && z > gap[0] - 1 && z < gap[1] + 1) continue;
+    const y = dy + 1.15; F.add(box(.14, .8, 1.05, '#1d1d22', s * (h.half(z, y) + .02), y, z, { cs: false }));
+  }
+}
+// щиты на кромке борта: цветной диск с кантом
+function shields(F, h, zs, colA, colB, gap) {
+  for (const z of zs) for (const s of [-1, 1]) {
+    if (gap && s > 0 && z > gap[0] && z < gap[1]) continue;
+    const g = new T.Group(); g.position.set(s * (h.rail(z) + .05), h.topZ(z) - .75, z);
+    const rim = cyl(.5, .5, .08, colB, 0, 0, 0, 10, { cs: false }), disk = cyl(.4, .4, .1, colA, s * .03, 0, 0, 10, { cs: false });
+    rim.rotation.z = disk.rotation.z = Math.PI / 2; g.add(rim, disk); F.add(g);
+  }
+}
+// окна кормовой каюты на транце: рамы вровень с кормой, верх окон ниже 1.4 м над палубой (не на уровне головы)
+function transomWindows(F, h, L, dy, n, col) {
+  const zT = -L / 2, y = dy + .85;
+  for (let i = 0; i < n; i++) {
+    const x = (i - (n - 1) / 2) * 1.5;
+    if (Math.abs(x) + .6 > h.half(zT + .05, y) - .3) continue;      // окно не шире транца
+    F.add(box(1.1, 1, .08, P.w3, x, y, zT - .02, { cs: false }), box(.85, .7, .1, col, x, y, zT - .04, { cs: false }));
+  }
+}
+// носовые завитки (волюты) по бортам у форштевня
+function bowScrolls(F, h, L, col) {
+  const z = L / 2 - 1.6, y = h.topZ(z) - .9;
+  for (const s of [-1, 1]) F.add(tor(.4, .1, col, s * (h.half(z, y) + .08), y, z, 0, Math.PI / 2, 0, 4, 10));
+}
+// фальреп у основания мачты: низкая поперечная планка на стойках
+function fifeRail(F, z, dy) {
+  F.add(bar([-1.2, dy + .85, z], [1.2, dy + .85, z], .1, P.w3, 5));
+  for (const s of [-1, 1]) F.add(cyl(.08, .08, .85, P.w3, s * 1.2, dy + .42, z, 5, { cs: false }));
+}
+// кнехт (чугунная колодка) на планшире
+function cleat(F, x, y, z) { F.add(box(.26, .2, .9, P.iron, x, y, z, { cs: false })); }
+// куча мешков с зерном (низкая)
+function sackPile(F, x, y, z, r) {
+  [[0, 0, 0, 1], [1.5, .1, .3, 1.05], [.7, .6, -.4, .95]].forEach(([dx, dy2, dz, sc]) => F.add(sph(.85 * sc, r.pick(['#d9c79a', '#c9b48a', '#bfae86']), x + dx, y + .7 + dy2, z + dz, 1, .85, .9, 7)));
+}
 
 /* ---------- каркас определения ---------- */
 export const MODELS = [];
@@ -423,6 +495,12 @@ def('boat_row', 'Лодка вёсельная', (B, r) => {
   for (const z of [-3, .6, 4]) B.f.add(box(2 * h.half(z, .8) - .1, .3, 1, P.w1, 0, .8, z));
   B.f.add(box(2.4, 1.2, .3, P.w1, 0, 1.2, -7.2)); const y = h.topZ(.5);
   oar(B, B.f, 2.5, y, .6, 1, 0); oar(B, B.f, -2.5, y, .6, -1, 1.2); rock(B, .03, r() * 6);
+  // детали: планширь, железные уключины под вёслами, кольцо и флажок на носу, ведро и бухта каната на палубе
+  sheerRail(B.f, h, 16, -.35, { color: P.w3 });
+  for (const s of [-1, 1]) B.f.add(box(.3, .5, .3, P.iron, s * 2.5, y + .12, .6));
+  B.f.add(tor(.22, .05, P.iron, 0, h.topZ(7.9) - .2, 7.9));
+  B.f.add(cyl(.04, .05, 2.4, P.w3, 0, h.topZ(7.2) + 1.2, 7.2, 5), flag(B, B.f, 0, h.topZ(7.2) + 2.2, 7.2, 1.3, .7, 0, c));
+  B.f.add(cyl(.3, .24, .5, P.w1, -1.2, .7, -5.2, 8, { cs: false }), coilMesh(.6, 1).translateX(1.4).translateY(.45).translateZ(5.6));
 });
 def('boat_fishing', 'Лодка рыбацкая с сетью', (B, r) => {
   const F = B.f, h = hullMeshes(B, { L: 18, W: 6.8, fb: 2.4, draft: 1.2, sheer: 1.4, cols: { hull: '#8a6a42', stripe: P.red, bottom: P.wd } }, .6);
@@ -432,23 +510,40 @@ def('boat_fishing', 'Лодка рыбацкая с сетью', (B, r) => {
   for (let i = 0; i < 6; i++) F.add(sph(.28, '#e8742c', -2.2 + i * .9, 2.1, 2.9 + r.pm(.2), 1, 1, 1, 5));
   const n = gridCloth([[0, 0, 0], [5, 0, 0], [5, -3.2, 0], [0, -3.2, 0]], 6, 5, netMat(), [3, 2]); n.mesh.position.set(-1.8, 3.1, 3.4); n.mesh.rotation.set(0, Math.PI / 2, 0); n.mesh.position.set(h.rail(0) + .1, 3.1, -1); F.add(n.mesh);
   F.add(crateBox(1.6, 1.2, 1.6, P.w2, P.w3).translateX(-2).translateY(.6).translateZ(.5)); rock(B, .035, r() * 6);
+  // детали: планширь, синий ящик с уловом у борта, кранцы (мягкие отбойники) на борту, фонари на стенах каюты, бухта у носа, глаза на носу
+  sheerRail(F, h, 18, .6, { color: P.wd });
+  for (const z of [-3, 1, 5]) for (const s of [-1, 1]) F.add(sph(.36, '#e8742c', s * (h.rail(z) + .12), h.topZ(z) - .9, z, .55, 1.15, .55, 7));
+  F.add(crateBox(1.4, 1, 1.4, '#2f6a8a', P.w3).translateX(2.2).translateY(.6).translateZ(-.8));
+  for (const s of [-1, 1]) F.add(rot(cyl(.18, .18, .4, '#f0c040', s * 1.95, 2.3, -4.5, 6), 0, 0, Math.PI / 2));
+  F.add(coilMesh(.8, 1).translateX(-2.6).translateY(.6).translateZ(6));
+  const zb = 7.7, yb = h.topZ(zb) - .9;
+  for (const s of [-1, 1]) F.add(sph(.34, '#f4f1e8', s * .7, yb, zb + .3, 1, 1, .5, 7), sph(.16, P.black, s * .7, yb, zb + .5, 1, 1, .4, 6));
 });
 def('canoe_dugout', 'Долблёнка-каноэ с аутригером', (B, r) => {
-  const F = B.f; hullMeshes(B, { L: 15, W: 3.2, fb: .9, draft: .9, sheer: .7, pointStern: true, stations: 14, cols: { hull: '#8a5a33', stripe: P.wd, bottom: '#6b4527' } }, -.15, P.wd);
+  const F = B.f, h = hullMeshes(B, { L: 15, W: 3.2, fb: .9, draft: .9, sheer: .7, pointStern: true, stations: 14, cols: { hull: '#8a5a33', stripe: P.wd, bottom: '#6b4527' } }, -.15, P.wd);
   for (const z of [-2.4, 2.4]) F.add(bar([0, 1.0, z], [5.2, .6, z], .16, P.w3, 5));
   F.add(sph(.6, P.w1, 5.2, .2, 0, 1, 1, 6.5, 7));
   F.add(bar([-.6, 1.2, 1.2], [1.8, .4, -1.6], .12, P.w3, 5), box(.9, .06, 1.4, P.w2, 1.9, .35, -1.9), sph(.3, P.cream, 0, .3, 5, 1, .5, 1, 5));
+  // детали: тонкий планширь без стоек, сиденья-банки, весло и острога вдоль настила, резная голова на носу
+  sheerRail(F, h, 15, -.15, { color: P.wd, r: .09, posts: false, minX: 0 });      // у долблёнки корма заострённая и низкая — брус идёт до конца
+  for (const z of [-3.6, 1.6]) F.add(box(2 * h.half(z, .8) - .3, .2, .7, P.w1, 0, 1, z));
+  F.add(bar([-.9, .62, -3.6], [-.9, .62, 4.6], .07, P.w1, 4), bar([.9, .7, -6], [.9, .7, 6.4], .05, P.w3, 4));
+  F.add(sph(.42, P.w1, 0, 1.45, 6.4, 1, 1.1, 1.2, 7), sph(.1, P.gold, -.16, 1.6, 6.85, 1, 1, 1, 5), sph(.1, P.gold, .16, 1.6, 6.85, 1, 1, 1, 5));
   rock(B, .05, r() * 6);
 });
 def('boat_sail_small', 'Шлюпка с парусом', (B, r) => {
   const F = B.f, h = hullMeshes(B, { L: 17, W: 6.2, fb: 2.1, draft: .8, sheer: 1, cols: { hull: P.cream, stripe: P.red, bottom: P.wd } }, -.2);
   for (const z of [-4, 0, 4.5]) F.add(box(2 * h.half(z, 1) - .1, .3, 1, P.w1, 0, 1, z));
-  F.add(cyl(.18, .24, 14.5, P.w3, 0, 7.3, 2.8, 7), box(.25, 2.4, .9, P.w3, 0, 1.6, -7.8), bar([0, 2, -7.4], [0, 3.2, -5], .1, P.w3, 5));
+  F.add(cyl(.18, .24, 14.5, P.w3, 0, 7.3, 2.8, 7), box(.25, 2.4, .9, P.w3, 0, 1.6, -7.8));      // косой румпель (от кормовой стойки вверх к мачте) шёл прямо сквозь голову рулевого — убран; штурвал и так есть
   const pv = new T.Group(); pv.name = 'SailPivot'; pv.position.set(0, 0, 2.8); F.add(pv);
   pv.add(bar([0, 2.2, 0], [0, 2.4, -7.8], .12, P.w3, 5));
   const s = triCloth([0, 13.8, 0.1], [0, 2.5, 0.1], [0, 2.5, -7.6], 6, sailMat('plain')); pv.add(s.mesh); billow(B, s, 1.1, 0, 1, 0);
   const j = triCloth([0, 13, 2.95], [0, 2.4, 8.2], [0, 2.4, 3.0], 5, sailMat('merchant')); F.add(j.mesh); j.mesh.position.z = 0; billow(B, j, .8, 0, -1, 1);
   F.add(bar([0, 13.8, 2.8], [0, 2.3, 8.3], .07, P.rope, 4), flag(B, F, 0, 14.6, 2.8, 2, 1, 0, P.red));
+  // детали: планширь с мелкими стойками, кнехты на кромке у носа и у кормы, ведро, бухта каната, кольцо на форштевне
+  sheerRail(F, h, 17, -.2, { color: P.wd });
+  for (const z of [-6.2, 5.8]) for (const s of [-1, 1]) cleat(F, s * (h.rail(z) - .1), h.topZ(z) + .3, z);
+  F.add(tor(.22, .05, P.iron, 0, h.topZ(8) - .2, 8.3), cyl(.3, .24, .5, P.w1, 1.8, .7, -5.5, 8, { cs: false }), coilMesh(.7, 1).translateX(-1.6).translateY(.45).translateZ(6.6));
   B.fns.push(t => { pv.rotation.y = Math.sin(t * .6) * .15; }); rock(B, .035, r() * 6);
 });
 def('raft', 'Плот из брёвен', (B, r) => {
@@ -495,6 +590,18 @@ function ship(B, r, S) {
       flag(B, F, 0, m.h + 1.4, m.z, f.w || 3, f.h || 1.5, f.tex || 0, f.color || P.red, mi);
     }
   });
+  // общие детали: планширь (пропуск у лестницы на правом борту), пушечные порты, щиты, окна кормовой каюты, фальреп у мачт, кнехты
+  const gap = [-.08 * L - 3.5, -.08 * L + 3.5];      // лестница: правый борт (+x), посередине; центр = −8% длины (см. build-map.js, V_.ladder)
+  sheerRail(F, h, L, dy, { gap, color: S.railCol || P.wd });
+  if (S.guns && S.guns.length) gunPorts(F, h, dy, S.guns, gap);
+  if (S.shields) shields(F, h, S.shields.zs, S.shields.a, S.shields.b, gap);
+  const cab = (S.castles || []).find(c => c.rearWall && c.windows);
+  if (cab) transomWindows(F, h, L, dy, cab.windows, cab.windowCol || P.gold);
+  for (const m of S.masts) fifeRail(F, m.z, dy);
+  for (const z of [-.3 * L, .3 * L]) for (const s of [-1, 1]) {      // кнехты у бортов — между пушками, чтобы не перекрывать их
+    if (s > 0 && z > gap[0] - 2 && z < gap[1] + 2) continue;      // у лестницы проход свободен
+    bollard(F, s * (h.half(z, dy) - 1.2), dy, z);
+  }
   if (S.bow) {
     const b = S.bow, bz = L / 2, t0 = h.topZ(bz - 5);
     F.add(bar([0, t0, bz - 6], [0, t0 + b.rise, bz + b.len], .28, P.w3, 6));
@@ -502,6 +609,8 @@ function ship(B, r, S) {
     const j = triCloth([0, fm.h * .85, fm.z + .5], [0, t0 + b.rise + .3, bz + b.len - .5], [0, dy + 4.5, fm.z + 3], 6, sailMat(S.sailTex)); j.mesh.name = 'Jib'; F.add(j.mesh); billow(B, j, 1.4, 0, -1, 3);
     F.add(bar([0, fm.h, fm.z], [0, t0 + b.rise, bz + b.len], .08, P.rope, 4));
     if (b.figure) F.add(sph(.9, b.figure, 0, t0 + .8, bz + .2, 1, 1, 1.3, 6));
+    bowScrolls(F, h, L, b.scroll || P.gold);
+    flag(B, F, 0, t0 + b.rise + .3, bz + b.len, 2.2, 1.1, 0, P.red);      // джек на конце бушприта
   }
   F.add(box(.4, 3.8, 2.4, P.wd, 0, -.6, -L / 2 - 1.4));
   if (S.extra) S.extra(F, h, r, B);
@@ -511,7 +620,7 @@ const lantern = (F, x, y, z) => F.add(cyl(.35, .35, .8, '#f0c040', x, y, z, 6), 
 
 def('fishing_sail_a', 'Рыбацкий парусник «шлюп»', (B, r) => {
   const F = B.f, h = hullMeshes(B, { L: 24, W: 8, fb: 2.8, draft: 1.6, sheer: 1.6, cols: { hull: '#35607a', stripe: P.white, bottom: '#222' } }, .9);
-  F.add(box(4.2, 3, 4.4, P.w2, 0, 2.4, -6.5), box(4.8, .3, 5, P.roof, 0, 4, -6.5), box(1, 1, .1, '#1d2a30', 0, 2.8, -4.25));
+  // будка на корме (каюта с крышей и дверью) убрана — палуба ровная, как у остальных кораблей
   F.add(cyl(.2, .3, 17.5, P.w3, 0, 9.6, 3, 7));
   F.add(bar([0, 3.6, 3], [0, 3.6, -9.5], .17, P.w3, 5), bar([0, 15.2, 3], [0, 13.2, -5.2], .12, P.w3, 5));
   const pv = new T.Group(); pv.position.set(0, 0, 3); pv.name = 'SailPivot'; F.add(pv);
@@ -520,6 +629,9 @@ def('fishing_sail_a', 'Рыбацкий парусник «шлюп»', (B, r) =
   F.add(bar([0, 3.2, 8], [0, 4, 13.8], .22, P.w3, 5), bar([0, 18, 3], [0, 4, 13.8], .07, P.rope, 4), flag(B, F, 0, 18.6, 3, 2.4, 1.2, 0, P.red));
   const n = gridCloth([[0, 0, 0], [6, 0, 0], [6, -3.4, 0], [0, -3.4, 0]], 6, 5, netMat(), [3, 2]); n.mesh.rotation.y = Math.PI / 2; n.mesh.position.set(h.rail(0) + .15, 4.2, -2); F.add(n.mesh);
   F.add(barrelMesh(.9, 2, P.w1, 8).translateX(2.2).translateY(.9).translateZ(7), barrelMesh(.9, 2, P.w2, 8).translateX(-2.2).translateY(.9).translateZ(6.5), crateBox(1.8, 1.4, 1.8, P.w2, P.w3).translateX(-2).translateY(.9).translateZ(-1));
+  // детали: белый планширь, кнехты на кромке у носа
+  sheerRail(F, h, 24, .9, { color: P.white });
+  for (const s of [-1, 1]) cleat(F, s * (h.rail(8) - .1), h.topZ(8) + .3, 8);
   B.fns.push(t => { pv.rotation.y = Math.sin(t * .5) * .1; }); rock(B, .03, r() * 6);
 });
 def('fishing_sail_b', 'Рыбацкий люггер (два паруса)', (B, r) => {
@@ -534,6 +646,9 @@ def('fishing_sail_b', 'Рыбацкий люггер (два паруса)', (B,
   for (let i = 0; i < 4; i++) F.add(barrelMesh(.85, 1.9, r.pick([P.w1, P.w2]), 8).translateX(-2 + (i % 2) * 2.2).translateY(.8).translateZ(-8 + Math.floor(i / 2) * 2));
   F.add(box(3, 1.2, 2.4, P.w3, 0, 1.4, 9), sph(.9, '#8fa7b0', 1, 1.4, 1.5, 1.5, .5, .6, 6), coilMesh(1.1, 1).translateX(-2).translateY(.8).translateZ(2));
   F.add(bar([0, 3, 9.5], [0, 4.4, 15], .2, P.w3, 5)); rock(B, .03, r() * 6);
+  // детали: кремовый планширь с мелкими стойками, кнехт у носа у борта
+  sheerRail(F, h, 22, .8, { color: P.cream });
+  for (const s of [-1, 1]) cleat(F, s * (h.rail(7) - .1), h.topZ(7) + .3, 7);
 });
 def('merchant_cog', 'Торговая когга', (B, r) => ship(B, r, {
   hull: { L: 36, W: 11, fb: 4, draft: 2.4, sheer: 2.2, cols: { hull: '#7a5a3a', stripe: '#c9a227', bottom: '#2a1a12' } }, deckY: 2.2, sailTex: 'merchant', rock: .014,
@@ -544,6 +659,7 @@ def('merchant_cog', 'Торговая когга', (B, r) => ship(B, r, {
     for (let i = 0; i < 5; i++) F.add(barrelMesh(1, 2.2, r.pick([P.w1, P.w2]), 8).translateX(-2.5 + (i % 3) * 2.5).translateY(2.2).translateZ(-5 - Math.floor(i / 3) * 2.4 + 8));
     F.add(crateBox(2.4, 2, 2.4, P.w2, P.w3).translateY(2.2).translateX(2.8).translateZ(7), crateBox(2, 1.8, 2, P.w1, P.w3).translateY(2.2).translateX(-2.8).translateZ(-2), box(3, .4, 3, '#3a5a8a', 0, 2.4, -5));
     lantern(F, 3.5, 7.2, -16.5); lantern(F, -3.5, 7.2, -16.5);
+    sackPile(F, -2.2, 2.2, 12.5, r);      // мешки с зерном в носовой части (левый борт)
   } }));
 def('merchant_carrack', 'Торговая каравелла', (B, r) => ship(B, r, {
   hull: { L: 48, W: 13.5, fb: 4.8, draft: 3, sheer: 2.8, stations: 20, cols: { hull: '#c79a52', stripe: '#2f6a4a', bottom: '#2a1a12' } }, deckY: 2.9, sailTex: 'merchant2', rock: .012,
@@ -551,11 +667,12 @@ def('merchant_carrack', 'Торговая каравелла', (B, r) => ship(B,
   masts: [{ z: 12, h: 32, r: .6, sails: [{ top: 20, h: 12, w: 15, wb: 17 }, { top: 31, h: 9.5, w: 11, wb: 12 }], shrouds: true, flag: { w: 3, h: 1.6 } },
     { z: -2, h: 40, r: .7, sails: [{ top: 24, h: 14, w: 20, wb: 22 }, { top: 38, h: 11, w: 13, wb: 14.5 }], shrouds: true, nest: 32, flag: { w: 4.5, h: 2.2, tex: 'royal' } },
     { z: -17, h: 28, r: .5, lateen: true }],
-  bow: { len: 8, rise: 3 },
+  bow: { len: 8, rise: 3 }, railCol: '#2f6a4a',      // планширь в цвет зелёной полосы
   extra(F, h, r) {
     F.add(box(5, .5, 6, '#3a5a8a', 0, 3.1, 5)); for (let i = 0; i < 6; i++) F.add(barrelMesh(1, 2.2, r.pick([P.w1, P.w2]), 8).translateX(-3.5 + (i % 3) * 3.5).translateY(2.9).translateZ(-8 + Math.floor(i / 3) * 2.5));
     F.add(crateBox(2.6, 2.2, 2.6, P.w2, P.w3).translateY(2.9).translateX(3.4).translateZ(3), crateBox(2.2, 2, 2.2, P.w1, P.w3).translateY(2.9).translateX(-3.6).translateZ(4));
     lantern(F, 4.5, 7.7, -22.5); lantern(F, -4.5, 7.7, -22.5);
+    sackPile(F, 1.0, 2.9, 18.5, r);      // груз у носа, между кнехтами
   } }));
 def('pirate_ship', 'Пиратский флагман Джека Воробья', (B, r) => ship(B, r, {
   hull: { L: 58, W: 15.5, fb: 5.2, draft: 3.4, sheer: 2.6, stations: 22, sternSheer: .9, cols: { hull: '#2a1d16', stripe: '#8c1f1f', bottom: '#120d0a' } }, deckY: 3.4, sailTex: 'pirate', rock: .012,
@@ -564,10 +681,13 @@ def('pirate_ship', 'Пиратский флагман Джека Воробья'
     { z: -1, h: 40, r: .72, sails: [{ top: 24, h: 14, w: 24, wb: 26 }, { top: 38, h: 11, w: 15, wb: 16.5 }], shrouds: true, nest: 31, flag: { w: 8, h: 5, tex: 'jolly' } },
     { z: -15, h: 28, r: .5, lateen: true, flag: { w: 3.5, h: 1.8, tex: 0, color: '#8c1f1f' } }],
   guns: [-10, -5.5, -1, 3.5, 8, 12], bow: { len: 9, rise: 3, figure: P.gold },
+  railCol: '#120d0a', shields: { zs: [-12, -2, 6, 14], a: '#8c1f1f', b: P.white },      // чёрный планширь, щиты с костяным кантом
   extra(F, h, r) {
     lantern(F, 4.5, 7.4, -28.5); lantern(F, -4.5, 7.4, -28.5);
-    F.add(tor(1.1, .12, P.w3, 0, 8.4, -24, 0, 0, 0, 4, 10), box(.3, 1.8, .3, P.w3, 0, 7.7, -24), box(2.6, .4, 2.6, P.w1, 0, 3.7, -2));
+    // столбик на корме укорочен и поднят: нижняя точка над палубой выше 3.5 м, чтобы не мешать ходить у штурвала
+    F.add(tor(1.1, .12, P.w3, 0, 8.4, -24, 0, 0, 0, 4, 10), box(.3, 1.2, .3, P.w3, 0, 8.1, -24), box(2.6, .4, 2.6, P.w1, 0, 3.7, -2));
     F.add(barrelMesh(.9, 2, P.w2, 8).translateX(3).translateY(3.4).translateZ(7), barrelMesh(.9, 2, P.w1, 8).translateX(-3).translateY(3.4).translateZ(8));
+    F.add(barrelMesh(.9, 2, P.w1, 8).translateX(-2).translateY(3.4).translateZ(21), crateBox(2.2, 1.8, 2.2, P.w1, P.w3).translateX(2.4).translateY(3.4).translateZ(20.5));
   } }));
 def('royal_ship', 'Королевский корабль капитана Зантио', (B, r) => ship(B, r, {
   hull: { L: 52, W: 14.5, fb: 5.6, draft: 3.2, sheer: 3.4, stations: 22, sternSheer: 1, cols: { hull: '#f1ece0', stripe: '#d9a92b', bottom: '#2a4a8a' } }, deckY: 3.5, sailTex: 'royal', rock: .012,
@@ -575,11 +695,14 @@ def('royal_ship', 'Королевский корабль капитана Зан
   masts: [{ z: 11, h: 30, r: .6, sails: [{ top: 17, h: 9.5, w: 17, wb: 19 }, { top: 26, h: 8, w: 12, wb: 13.5 }, { top: 33.8, h: 5, w: 8, wb: 9 }].slice(0, 2), shrouds: true, flag: { w: 3.5, h: 1.8, tex: 'royal' } },
     { z: -2, h: 38, r: .7, sails: [{ top: 21, h: 12, w: 22, wb: 24 }, { top: 32, h: 9.5, w: 15, wb: 16.5 }, { top: 40, h: 6, w: 9, wb: 10 }].slice(0, 2), shrouds: true, nest: 33, flag: { w: 6, h: 3.6, tex: 'royal' } },
     { z: -13, h: 26, r: .5, lateen: true, flag: { w: 3.5, h: 1.8, tex: 'royal' } }],
-  guns: [-8, -4, 0, 4, 8, 12], bow: { len: 8, rise: 3.2, figure: P.gold },
+  guns: [-8, -4, 0, 4, 8, 12], bow: { len: 8, rise: 3.2, figure: P.gold, scroll: P.gold },
+  railCol: P.gold, shields: { zs: [-12, 2, 12], a: '#2a58a8', b: P.gold },      // золотой планширь, синие королевские щиты
   extra(F, h, r, Bx) {
     for (const z of [-9, -4.5, 0, 4.5, 9]) for (const s of [-1, 1]) F.add(box(.2, 1, 1.3, '#1d2a30', s * (h.half(z, 2) + .02), 1, z + 2.1));
     lantern(F, 3.5, 9.3, -25.5); lantern(F, -3.5, 9.3, -25.5); lantern(F, 0, 9.3, -25.5);
-    F.add(cyl(.1, .1, 5, P.gold, 0, 8.6, -25.2, 5), flag(Bx, F, 0, 11, -25.2, 3, 1.6, 'royal'));
+    // древко флага на корме поднято (низ выше 5 м над палубой), чтобы не торчало на уровне головы у штурвала
+    F.add(cyl(.1, .1, 3, P.gold, 0, 10.1, -25.2, 5), flag(Bx, F, 0, 11, -25.2, 3, 1.6, 'royal'));
+    F.add(crateBox(2.2, 1.8, 2.2, P.w2, P.w3).translateX(-2.4).translateY(3.5).translateZ(18));
   } }));
 
 def('richard_boat', 'Кораблик Ричарда («Морской бой»)', (B, r) => {

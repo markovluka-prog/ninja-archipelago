@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>Места для камеры в домах</title>
+<style>
+body{font:15px -apple-system,Segoe UI,sans-serif;margin:20px;background:#f4f1ea;color:#222}
+h1{font-size:20px;margin:0 0 6px} p.s{margin:0 0 16px;color:#555;max-width:900px}
+.row{display:flex;gap:28px;flex-wrap:wrap}
+.card{background:#fff;border-radius:12px;padding:14px 16px;box-shadow:0 1px 4px #0002}
+.card h2{font-size:16px;margin:0 0 4px}.card small{color:#666;display:block;margin-bottom:8px}
+svg{background:#faf8f3;border-radius:6px;cursor:crosshair;display:block}
+.tabs button{margin:0 4px 8px 0;padding:3px 10px;border:1px solid #bbb;border-radius:14px;background:#fff;cursor:pointer}
+.tabs button.on{background:#222;color:#fff}
+textarea{width:100%;height:90px;font:12px ui-monospace,Menlo,monospace;margin-top:8px}
+.lg{font-size:13px;color:#444;margin:6px 0}.lg i{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin:0 3px 0 8px}
+button.c{margin-top:6px;padding:4px 12px;cursor:pointer}
+</style>
+<h1>Места для камеры в домах</h1>
+<p class=s>Вид сверху (дверь — снизу, зелёная). Синие кружки — мои варианты (угол под потолком). <b>Клик</b> — поставить свою камеру (красная), <b>клик по красной</b> — убрать. Переключайте этаж вкладками; высота камеры над полом этажа — ползунок. Когда закончите — «Скопировать» и пришлите текст.</p>
+<div class=row id=root></div>
+<script>
+const U=16; // px на единицу модели
+const TYPES=[
+ {id:'house',name:'Дом (hut_stone)',note:'18×15, высота 10.4, один этаж, дверь по центру',W:18,D:15,floors:[{n:'1 этаж',y:0,h:10.4}],door:{x:0,w:5},
+  mine:[[-8,-6.5,3.5,0],[8,-6.5,3.5,0],[-8,6.5,3.5,0],[8,6.5,3.5,0]]},
+ {id:'house2',name:'Двухэтажный дом (town_narrow)',note:'12×17, этажи 10.9 + 9.4, дверь смещена вправо, лестница слева у входа',W:12,D:17,floors:[{n:'1 этаж',y:0,h:10.9},{n:'2 этаж',y:11,h:9.4}],door:{x:1.2,w:5},stair:{x0:-5.7,x1:-0.3,z0:2.2,z1:6.4},
+  mine:[[-5,-7.5,4,0],[5,-7.5,4,0],[5,7.5,4,0],[-5,-7.5,4,1],[5,-7.5,4,1],[5,7.5,4,1]]},
+ {id:'tower',name:'Башня (круглая, радиус ≈11)',note:'высота ≈26, три яруса по ~8.5, дверь внизу',R:11,floors:[{n:'1 ярус',y:0,h:8.5},{n:'2 ярус',y:8.7,h:8.5},{n:'3 ярус',y:17.4,h:8.5}],door:{x:0,w:5},
+  mine:[[-7.5,-7.5,5,0],[7.5,-7.5,5,0],[0,-9,5,1],[0,9,5,1],[-8,0,5,2],[8,0,5,2]]}
+];
+const store={};
+const root=document.getElementById('root');
+TYPES.forEach(T=>{
+ const st=store[T.id]={fl:0,mine:T.mine.map(a=>({x:a[0],z:a[1],y:a[2],f:a[3]})),my:[],hy:3.5};
+ const R=T.R,hw=(R?R:T.W/2)+3,hd=(R?R:T.D/2)+3,Wp=hw*2*U,Hp=hd*2*U;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML=`<h2>${T.name}</h2><small>${T.note}</small><div class=tabs></div><svg width=${Wp} height=${Hp}></svg>
+ <div class=lg><i style="background:#2f6fd6"></i>мои <i style="background:#e0302a"></i>ваши &nbsp; высота: <input type=range min=1.5 max=9 step=.5 value=3.5 style="vertical-align:middle"> <b>3.5</b></div>
+ <textarea readonly></textarea><br><button class=c>Скопировать</button>`;
+ root.appendChild(card);
+ const svg=card.querySelector('svg'),ta=card.querySelector('textarea'),tabs=card.querySelector('.tabs'),sl=card.querySelector('input'),lbl=card.querySelector('.lg b');
+ sl.oninput=()=>{st.hy=+sl.value;lbl.textContent=sl.value};
+ T.floors.forEach((f,i)=>{const b=document.createElement('button');b.textContent=f.n;b.onclick=()=>{st.fl=i;draw()};tabs.appendChild(b)});
+ const X=x=>(x+hw)*U,Z=z=>(z+hd)*U;
+ function draw(){
+  [...tabs.children].forEach((b,i)=>b.classList.toggle('on',i==st.fl));
+  let s='';
+  if(R){s+=`<circle cx=${X(0)} cy=${Z(0)} r=${R*U} fill=#e8e1d2 stroke=#555 stroke-width=${.8*U}></circle>`;}
+  else{s+=`<rect x=${X(-T.W/2)} y=${Z(-T.D/2)} width=${T.W*U} height=${T.D*U} fill=#e8e1d2 stroke=#555 stroke-width=${.6*U}></rect>`;}
+  if(st.fl==0){const dw=T.door.w,dx=T.door.x,zz=R?R:T.D/2;s+=`<rect x=${X(dx-dw/2)} y=${Z(zz)-4} width=${dw*U} height=8 fill=#2a9d4a></rect><text x=${X(dx)} y=${Z(zz)+18} text-anchor=middle font-size=12 fill=#2a9d4a>дверь</text>`}
+  if(T.stair&&st.fl<T.floors.length-1){const q=T.stair;s+=`<rect x=${X(q.x0)} y=${Z(q.z0)} width=${(q.x1-q.x0)*U} height=${(q.z1-q.z0)*U} fill=#c9b48a stroke=#8a6a3a stroke-dasharray=4></rect><text x=${X((q.x0+q.x1)/2)} y=${Z((q.z0+q.z1)/2)+4} text-anchor=middle font-size=11>лестница</text>`}
+  if(R&&st.fl<2)s+=`<text x=${X(0)} y=${Z(0)} text-anchor=middle font-size=11 fill=#8a6a3a>лестница/люк (по центру)</text>`;
+  s+=`<text x=${X(0)} y=14 text-anchor=middle font-size=11 fill=#888>▲ задняя стена</text>`;
+  st.mine.filter(m=>m.f==st.fl).forEach((m,i)=>s+=`<circle cx=${X(m.x)} cy=${Z(m.z)} r=9 fill=#2f6fd6 opacity=.85></circle><text x=${X(m.x)} y=${Z(m.z)+4} text-anchor=middle font-size=11 fill=#fff>${m.y}</text>`);
+  st.my.filter(m=>m.f==st.fl).forEach((m,i)=>s+=`<circle data-i=${st.my.indexOf(m)} cx=${X(m.x)} cy=${Z(m.z)} r=9 fill=#e0302a opacity=.9></circle><text style="pointer-events:none" x=${X(m.x)} y=${Z(m.z)+4} text-anchor=middle font-size=11 fill=#fff>${m.y}</text>`);
+  svg.innerHTML=s;
+  ta.value=JSON.stringify({type:T.id,cameras:st.my.map(m=>({floor:m.f+1,x:m.x,z:m.z,height:m.y}))});
+ }
+ svg.onclick=e=>{
+  const c=e.target.closest('circle[data-i]');if(c){st.my.splice(+c.dataset.i,1);draw();return}
+  const r=svg.getBoundingClientRect(),x=Math.round(((e.clientX-r.left)/U-hw)*2)/2,z=Math.round(((e.clientY-r.top)/U-hd)*2)/2;
+  st.my.push({x,z,y:st.hy,f:st.fl});draw();
+ };
+ card.querySelector('button.c').onclick=()=>{ta.select();document.execCommand('copy')};
+ draw();
+});
+</script>
+</html>

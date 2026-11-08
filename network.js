@@ -21,7 +21,8 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
   const remotes = new Map();                     // id → { ch, name, av, lb, dying, init, x,y,z,yaw, tx,ty,tz,tyaw, anim }
   const listeners = new Set(), chatFns = new Set(), handlers = new Map(); let lastGameKey = '', pendingWorld = null;
   let ws = null, myId = null, tries = 0, closedByUs = false, online = false, sendT = 0, roster = [];
-  let room = null, roomErr = '', roomList = []; try { room = sessionStorage.getItem('ninja.room') || null; } catch { /* нет sessionStorage */ }      // код комнаты хранится на вкладку: после обновления страницы вернёмся в неё
+  let room = null, roomErr = '', roomList = []; try { room = sessionStorage.getItem('ninja.room') || null; } catch { /* нет sessionStorage */ }
+  { const qr = new URLSearchParams(location.search).get('room'); if (qr && /^\d{3}$/.test(qr)) room = qr; }      // ссылка ?room=777 сразу заводит в комнату      // код комнаты хранится на вкладку: после обновления страницы вернёмся в неё
   const lobby = { name: (localStorage.getItem('ninja.name') || '').slice(0, 16), ch: null, play: false };   // то, чего хочет этот игрок
 
   const meOf = () => roster.find(p => p.id === myId) || null;
@@ -31,14 +32,20 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
     onStatus(online || !closedByUs ? `${room ? '🏠 Комната ' + room + ' · ' : ''}👥 В игре: ${n}${me && me.play ? ` · вы — ${me.name} (${CHARS[me.ch]?.name})` : ' · вы смотрите'}${online ? '' : ' · без сервера'}` : '');
   };
 
-  const label = (text, color = '#fff') => {                        // табличка над головой другого игрока
-    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const g = cv.getContext('2d');
-    g.font = 'bold 30px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(text, 128, 34); g.fillStyle = color; g.fillText(text, 128, 34);
+  const label = (text, color = '#fff', hpk = null) => {                        // табличка над головой другого игрока: имя и полоска жизней
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 80; const g = cv.getContext('2d');
+    g.font = 'bold 30px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(text, 128, 28); g.fillStyle = color; g.fillText(text, 128, 28);
+    if (hpk != null) {
+      const k = Math.max(0, Math.min(1, hpk)), x = 38, y = 54, w = 180, h = 14;
+      g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(x - 3, y - 3, w + 6, h + 6);
+      g.fillStyle = '#3a1512'; g.fillRect(x, y, w, h);
+      g.fillStyle = `hsl(${Math.round(k * 120)},75%,48%)`; g.fillRect(x, y, w * k, h);
+    }
     const tex = new THREE.CanvasTexture(cv), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-    sp.scale.set(9, 2.25, 1); sp.position.y = 12; sp.renderOrder = 20; return sp;
+    sp.scale.set(9, 2.8, 1); sp.position.y = 12; sp.renderOrder = 20; return sp;
   };
   const killLabel = r => { if (!r.lb) return; r.lb.parent && r.lb.parent.remove(r.lb); r.lb.material.map && r.lb.material.map.dispose(); r.lb.material.dispose(); r.lb = null; };
-  const setLabel = (r, text) => { killLabel(r); r.name = text; r.lb = label(text, r.col || '#fff'); r.lb.visible = !api.hideLabels; r.av.group.add(r.lb); };
+  const setLabel = (r, text) => { killLabel(r); r.name = text; r.hpShown = r.hpk; r.lb = label(text, r.col || '#fff', r.hpk); r.lb.visible = !api.hideLabels; r.av.group.add(r.lb); };
   const killAvatar = r => { killLabel(r); scene.remove(r.av.group); r.av.dispose && r.av.dispose(); };
   const makeAv = (r, ch) => { r.av = richard.makeRemoteAvatar(ch); r.ch = ch; scene.add(r.av.group); r.init = false; r.anim = ''; setLabel(r, r.name); };
 
@@ -78,7 +85,7 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
         else removeRemote(m.id);
       } else if (m.t === 'st') {
         const r = remotes.get(m.id); if (!r || r.dying) return;
-        r.tx = m.x; r.ty = m.y; r.tz = m.z; r.tyaw = m.yaw; if (m.a && m.a !== r.anim) { r.anim = m.a; r.av.setAnim(m.a, m.s || 1, !!m.o); }
+        r.tx = m.x; r.ty = m.y; r.tz = m.z; r.tyaw = m.yaw; if (m.hm) { r.hpk = Math.max(0, Math.min(1, m.hp / m.hm)); if (r.hpShown == null || Math.abs(r.hpShown - r.hpk) >= 0.02 || (r.hpk === 0) !== (r.hpShown === 0)) setLabel(r, r.name); } r.dg = m.dg || null; r.w = !!m.w; r.wOn = r.w && !/Плаван|Лестниц|Лаз|Вис|Подтяг|Планир|Стен/i.test(m.a || r.anim || ''); if (m.a && m.a !== r.anim) { r.anim = m.a; r.av.setAnim(m.a, m.s || 1, !!m.o); }
         if (!r.init) { r.x = r.tx; r.y = r.ty; r.z = r.tz; r.yaw = r.tyaw; r.init = true; }
       }
     };
@@ -102,6 +109,8 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
     get online() { return online; }, get id() { return myId; }, get roster() { return roster; }, get me() { return meOf(); }, get lobby() { return lobby; },
     /** тела других живых игроков — для выталкивания (коллизия игрок↔игрок); мёртвые не мешают */
     bodies() { const out = []; for (const [id, r] of remotes) if (!r.dying && r.init) out.push({ id, x: r.x, y: r.y, z: r.z, r: 1.2 }); return out; },
+    /** драконы других игроков (дракон = всадник + dg{тангаж, крен, огонь, окраска}) */
+    dragonRiders() { const out = []; for (const [id, r] of remotes) if (r.dg && !r.dying) out.push({ id, dg: r.dg }); return out; },
     game: null, hideLabels: false,
     on(type, f) { (handlers.get(type) || handlers.set(type, new Set()).get(type)).add(f); },
     send(obj) { if (online && ws.readyState === 1) ws.send(JSON.stringify(obj)); },
@@ -121,13 +130,13 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
     update(dt) {
       const me = meOf();
       if (online && ws.readyState === 1 && me && me.play) {                 // своё состояние — 15 раз в секунду, только пока я в игре
-        sendT += dt; if (sendT >= 0.066) { sendT = 0; const P = richard.P; ws.send(JSON.stringify({ t: 'st', x: +P.pos.x.toFixed(2), y: +P.pos.y.toFixed(2), z: +P.pos.z.toFixed(2), yaw: +(P.yawVis ?? P.yaw).toFixed(3), a: richard.animName ? richard.animName() : '', o: richard.animOnce && richard.animOnce() ? 1 : 0 })); }
+        sendT += dt; if (sendT >= 0.066) { sendT = 0; const P = richard.P; ws.send(JSON.stringify({ t: 'st', x: +P.pos.x.toFixed(2), y: +P.pos.y.toFixed(2), z: +P.pos.z.toFixed(2), yaw: +(P.yawVis ?? P.yaw).toFixed(3), a: richard.animName ? richard.animName() : '', hp: Math.round(richard.P.hp ?? 100), hm: richard.P.hpMax || 100, o: richard.animOnce && richard.animOnce() ? 1 : 0, w: richard.armed ? 1 : 0, dg: window.__dragonSend ? window.__dragonSend() : undefined })); }
       }
       const k = 1 - Math.exp(-14 * dt);
       for (const [id, r] of [...remotes]) {
         if (r.dying) { r.dying -= dt; r.av.update(dt); if (r.dying <= 0) removeRemote(id); continue; }
         r.x += (r.tx - r.x) * k; r.y += (r.ty - r.y) * k; r.z += (r.tz - r.z) * k; r.yaw += angDiff(r.yaw, r.tyaw) * k;
-        r.av.setPose(r.x, r.y, r.z, r.yaw); r.av.update(dt); if (r.lb) r.lb.visible = !api.hideLabels;
+        r.av.setPose(r.x, r.y, r.z, r.yaw); r.av.update(dt); if (richard.applyWeapon) richard.applyWeapon(r.av.group, !!r.wOn, dt); if (r.lb) r.lb.visible = !api.hideLabels;
       }
     },
     close() { closedByUs = true; ws && ws.close(); },

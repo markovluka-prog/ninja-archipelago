@@ -47,8 +47,8 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
     <label>Персонаж (тапните, чтобы выбрать)</label><div class="chars" id="lbChars"></div>
     <div class="row"><button class="btn add" id="lbAdd">▶ Играть (добавить игрока)</button><button class="btn del" id="lbDel">− Убрать игрока</button></div>
     <div class="row" style="margin-top:8px"><button class="btn alt" id="lbClose">Закрыть меню</button></div>
-    <label>Голосуйте за режим (нужно 2+ игрока; при ничьей решает первый игрок)</label><div class="modes" id="lbModes"></div><p class="mdesc" id="lbDesc"></p>
-    <div class="row"><button class="btn add" id="lbStart">▶ Начать режим</button><button class="btn del" id="lbStop">⏹ Закончить игру</button></div>
+    <label>Голосуйте за режим (голосование — только при 2+ игроках, игра начнётся сама, когда проголосуют все или через 20 секунд; пока вы один — идёт «Изучение»)</label><div class="modes" id="lbModes"></div><p class="mdesc" id="lbDesc"></p>
+    <div class="row" style="display:none"><button class="btn add" id="lbStart">▶ Начать режим</button><button class="btn del" id="lbStop">⏹ Закончить игру</button></div>
     <label>Сейчас в комнате</label><ul id="lbList"></ul></div></div>`;
   document.body.appendChild(el);
   const $ = id => el.querySelector('#' + id), nameIn = $('lbName');
@@ -103,7 +103,7 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
     const playing = !!(me && me.play);
     const nPl = roster.filter(p => p.play).length, armed = gm && gm.armed;
     $('lbStart').disabled = running || !playing || !net.online; $('lbStop').disabled = !running && !armed;
-    $('lbStart').textContent = nPl < 2 ? '⏳ Выбрать режим (старт при 2 игроках)' : '▶ Начать режим';
+    $('lbStart').textContent = nPl < 2 && !['explore', 'relics'].includes(selMode) ? '⏳ Выбрать режим (старт при 2 игроках)' : '▶ Начать режим';
     $('lbStop').textContent = running ? '⏹ Закончить игру' : '✖ Отменить выбор';
     if (!running && gm && gm.cd != null) $('lbDesc').textContent = `⏳ Выберите режим! Игра начнётся через ${gm.cd} с (или когда проголосуют все). Голос — тап по режиму.`;
     else if (!running && armed) $('lbDesc').textContent = `⏳ Выбран «${MODE_INFO[armed].name}» — игра начнётся сама, когда войдёт второй игрок. Пока ходите где хотите.`;
@@ -127,10 +127,14 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
   function open() { open_ = true; el.classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); if (getMode() === 'walk' && !window.__gameLock) setMode('orbit'); render(); }
   function close() { open_ = false; el.classList.remove('on'); if (wasPlay) setMode('walk'); }
   let lastPh = 'idle';
-  let cdOpened = false;
-  net.onChange(() => { applyState(); render(); { const cd = net.game && net.game.cd != null; if (cd && !cdOpened && net.me && net.me.play && !open_) open(); cdOpened = !!cd; } const ph = net.game ? net.game.phase : 'idle'; if (ph === 'play' && lastPh !== 'play' && open_) close(); lastPh = ph; });
+  let cdOpened = false;      // голосование не вырывает игрока из мира: он остаётся в своём персонаже, подсказка — наверху (HUD), голос — в меню по M
+  net.onChange(() => { applyState(); render(); { cdOpened = !!(net.game && net.game.cd != null); } const ph = net.game ? net.game.phase : 'idle'; if (ph === 'play' && lastPh !== 'play' && open_) close(); lastPh = ph; });
   addEventListener('keydown', e => { if (e.code === 'KeyM' && !e.repeat && document.activeElement !== nameIn) { open_ ? close() : open(); } });
 
+  /* автовход по ссылке: ?room=777&ch=richard&name=Я&vote=naval — комната, персонаж и голос за режим ставятся сами (для проверок и быстрых партий) */
+  const qp = new URLSearchParams(location.search), auto = { ch: qp.get('ch'), name: qp.get('name'), vote: qp.get('vote') };
+  if (auto.ch && CHARS[auto.ch]) Object.assign(net.lobby, { ch: auto.ch, play: true, name: (auto.name || net.lobby.name || 'Игрок').slice(0, 16) });
+  if (auto.vote && MODE_INFO[auto.vote]) net.onChange(() => { const g = net.game, me = net.me; if (net.online && net.room && me && me.play && g && g.phase === 'idle' && !(g.pv || []).some(a => a[0] === net.id)) net.send({ t: 'vote', mode: auto.vote }); });
   richard.setVisible(false); setMode('orbit');
   net.setLobby({});                                           // офлайн: заполнит список; онлайн — ничего не меняет
   open();

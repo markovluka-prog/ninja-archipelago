@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>Ниндзи — трансляция игры</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:15px -apple-system,Segoe UI,sans-serif;color:#fff}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:default}
+#msg{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:20px;background:rgba(0,0,0,.6);z-index:5}
+#msg a{color:#8fd6ff}
+#hint{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);background:rgba(0,0,0,.55);padding:5px 12px;border-radius:9px;font-size:13px;z-index:4;pointer-events:none;opacity:.9}
+</style></head><body>
+<canvas id="cv"></canvas>
+<div id="msg">Подключение к игре…</div>
+<div id="hint" style="display:none">Игра идёт на компьютере хозяина, вам приходит только картинка · клик по игре — захват мыши (Esc — отпустить)</div>
+<script>
+const cv = document.getElementById('cv'), g = cv.getContext('2d'), msg = document.getElementById('msg'), hint = document.getElementById('hint');
+const q = new URLSearchParams(location.search);
+const fit = () => { const iw = innerWidth, ih = innerHeight, s = Math.min(1, Math.sqrt(1280 * 720 / (iw * ih))); return [Math.round(iw * s), Math.round(ih * s)]; };
+let failed = false, ws = null, st = { lobby: true, walk: false }, locked = false, ready = false, pend = null, busy = false;
+const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+function connect() {
+  const [w, h] = fit(), proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(`${proto}${location.host}/stream?w=${w}&h=${h}` + (q.get('room') ? '&room=' + encodeURIComponent(q.get('room')) : ''));
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = async e => {
+    if (typeof e.data === 'string') {
+      const m = JSON.parse(e.data);
+      if (m.t === 'st') st = m; else if (m.t === 'msg') msg.textContent = m.msg;
+      else if (m.t === 'err') { failed = true; msg.style.display = 'grid'; msg.innerHTML = m.msg + '<br><br><a href="?full=1' + (q.get('room') ? '&room=' + q.get('room') : '') + '">Открыть игру прямо у себя (нужен мощный компьютер)</a>'; }
+      return;
+    }
+    pend = e.data; if (busy) return; busy = true;      // рисуем только самый свежий кадр
+    while (pend) { const buf = pend; pend = null; try { const bmp = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' })); if (cv.width !== bmp.width || cv.height !== bmp.height) { cv.width = bmp.width; cv.height = bmp.height; } g.drawImage(bmp, 0, 0); bmp.close(); window.__fc = (window.__fc || 0) + 1; } catch { /* битый кадр */ } if (!ready) { ready = true; msg.style.display = 'none'; hint.style.display = 'block'; setTimeout(() => hint.style.display = 'none', 9000); } }
+    busy = false;
+  };
+  ws.onclose = () => { if (!failed) { msg.style.display = 'grid'; msg.innerHTML = 'Связь потеряна. <a href="">Переподключиться</a>'; } };
+}
+connect();
+addEventListener('resize', () => { const [w, h] = fit(); send({ t: 'size', w, h }); });
+
+const mods = e => ({ a: e.altKey, c: e.ctrlKey, m: e.metaKey, sh: e.shiftKey });
+const downKeys = new Set();
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || /^F\d+$/.test(e.code)) return;      // сочетания браузера (F5, Ctrl+R…) не трогаем
+  e.preventDefault(); downKeys.add(e.code); send({ t: 'k', d: 1, code: e.code, key: e.key, rep: e.repeat, ...mods(e) });
+});
+addEventListener('keyup', e => { if (!downKeys.delete(e.code)) return; e.preventDefault(); send({ t: 'k', d: 0, code: e.code, key: e.key, ...mods(e) }); });
+addEventListener('blur', () => { for (const c of downKeys) send({ t: 'k', d: 0, code: c, key: c }); downKeys.clear(); });
+const norm = e => ({ x: e.clientX / innerWidth, y: e.clientY / innerHeight });
+let acc = { dx: 0, dy: 0 };
+setInterval(() => { if (acc.dx || acc.dy) { send({ t: 'md', dx: acc.dx, dy: acc.dy }); acc = { dx: 0, dy: 0 }; } }, 16);
+addEventListener('mousemove', e => { if (locked) { acc.dx += e.movementX; acc.dy += e.movementY; } else send({ t: 'mm', ...norm(e) }); });
+addEventListener('mousedown', e => {
+  if (!locked && st.walk && !st.lobby && e.button === 0) { cv.requestPointerLock(); return; }      // первый клик в игре — захват мыши (как в обычной игре)
+  e.preventDefault(); send({ t: 'mb', d: 1, b: e.button, ...(locked ? {} : norm(e)), ...mods(e) });
+});
+addEventListener('mouseup', e => { if (e.button === 0 && !locked && !st.walk) { /* обычный клик в меню */ } send({ t: 'mb', d: 0, b: e.button, ...(locked ? {} : norm(e)), ...mods(e) }); });
+addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('wheel', e => { e.preventDefault(); send({ t: 'w', dy: e.deltaY, ...norm(e) }); }, { passive: false });
+document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === cv; send({ t: 'lock', on: locked }); });
+</script></body></html>

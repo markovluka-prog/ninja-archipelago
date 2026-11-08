@@ -146,6 +146,8 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
   }
   const turn = (yaw, want, rate) => { let d = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw)); const m = Math.max(-rate, Math.min(rate, d)); return { yaw: yaw + m, diff: d }; };
 
+  // ближайшая свободная точка рядом (спираль до 36 ед.): застрявшее животное выходит из препятствия, а не «респавнится» на маршрут
+  const freeSpot = (x, z) => { const ok = (px, pz) => !(world.blockedAt && world.blockedAt(px, pz, 1.2)) && hAt(px, pz) >= 0.6 && !world.lakeAt(px, pz); if (ok(x, z)) return null; for (let r = 3; r <= 36; r += 3) for (let k = 0; k < 12; k++) { const a = k / 12 * 6.283, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (ok(px, pz)) return [px, pz]; } return null; };
   function stepWalker(c, dt, swim) {
     const ox = c.x, oz = c.z, ph = world.tod ? world.tod.phase : 'day';
     if (ph !== 'day' && !c.ridden) {                   // вечер/ночь: идут «домой» (к началу своего маршрута) и там спят — стоят в покое
@@ -176,7 +178,7 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
         if (rnd() < 0.55) { c.state = 'rest'; c.timer = c.restMin + rnd() * (c.restMax - c.restMin); c.restClip = c.acts ? c.acts[reached] : (rnd() < 0.65 ? c.restRole : 'idle'); }
       }
     }
-    if (!swim && ((world.blockedAt && world.blockedAt(c.x, c.z, 0.8)) || hAt(c.x, c.z) < 0.5 || world.lakeAt(c.x, c.z))) { c.x = ox; c.z = oz; c.wi = (c.wi + 1) % c.route.length; c.state = 'rest'; c.timer = 1; c.stuck = (c.stuck || 0) + 1; if (c.stuck >= 2) { const q = c.route[c.wi]; c.x = q[0]; c.z = q[1]; c.stuck = 0; } } else c.stuck = 0;   // не лезем сквозь здания, деревья и камни; застряли — на свободную точку маршрута
+    if (!swim && ((world.blockedAt && world.blockedAt(c.x, c.z, 0.8)) || hAt(c.x, c.z) < 0.5 || world.lakeAt(c.x, c.z))) { c.x = ox; c.z = oz; c.wi = (c.wi + 1) % c.route.length; c.state = 'rest'; c.timer = 1; c.stuck = (c.stuck || 0) + 1; if (c.stuck >= 2) { c.stuck = 0; if (freeSpot) { const f = freeSpot(c.x, c.z); if (f) { c.x = f[0]; c.z = f[1]; } } } } else c.stuck = 0;      // застряла: выходит на ближайшую свободную точку и берёт следующую точку маршрута; на маршрут больше не «респавнится» (ни с всадником, ни без)   // не лезем сквозь здания, деревья и камни; застряли — на свободную точку маршрута
     c.y = swim ? -0.5 + Math.sin(c.t * 1.6) * 0.06 : Math.max(0, hAt(c.x, c.z)) - 0.05;
     c.pitch = 0;
   }
@@ -243,7 +245,7 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
         const it = c.inst, flying = c.mode === 'orbit' || c.mode === 'route';
         applyClip(c, flying ? 'fly' : c.mode === 'swim' && c.state === 'walk' ? 'idle' : c.state === 'walk' ? 'walk' : (c.restClip === 'graze' ? 'graze' : 'idle'));
         it.root.position.set(c.x, c.y, c.z); it.root.rotation.set(flying ? 0 : (c.pitch || 0), c.yaw, flying ? (c.roll || 0) : 0, 'YXZ');
-        it.tick(t * 1000);
+        if (d < 110 || (frame & 1) === 0 || inView(c)) it.tick(t * 1000);      // далёкие и невидимые — анимация через кадр (время абсолютное, скачков нет)
         if (!flying) loaded.push(c);
       }
       for (const c of loaded) {          // морда всегда смотрит туда, куда животное реально движется (расталкивание, откат от препятствий и скольжение раньше давали «хождение боком»)

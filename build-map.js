@@ -38,7 +38,7 @@ const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onlo
 
 /* ───────────── двери построек: берём настоящие двери моделей (папка assets) ───────────── */
 const BUILD_RE = /^(hut|town|fish|pirate|jp_|farm|tavern|inn|church|fortress|citadel|warehouse|big_hall|manor|barn|pagoda|tower_round|tower_watch|lighthouse_a|windmill|barracks|smithy|townhall)/;
-const ROUND = { tower_round: { R0: 12, R1: 11, H: 26, t: 0.8 }, lighthouse_a: { R0: 8.5, R1: 5.2, H: 40, t: 0.9 }, windmill: { R0: 9, R1: 7, H: 21, t: 0.6 } };      // круглые башни: стены — кольцо коробок по радиусу (а не квадратный габарит)
+const ROUND = { tower_round: { R0: 12, R1: 11, H: 26, t: 0.8 }, lighthouse_a: { R0: 8.5, R1: 5.2, H: 40, t: 0.9, lantern: { R: 3.2, y0: 40.8, y1: 46.4 }, platform: { rI: 4.7, rO: 7.2, y: 40 } }, windmill: { R0: 9, R1: 7, H: 21, t: 0.6 } };      // круглые башни: стены — кольцо коробок по радиусу (а не квадратный габарит)
 function findDoors(g) {                       // верхнеуровневые группы-двери (не меши, не люки/тайные стены)
   const out = [];
   g.traverse(o => { if (!o.isMesh && o.name && /door/i.test(o.name) && !/secret|hatch/i.test(o.name) && !out.some(d => { for (let q = o; q; q = q.parent) if (q === d) return true; return false; })) out.push(o); });
@@ -263,7 +263,8 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
             else if (/^Silo$/.test(o.name)) silos.push(new THREE.Box3().setFromObject(o));
           });
           if (ROUND[id]) { infos.length = 0; const r_ = ROUND[id]; let best_ = null, bd_ = -1; for (const d of ds) { const bb_ = new THREE.Box3().setFromObject(d), c_ = bb_.getCenter(new THREE.Vector3()), dist = Math.hypot(c_.x, c_.z); if (dist > bd_ && bb_.max.y - bb_.min.y > 4) { bd_ = dist; best_ = bb_; } }
-            if (best_) { const c_ = best_.getCenter(new THREE.Vector3()), sz_ = best_.getSize(new THREE.Vector3()), alongZ = Math.abs(c_.z) >= Math.abs(c_.x); infos.push({ cx: 0, cz: 0, hx: r_.R0, hz: r_.R0, topY: r_.H, hasDoor: true, n: alongZ ? [0, Math.sign(c_.z) || 1] : [Math.sign(c_.x) || 1, 0], off: alongZ ? c_.x : c_.z, w: alongZ ? sz_.x : sz_.z, h: sz_.y, y0: best_.min.y, round: r_ }); } }
+            if (best_) { const c_ = best_.getCenter(new THREE.Vector3()), sz_ = best_.getSize(new THREE.Vector3()), alongZ = Math.abs(c_.z) >= Math.abs(c_.x); infos.push({ cx: 0, cz: 0, hx: r_.R0, hz: r_.R0, topY: r_.H, hasDoor: true, n: alongZ ? [0, Math.sign(c_.z) || 1] : [Math.sign(c_.x) || 1, 0], off: alongZ ? c_.x : c_.z, w: alongZ ? sz_.x : sz_.z, h: sz_.y, y0: Math.max(best_.min.y, 0.4), round: r_ }); } }
+          if (ROUND[id] && ROUND[id].platform) floors.length = 0;      // кольцо площадки — повёрнутые плиты: их общие габариты закрывали проём лестницы; площадка строится по радиусам (house-collision)
           const first = infos.find(q => q.hasDoor);
           if (first && (steps.length || floors.length || tiers.length || ladderBBs.length || windowBBs.length || silos.length)) {
             const ladders = ladderBBs.map(bb => {        // настоящая лестница-стремянка модели → лестница шаблона игры (нормаль — в сторону комнаты, верх — по полу этажа/антресоли)
@@ -283,7 +284,8 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
               else if (ch.isMesh && ch.geometry.type === 'CylinderGeometry') { const bb_ = new THREE.Box3().setFromObject(ch), c_ = bb_.getCenter(new THREE.Vector3()), h_ = bb_.getSize(new THREE.Vector3()).multiplyScalar(0.4); outer.push(new THREE.Box3(new THREE.Vector3(c_.x - h_.x, bb_.min.y, c_.z - h_.z), new THREE.Vector3(c_.x + h_.x, bb_.max.y, c_.z + h_.z))); }
             }
           });
-          g.traverse(o => { if (!o.isMesh && o.name === 'Solid') outer.push(new THREE.Box3().setFromObject(o)); });      // мебель и ящики замка: тоже твёрдые
+          g.traverse(o => { if (!o.isMesh && o.name === 'Solid') outer.push(new THREE.Box3().setFromObject(o)); });
+          g.traverse(o => { if (o.userData && o.userData.solid) { const b_ = new THREE.Box3().setFromObject(o), sz_ = b_.getSize(new THREE.Vector3()); if (sz_.y >= 0.6 && sz_.x < 30 && sz_.z < 30) { b_.min.x += 0.12; b_.min.z += 0.12; b_.max.x -= 0.12; b_.max.z -= 0.12; outer.push(b_); } } });      // мебель (userData.solid): стол, кровать, сундук, бочка, ящик… — твёрдая (чуть уже габарита, чтобы не цепляться)      // мебель и ящики замка: тоже твёрдые
           if (infos.some(q => q.hasDoor)) { doorInfo = { bodies: infos, outer }; doorSet = dset; }
         }
         let deckTop = null; if (/^pier|^dock/.test(id)) g.traverse(o => { if (o.name === 'Deck') { const t = new THREE.Box3().setFromObject(o).max.y; deckTop = Math.max(deckTop ?? 0, t); } });
@@ -315,8 +317,8 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     [/^lighthouse/, 80], [/^pagoda/, 50], [/^citadel/, 90], [/^fortress/, 80],
     [/^warehouse/, 18],                                                         // склады 16–20
     [/^windmill/, 30],
-    [/^well/, 7],                                                               // колодцы 6–8
-    [/^(stall_|market)/, 9],                                                    // лавки/прилавки 8–10
+    [/^well/, 12],                                                              // колодцы (было 7 — выходили ниже пояса игрока 9)
+    [/^(stall_|market)/, 15],                                                   // лавки/прилавки (было 9 — слишком маленькие)
     [/^(crate_|barrel_|sack_)/, 3.5],                                           // ящики/бочки 3–4
     [/^palm/, 35], [/^fir/, 42], [/^(oak|birch|willow)/, 30],                   // пальмы 30–40, ели 35–50, лиственные 25–45
     [/^(bush|fern)/, 6.5],                                                      // кусты 5–8
@@ -417,6 +419,18 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
       if (e >= 40) continue;          // начало пирса не достаёт до суши (плавающий помост вдалеке от берега) — такой пирс не строим
       if (e > 0) e += 3;
       ax_ = ax - ux * e; az_ = az - uz * e; dx = ux * (len + e); dz = uz * (len + e); len += e;
+    }
+    if (lm.id === 'wall_straight' && len > 1) {      // концы звеньев доходили до центра угловой башни — стена оказывалась внутри башни: обрезаем ровно по окружности башни (точка выхода линии стены из круга)
+      const ux = dx / len, uz = dz / len;
+      const trimAt = (ex, ez, sx, sz) => {        // (ex,ez) — конец звена, (sx,sz) — единичное направление внутрь звена
+        let best = null, bd = 1e9; for (const q of placements) { if (!/^tower/.test(q.id) || q.dead) continue; const d = Math.hypot(q.x - ex, q.z - ez); if (d < bd) { bd = d; best = q; } }
+        if (!best || bd > 16 * S) return 0; const tv = variant(best.id, best.seedV); if (!tv) return 0;
+        const r = Math.max(tv.size.x, tv.size.z) * best.s * 0.5 * 0.93, wx = best.x - ex, wz = best.z - ez, proj = wx * sx + wz * sz, perp2 = wx * wx + wz * wz - proj * proj;
+        if (perp2 >= r * r) return 0;           // линия стены проходит мимо круга башни
+        return Math.min(Math.max(0, proj + Math.sqrt(r * r - perp2)), len * 0.4);
+      };
+      const t0 = trimAt(ax_, az_, ux, uz), t1 = trimAt(ax_ + dx, az_ + dz, -ux, -uz);
+      if (t0 + t1 > 0) { ax_ += ux * t0; az_ += uz * t0; len -= t0 + t1; dx = ux * len; dz = uz * len; }
     }
     const ang = Math.atan2(dx, dz);
     const rot = along === 'z' ? ang : ang - Math.PI / 2;   // модель вдоль z → rot=ang; вдоль x → повернуть на -90°
@@ -559,7 +573,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
 
   /* 8. строим объекты (инстансинг + анимированные отдельно) */
   say('Собираю объекты…', 0.7);
-  const batches = new Map(), animated = [], vessels = [], solidBoxes = [];
+  const batches = new Map(), animated = [], vessels = [], solidBoxes = [], subSolids = [];      // subSolids — подводные «юбки» скал: твёрдые только для плывущего (ходьба их не видит: верх ниже воды)
   const ROCK_RE = /^(rock_(large|medium|sharp|mossy|flat)|cliff|sea_stack|stone_cairn|hill_rocky)/;
   const SKIP_RE = /^(grass|flowerbed|bush|fern|clover|moss|reef|shell|beach|pebbles|starfish|waterlily|reed|torii|gate_|bridge|sea_arch|cave|mount|hill_round|hill_twin|volcano|torch|buoy|rope|net_|boarding|x_mark|boat|raft|canoe)/;
   const trunkCache = new Map(), tv = new THREE.Vector3();
@@ -615,19 +629,23 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
       if (TREE_RE.test(p.id)) {                                  // ствол: радиус считаем по вершинам у основания модели
         const r = Math.min(2.0, Math.max(0.6, trunkRadius(v) * p.s));
         box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'tree' };
+      } else if (/^crane/.test(p.id)) {                           // кран: твёрдое только основание 7×7 (стрела с контргрузом поворачивается и раздувала габарит до ~25 ед.)
+        const r = 3.6 * p.s; box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'building' };
       } else if (/^flag/.test(p.id)) {                            // флаги: твёрдым считаем только древко (полотнище в габарите раздувало бокс на ~9 ед. — к флагу нельзя было подойти)
         const r = 0.7 * p.s; box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'rock' };
       } else if (!p.vessel && (SOLID_RE.test(p.id) || ROCK_RE.test(p.id) || !SKIP_RE.test(p.id))) {   // всё, кроме травы/зелени/мелочи без коллизии — твёрдое (низкое — высота min 0.5; проходимость низкие боксы и так игнорирует)
         const c_ = Math.abs(Math.cos(p.rot)), s_ = Math.abs(Math.sin(p.rot)), sx_ = v.size.x * p.s, sz_ = v.size.z * p.s, k_ = ROCK_RE.test(p.id) ? 0.78 : 0.92;
         const ex = (c_ * sx_ + s_ * sz_) / 2 * k_, ez = (s_ * sx_ + c_ * sz_) / 2 * k_;
         box = { x0: p.x - ex, x1: p.x + ex, z0: p.z - ez, z1: p.z + ez, y0: y - 30, y1: y + Math.max(hgt, 0.5), kind: SOLID_RE.test(p.id) ? 'building' : 'rock' };
+        if (ROCK_RE.test(p.id) && heightAt(p.x, p.z) < 1.5) { const kk = 1 / k_ + 0.04; subSolids.push({ x0: p.x - ex * kk, x1: p.x + ex * kk, z0: p.z - ez * kk, z1: p.z + ez * kk, y0: -40, y1: -0.3 }); }      // скала в воде: под водой её видимая часть шире сжатого бокса — пловец не должен проходить сквозь неё
         if (/^(pier|dock)/.test(p.id)) { box.y1 = y + (v.deckTop ?? 1.1) * p.s; box.y0 = box.y1 - 2.2; box.kind = 'pier'; const kx = 1.08 / 0.92, cx_ = (box.x0 + box.x1) / 2, cz_ = (box.z0 + box.z1) / 2, hx2 = (box.x1 - box.x0) / 2 * kx, hz2 = (box.z1 - box.z0) / 2 * kx; box.x0 = cx_ - hx2; box.x1 = cx_ + hx2; box.z0 = cz_ - hz2; box.z1 = cz_ + hz2; }      // сегменты настила перекрываются (раньше между ними были щели ≈1 ед. — в них проваливались), плита толще      // по пирсу/причалу можно ходить: твёрдая только тонкая плита настила, столбики и кнехты не мешают
+        if (box && /^wall/.test(p.id)) { box.grab = false; box.nowall = true; }      // городская стена: на неё нельзя ни подтянуться, ни забраться отталкиванием от стены
         if (v.door && BUILD_RE.test(p.id)) {
           const cs = Math.cos(p.rot), sn = Math.sin(p.rot), R2 = (lx, lz) => [p.x + (lx * cs + lz * sn) * p.s, p.z + (-lx * sn + lz * cs) * p.s], swap = Math.abs(cs) < 0.5;
           box.houses = v.door.bodies.map(dI => {
             const bc = R2(dI.cx, dI.cz), hx_ = (swap ? dI.hz : dI.hx) * p.s, hz_ = (swap ? dI.hx : dI.hz) * p.s;
-            const hs = { id: p.id, bx0: bc[0] - hx_, bx1: bc[0] + hx_, bz0: bc[1] - hz_, bz1: bc[1] + hz_, top: y + dI.topY * p.s, y, t: 0.6 * p.s, hasDoor: dI.hasDoor, gy: y + (dI.hasDoor ? dI.y0 : 0.4) * p.s };
-            if (dI.round) hs.round = { cx: p.x, cz: p.z, R0: dI.round.R0 * p.s, R1: dI.round.R1 * p.s, H: dI.round.H * p.s, t: dI.round.t * p.s, y };
+            const hs = { id: p.id, bx0: bc[0] - hx_, bx1: bc[0] + hx_, bz0: bc[1] - hz_, bz1: bc[1] + hz_, top: y + dI.topY * p.s, y, t: 0.6 * p.s, hasDoor: dI.hasDoor, gy: y + Math.max(dI.hasDoor ? dI.y0 : 0.4, 0.4) * p.s };      // пол городских зданий лежит на 0.4 (FL), а низ двери — на 0: опора кончалась ниже видимого пола, и игрок проваливался по грудь
+            if (dI.round) { hs.round = { cx: p.x, cz: p.z, R0: dI.round.R0 * p.s, R1: dI.round.R1 * p.s, H: dI.round.H * p.s, t: dI.round.t * p.s, y }; const lq = dI.round.lantern, pl = dI.round.platform; if (lq) hs.round.lantern = { R: lq.R * p.s, y0: y + lq.y0 * p.s, y1: y + lq.y1 * p.s }; if (pl) hs.round.platform = { rI: pl.rI * p.s, rO: pl.rO * p.s, y: y + pl.y * p.s }; }
             if (dI.extra) {
               const wBox = b3 => { const xs = [], zs = []; for (const [lx, lz] of [[b3.min.x, b3.min.z], [b3.max.x, b3.min.z], [b3.min.x, b3.max.z], [b3.max.x, b3.max.z]]) { const q = R2(lx, lz); xs.push(q[0]); zs.push(q[1]); } return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs), y0: y + b3.min.y * p.s, y1: y + b3.max.y * p.s }; };
               hs.steps = dI.extra.steps.map(wBox); hs.floors = dI.extra.floors.map(wBox); hs.tiers = dI.extra.tiers.map(b3 => wBox(b3)); hs.windows = dI.extra.windows.map(wBox); hs.silos = dI.extra.silos.map(b3 => { const q = R2((b3.min.x + b3.max.x) / 2, (b3.min.z + b3.max.z) / 2); return { cx: q[0], cz: q[1], R: (b3.max.x - b3.min.x) / 2 * p.s, y0: y + b3.min.y * p.s, y1: y + b3.max.y * p.s }; });
@@ -649,6 +667,10 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
             return hs;
           });
         }
+      }
+      if (!box && p.vessel && v.hull && !(v.hull.getSize(new THREE.Vector3()).length() > 14)) {      // малая лодка: раньше коллизии не было совсем (проплывали и проходили насквозь) — теперь твёрдый корпус до палубы
+        const hs = v.hull.getSize(new THREE.Vector3()), sw = Math.abs(Math.cos(p.rot)) < 0.5, L_ = Math.max(hs.x, hs.z) * p.s, W_ = Math.min(hs.x, hs.z) * p.s, ex = (sw ? W_ : L_) * 0.5 * 0.8, ez = (sw ? L_ : W_) * 0.5 * 0.8;
+        box = { x0: p.x - ex, x1: p.x + ex, z0: p.z - ez, z1: p.z + ez, y0: y - 30, y1: y + Math.max(0.8, (v.deckY ?? v.hull.max.y * 0.42) * p.s), grab: true, kind: 'boat' };
       }
       if (!box && p.vessel && v.hull) {       // корабль: твёрдый корпус до палубы; за борт можно ухватиться и залезть (grab)
         const hs = v.hull.getSize(new THREE.Vector3()), big = hs.length() > 14;
@@ -689,7 +711,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
       scene.add(g);
       if (g.userData.animate) animated.push(g);
       if (p.vessel) {
-        const V_ = { g, y0: y, ph: rnd() * 6, box: p.shipBox || null, L: p.hullL || 0, W: p.hullW || 0, yaw: p.rot, rv: 0, s: p.s };
+        const V_ = { id: p.id, g, y0: y, ph: rnd() * 6, box: p.shipBox || null, L: p.hullL || 0, W: p.hullW || 0, yaw: p.rot, rv: 0, s: p.s };
         const sv = p.shipV;
         if (V_.box && sv && sv.hull) {            // у большого корабля: лестница на борт (правый борт, посередине) и штурвал на корме; плыть можно только от штурвала
           const hb = sv.hull, dk = sv.deckY ?? hb.max.y * 0.42, zL = (hb.min.z + hb.max.z) / 2 - (hb.max.z - hb.min.z) * 0.08, zH = (() => { const ms = []; sv.proto.traverse(o => { if (!o.isMesh && o.name === 'Mast') { const b_ = new THREE.Box3().setFromObject(o); ms.push((b_.min.z + b_.max.z) / 2); } }); ms.sort((a, b) => a - b); const z = ms.length >= 2 ? (ms[0] + ms[1]) / 2 : ms.length ? ms[0] - 8 : hb.min.z + (hb.max.z - hb.min.z) * 0.17; return Math.max(hb.min.z + 4, z); })(), xo = hb.max.x * 0.99;      // штурвал — на палубе между двумя кормовыми мачтами (не внутри мачты)
@@ -771,7 +793,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   function raster() {
     const cnt = new Uint16Array(NC), hard = new Uint8Array(NC), owners = new Map();
     solidBoxes.forEach((b, i) => {
-      if (b.removed || b.houses || b.kind === 'ship' || b.kind === 'pier') return;      // дома с дверью проходимы (можно войти), корабли/причалы — не преграда
+      if (b.removed || b.houses || b.kind === 'ship' || b.kind === 'pier' || b.kind === 'boat') return;      // дома с дверью проходимы (можно войти), корабли/причалы — не преграда
       if (b.y1 - Math.max(0, heightAt((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2)) < 5) return;       // ниже высоты прыжка — не преграда
       const c0 = Math.max(0, Math.floor((b.x0 - PAD + WS / 2) / GS)), c1 = Math.min(CW - 1, Math.floor((b.x1 + PAD + WS / 2) / GS)), r0 = Math.max(0, Math.floor((b.z0 - PAD + HS / 2) / GS)), r1 = Math.min(CH - 1, Math.floor((b.z1 + PAD + HS / 2) / GS));
       for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
@@ -817,11 +839,11 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   }
   const finalSolids = solidBoxes.filter(b => !b.removed);
   const BG = new Map(), BCS = 16;       // сетка для blockedAt: «в этой точке стоит что-то твёрдое» (для жителей и животных)
-  for (const b of finalSolids) { if (b.kind === 'ship' || b.kind === 'pier') continue; for (let cx = Math.floor(b.x0 / BCS); cx <= Math.floor(b.x1 / BCS); cx++) for (let cz = Math.floor(b.z0 / BCS); cz <= Math.floor(b.z1 / BCS); cz++) { const k = cx + ',' + cz; (BG.get(k) || BG.set(k, []).get(k)).push(b); } }
+  for (const b of finalSolids) { if (b.kind === 'ship' || b.kind === 'pier' || b.kind === 'boat') continue; for (let cx = Math.floor(b.x0 / BCS); cx <= Math.floor(b.x1 / BCS); cx++) for (let cz = Math.floor(b.z0 / BCS); cz <= Math.floor(b.z1 / BCS); cz++) { const k = cx + ',' + cz; (BG.get(k) || BG.set(k, []).get(k)).push(b); } }
   const blockedAt = (x, z, pad = 0) => { const cx = Math.floor(x / BCS), cz = Math.floor(z / BCS); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a_ = BG.get((cx + i) + ',' + (cz + j)); if (a_) for (const b of a_) if (x > b.x0 - pad && x < b.x1 + pad && z > b.z0 - pad && z < b.z1 + pad) return true; } return false; };
   say('Готово', 1);
   return {
-    heightAt, blockedAt, vessels, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
+    heightAt, blockedAt, vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
     ops: { lines: ops.line, labels: ops.label }, findSpot, lakeAt: (wx, wz) => !!lakeM[Math.round((wz / S + H / 2) / CELL) * GW + Math.round((wx / S + W / 2) / CELL)], bounds: { x0: -W * S / 2 + 6, x1: W * S / 2 - 6, z0: -H * S / 2 + 6, z1: H * S / 2 - 6 }, size: { W: W * S, H: H * S },
     stats: { scale: S, collisions: colInfo, placements: placements.length, drawMeshes: meshCount, animated: animated.length, models: variantCache.size },
     update(t) {
