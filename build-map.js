@@ -619,6 +619,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     }
   }
   console.info('[столкновения]', JSON.stringify(colInfo));
+  const treeCanopy = [];      // кроны деревьев для полёта драконов: {x, z, top (высота макушки), cr (радиус кроны)}
   for (const p of placements) {
     const v = variant(p.id, p.seedV); if (!v || p.dead) continue;
     let y = p.y !== undefined ? p.y : p.vessel || p.pier ? 0 : Math.max(heightAt(p.x, p.z), 0) - (/^(palm|fir|oak|birch|willow|bush|fern|rock|cliff)/.test(p.id) ? 0.15 : 0);
@@ -629,6 +630,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
       if (TREE_RE.test(p.id)) {                                  // ствол: радиус считаем по вершинам у основания модели
         const r = Math.min(2.0, Math.max(0.6, trunkRadius(v) * p.s));
         box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'tree' };
+        treeCanopy.push({ x: p.x, z: p.z, top: y + hgt, cr: Math.min(11, Math.max(5, hgt * 0.28)) });
       } else if (/^crane/.test(p.id)) {                           // кран: твёрдое только основание 7×7 (стрела с контргрузом поворачивается и раздувала габарит до ~25 ед.)
         const r = 3.6 * p.s; box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'building' };
       } else if (/^flag/.test(p.id)) {                            // флаги: твёрдым считаем только древко (полотнище в габарите раздувало бокс на ~9 ед. — к флагу нельзя было подойти)
@@ -840,10 +842,13 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   const finalSolids = solidBoxes.filter(b => !b.removed);
   const BG = new Map(), BCS = 16;       // сетка для blockedAt: «в этой точке стоит что-то твёрдое» (для жителей и животных)
   for (const b of finalSolids) { if (b.kind === 'ship' || b.kind === 'pier' || b.kind === 'boat') continue; for (let cx = Math.floor(b.x0 / BCS); cx <= Math.floor(b.x1 / BCS); cx++) for (let cz = Math.floor(b.z0 / BCS); cz <= Math.floor(b.z1 / BCS); cz++) { const k = cx + ',' + cz; (BG.get(k) || BG.set(k, []).get(k)).push(b); } }
+  const TCS = 24, TG = new Map(); for (const t of treeCanopy) { const k = Math.floor(t.x / TCS) + ',' + Math.floor(t.z / TCS); (TG.get(k) || TG.set(k, []).get(k)).push(t); }
+  /** высота ближайшей к точке кроны дерева (макушка), в радиусе r от крон; -Infinity, если деревьев рядом нет */
+  const treeTopAt = (x, z, r = 0) => { const cx = Math.floor(x / TCS), cz = Math.floor(z / TCS); let best = -Infinity; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a_ = TG.get((cx + i) + ',' + (cz + j)); if (a_) for (const t of a_) { const d = (t.x - x) ** 2 + (t.z - z) ** 2, m = t.cr + r; if (d < m * m && t.top > best) best = t.top; } } return best; };
   const blockedAt = (x, z, pad = 0) => { const cx = Math.floor(x / BCS), cz = Math.floor(z / BCS); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a_ = BG.get((cx + i) + ',' + (cz + j)); if (a_) for (const b of a_) if (x > b.x0 - pad && x < b.x1 + pad && z > b.z0 - pad && z < b.z1 + pad) return true; } return false; };
   say('Готово', 1);
   return {
-    heightAt, blockedAt, vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
+    heightAt, blockedAt, treeTopAt, vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
     ops: { lines: ops.line, labels: ops.label }, findSpot, lakeAt: (wx, wz) => !!lakeM[Math.round((wz / S + H / 2) / CELL) * GW + Math.round((wx / S + W / 2) / CELL)], bounds: { x0: -W * S / 2 + 6, x1: W * S / 2 - 6, z0: -H * S / 2 + 6, z1: H * S / 2 - 6 }, size: { W: W * S, H: H * S },
     stats: { scale: S, collisions: colInfo, placements: placements.length, drawMeshes: meshCount, animated: animated.length, models: variantCache.size },
     update(t) {

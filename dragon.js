@@ -257,8 +257,16 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   const PROBES = [[0, 3, 22, 4], [0, -2, 6, 5], [0, -3, -8, 5], [0, -4, -24, 3], [-22, 0, -3, 3.5], [22, 0, -3, 3.5]];      // [вбок, вверх, вперёд, радиус] в системе дракона
   const probeWorld = (x, y, z, yaw, p) => { const sn = Math.sin(yaw), cs = Math.cos(yaw); return [x + p[0] * cs + p[2] * sn, y + p[1], z - p[0] * sn + p[2] * cs]; };
   function probeSolid(x, y, z, yaw) { for (const p of PROBES) { const w = probeWorld(x, y, z, yaw, p); if (solidHitAt(w[0], w[1], w[2], p[3])) return true; } return false; }
-  function terrainNeed(x, z, yaw) { let need = -1e9; for (const p of PROBES) { if (Math.abs(p[0]) > 10) continue;      // концы крыльев о рельеф не считаем (склоны держали дракона над землёй)
-      const w = probeWorld(x, 0, z, yaw, p); need = Math.max(need, hAt(w[0], w[2]) + 0.4 + p[3] - p[1]); } return need; }
+  function terrainNeed(x, z, yaw) {                    // нижний допустимый уровень центра дракона по рельефу
+    let need = -1e9;
+    for (const p of PROBES) { if (Math.abs(p[0]) > 10) continue; const w = probeWorld(x, 0, z, yaw, p); need = Math.max(need, hAt(w[0], w[2]) + 0.4 + p[3] - p[1]); }      // концы крыльев о рельеф не считаем
+    return need;
+  }
+  function canopyNeed(x, z, yaw) {                      // …и по кроннам деревьев: макушки как «земля», чтобы не лететь сквозь листву
+    let need = -1e9; if (!world.treeTopAt) return need;
+    for (const p of PROBES) { const w = probeWorld(x, 0, z, yaw, p), tt = world.treeTopAt(w[0], w[2], p[3] * 0.6); if (tt > -1e8) need = Math.max(need, tt * 0.9 + p[3] * 0.6 - p[1]); }
+    return need;
+  }
   /* сидящий дракон — препятствие для пешего игрока: три коробки вдоль корпуса */
   const landBoxes = [0, 1, 2].map(() => ({ min: new V(), max: new V(), grab: false })); let landOn = false;
   function landedBoxes(on) {
@@ -272,7 +280,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     const py = P.yawVis ?? P.yaw; let spot = null;
     for (const dist of [18, 30, 46]) { for (const da of [0, 0.7, -0.7, 1.4, -1.4, 2.2, -2.2, Math.PI]) {
       const x = P.pos.x + Math.sin(py + da) * dist, z = P.pos.z + Math.cos(py + da) * dist, h = hAt(x, z);
-      if (Math.abs(h - P.pos.y) < 14 && !solidHitAt(x, h + 6, z, 8)) { spot = [x, z]; break; } } if (spot) break; }
+      if (Math.abs(h - P.pos.y) < 14 && !solidHitAt(x, h + 6, z, 8) && !(world.treeTopAt && world.treeTopAt(x, z, 10) > -1e8)) { spot = [x, z]; break; } } if (spot) break; }
     if (!spot) return say('Рядом нет места, где дракон мог бы сесть — отойдите от построек');
     if (!mine.d) { mine.pal = Math.abs(net.id ?? 0) % PALETTES.length; mine.d = makeDragon(PALETTES[mine.pal]); scene.add(mine.d.root); }
     const ang = Math.random() * 6.28, R = 300;
@@ -354,7 +362,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
         const stuck = probeSolid(m.x, m.y, m.z, m.yaw); let ax = m.x, ay = m.y, az = m.z, hit = false;
         if (stuck || !probeSolid(nx, ay, az, m.yaw)) ax = nx; else hit = true;
         if (stuck || !probeSolid(ax, ay, nz, m.yaw)) az = nz; else hit = true;
-        ny = Math.max(ny, terrainNeed(ax, az, m.yaw)); if (ny > ay && probeSolid(ax, ny, az, m.yaw) && !stuck) { ny = ay; m.vy = Math.min(m.vy, 0); hit = true; } else if (ny < ay && probeSolid(ax, ny, az, m.yaw) && !stuck) { ny = ay; m.vy = Math.max(m.vy, 0); hit = true; }
+        ny = Math.max(ny, terrainNeed(ax, az, m.yaw)); if (ride) { const cn = canopyNeed(ax, az, m.yaw); if (cn > ny) { ny = Math.min(cn, Math.max(ny, ay + 70 * dt)); m.speed *= Math.pow(0.45, dt); if (m.vy < 0) m.vy = 0; } }      // кроны: подъём не рывком, а до 70 ед/с; в листве дракон замедляется if (ny > ay && probeSolid(ax, ny, az, m.yaw) && !stuck) { ny = ay; m.vy = Math.min(m.vy, 0); hit = true; } else if (ny < ay && probeSolid(ax, ny, az, m.yaw) && !stuck) { ny = ay; m.vy = Math.max(m.vy, 0); hit = true; }
         if (hit) m.speed *= Math.pow(0.05, dt);
         for (const o of others.values()) { const ox = ax - o.x, oy = ay - o.y, oz = az - o.z, dd = Math.hypot(ox, oy, oz); if (dd < 20 && dd > 0.01) { const push = (20 - dd) / dd; ax += ox * push * 0.5; ay += oy * push * 0.5; az += oz * push * 0.5; m.speed *= Math.pow(0.3, dt); } }      // драконы не проходят друг сквозь друга
         nx = ax; nz = az; ny = Math.max(ny, hAt(nx, nz) + REST); if (ny > 560) { ny = 560; if (m.vy > 0) m.vy = 0; }
