@@ -13,6 +13,43 @@ import { createTraining } from './training.js';
 import { createBow } from './bow.js';
 
 const DRESS = {};      // имя героя → dress(фигура, {THREE, RoundedBoxGeometry}); файлы лежат в chars/<имя>.js
+
+/* ───── походка без оружия: у каждого героя свои «Стойка / Ходьба / Бег» (меч и щит убраны — руки не держат их, а живут своей жизнью).
+   Функция превращается в текст и выполняется внутри модуля Ричарда (там есть cyc, G1, TAU, PI, RUN_T). ───── */
+function unarmedGen() {
+  const S = Math.sin, C = Math.cos, mx = Math.max;
+  const STY = {
+    richard: { leg: 0.5, knee: 0.35, arm: 0.5, el: 0.22, spread: 0.09, lean: -0.02, twist: 0.14, bob: 0, head: -0.03, hb: 0, rA: 0.65, rEl: 1.05, rSp: 0.12, rLean: 0.12, rTw: 0.12, rBob: 0, iL: [0.05, 0.1, -0.15], iR: [0.05, -0.1, -0.15], ilean: -0.01, ih: -0.02 },        // уверенный, расслабленный
+    sokolin: { leg: 0.55, knee: 0.4, arm: 0.6, el: 0.35, spread: 0.22, lean: 0.1, twist: 0.2, bob: 0.05, head: 0.12, hb: 0, rA: 0.8, rEl: 1.2, rSp: 0.2, rLean: 0.26, rTw: 0.2, rBob: 0.05, iL: [0, 0.25, -0.5], iR: [0, -0.25, -0.5], ilean: 0.08, ih: 0.1 },        // злой: сутулый, тяжёлый шаг, руки напряжены
+    ben: { leg: 0.52, knee: 0.4, arm: 0.8, el: 0.3, spread: 0.12, lean: 0, twist: 0.12, bob: 0.1, head: 0, hb: 0.05, rA: 0.9, rEl: 1.0, rSp: 0.12, rLean: 0.1, rTw: 0.1, rBob: 0.12, iL: [0.1, 0.12, -0.2], iR: [0.1, -0.12, -0.2], ilean: 0, ih: 0 },        // дружелюбный: пружинящий шаг, широкий мах руками
+    zantio: { leg: 0.45, knee: 0.3, arm: 0.35, el: 0.3, spread: 0.1, lean: -0.05, twist: 0.08, bob: 0, head: -0.06, hb: 0, holdL: [0.1, -1.35, 0.5], rA: 0.55, rEl: 1.0, rSp: 0.12, rLean: 0.08, rTw: 0.08, rBob: 0, iL: [0.1, 0.5, -1.35], iR: [0, -0.12, -0.2], ilean: -0.04, ih: -0.05 },        // капитан: прямой, левая рука на поясе
+    zhenshi: { leg: 0.38, knee: 0.22, arm: 0.07, el: 0.9, spread: 0.08, lean: 0.02, twist: 0.04, bob: 0, head: 0.02, hb: 0, holdL: [-0.35, -1.0, 0.12], holdR: [-0.35, -1.0, -0.12], rA: 0.3, rEl: 1.1, rSp: 0.1, rLean: 0.15, rTw: 0.05, rBob: 0, iL: [-0.5, 0.15, -1.25], iR: [-0.5, -0.15, -1.25], ilean: 0, ih: 0.02 },      // самурай: короткий ровный шаг, руки у пояса
+  };
+  const out = {};
+  const walk = p => cyc(8, 1, a => {
+    const s = S(a), c = C(a), L = p.leg * s;
+    const aL = p.holdL ? { ShoulderL: [p.holdL[0] + 0.04 * s, 0, p.holdL[2]], ElbowL: [p.holdL[1], 0, 0] } : { ShoulderL: [p.arm * s, 0, p.spread], ElbowL: [-(p.el + 0.25 * mx(0, -s)), 0, 0] };
+    const aR = p.holdR ? { ShoulderR: [p.holdR[0] + 0.04 * s, 0, p.holdR[2]], ElbowR: [p.holdR[1], 0, 0] } : { ShoulderR: [-p.arm * s, 0, -p.spread], ElbowR: [-(p.el + 0.25 * mx(0, s)), 0, 0] };
+    return { ...G1, HipL: [-L, 0, 0.03], HipR: [L, 0, -0.03], KneeL: [p.knee * mx(0, c), 0, 0], KneeR: [p.knee * mx(0, -c), 0, 0], ...aL, ...aR,
+      Spin: [p.lean, 0, 0], Torso: [0, p.twist * s, 0], Head: [p.head + p.hb * S(2 * a), -p.twist * 0.7 * s, 0], Root: [0, p.bob * Math.abs(s), 0] };
+  });
+  const run = p => cyc(8, RUN_T, a => {
+    const s = S(a), c = C(a), lg = x => ({ h: 0.85 * S(x), k: 0.2 + 1.25 * mx(0, -C(x)) }), L = lg(a), R = lg(a + PI);
+    const aL = p.holdL ? { ShoulderL: [p.holdL[0] - 0.1, 0, p.holdL[2]], ElbowL: [p.holdL[1], 0, 0] } : { ShoulderL: [-0.6 - p.rA * s, 0, p.rSp], ElbowL: [-p.rEl + 0.2 * c, 0, 0] };
+    const aR = p.holdR ? { ShoulderR: [p.holdR[0] - 0.1, 0, p.holdR[2]], ElbowR: [p.holdR[1], 0, 0] } : { ShoulderR: [-0.6 + p.rA * s, 0, -p.rSp], ElbowR: [-p.rEl - 0.2 * c, 0, 0] };
+    return { Spin: [p.rLean, 0, 0], Torso: [0, p.rTw * s, 0], Head: [-0.12 + p.head * 0.5, -0.1 * s, 0], HipL: [L.h, 0, 0], KneeL: [L.k, 0, 0], HipR: [R.h, 0, 0], KneeR: [R.k, 0, 0], ...aL, ...aR,
+      G: [1], Lift: [(0.1 + p.rBob) * Math.abs(S(2 * a))] };
+  });
+  const idle = p => cyc(8, 4, a => {
+    const b = S(a), w = S(a * 0.5);
+    return { ...G1, Root: [0, 0.02 * b, 0], Torso: [0, 0.03 * w, 0], Spin: [p.ilean, 0, 0], Head: [0.02 * b + p.ih, 0.12 * w, 0],
+      ShoulderL: [p.iL[0] + 0.02 * b, 0, p.iL[1]], ElbowL: [p.iL[2], 0, 0], ShoulderR: [p.iR[0] + 0.02 * b, 0, p.iR[1]], ElbowR: [p.iR[2], 0, 0],
+      HipL: [0, 0, 0.02 * w], HipR: [0, 0, 0.02 * w] };
+  });
+  for (const ch of Object.keys(STY)) { const p = STY[ch]; out['Н_' + ch + '_Стойка'] = [4, idle(p), {}]; out['Н_' + ch + '_Ходьба'] = [1, walk(p), {}]; out['Н_' + ch + '_Бег'] = [RUN_T, run(p), {}]; }
+  return out;
+}
+
 export async function loadRichard({ renderer, scene, camera, world, url, start }) {
   for (const n of ['ben', 'zantio', 'zhenshi']) { try { DRESS[n] = (await import(`./chars/${n}.js`)).dress; } catch (e) { console.warn('нет одевалки героя', n, e.message); } }
   const html = await (await fetch(url)).text();
@@ -80,8 +117,12 @@ function stAir`);
   rep("if (L.n.x) P.ce.x = L.face - L.n.x*1.9; else P.ce.z = L.face - L.n.z*1.9;", "if (L.face && L.face.x !== undefined){ P.ce.x = L.face.x - L.n.x*1.9; P.ce.z = L.face.z - L.n.z*1.9; } else if (L.n.x) P.ce.x = L.face - L.n.x*1.9; else P.ce.z = L.face - L.n.z*1.9;");
   rep('const w = P.swimW, mv = moveInput(); P.regrab -= h;', "const w = P.swimW, mv = moveInput(); P.regrab -= h; if (kd.has('KeyW') && P.regrab <= 0){ const l = ladderNear(); if (l && mv.x*-l.n.x + mv.z*-l.n.z > 0.5) return startLadder(l); }");
   // верховая езда: три клипа (посадка, посадка в седле, прыжок верхом) и «удержание» анимации снаружи (window.__forceAnim)
+  rep("if (anim){ if (sp < 0.7) setAnim('Стойка', {fade:0.2}); else if (sp < 8.5) setAnim('Ходьба', {speed:sp/5.8, fade:0.2}); else setAnim('Бег', {speed:sp/16, fade:0.2}); }",
+    "if (anim){ const U = window.__unarmedCh ? 'Н_' + window.__unarmedCh + '_' : ''; if (sp < 0.7) setAnim(U + 'Стойка', {fade:0.2}); else if (sp < 8.5) setAnim(U + 'Ходьба', {speed:sp/5.8, fade:0.2}); else setAnim(U + 'Бег', {speed:sp/16, fade:0.2}); }");      // без меча и щита — своя походка у каждого героя
   rep('const GCLIP = {', `const RIDEP = {...G1, Spin:[0.1,0,0], Head:[-0.05,0,0], HipL:[-1.05,0,0.6], KneeL:[1.1,0,0], HipR:[-1.05,0,-0.6], KneeR:[1.1,0,0], ShoulderL:[-1.0,0,0.2], ElbowL:[-1.1,0,0], ShoulderR:[-1.0,0,-0.2], ElbowR:[-1.1,0,0]};
+const UNARMED_CLIPS = (${unarmedGen.toString()})();
 const GCLIP = {
+  ...UNARMED_CLIPS,
   'ПлаваниеНаМесте': [1.6, cyc(8, 1.6, a => { const s = Math.sin(a), c = Math.cos(a);   // держится на воде вертикально: корпус прямо, ноги вниз, руки подгребают
     return {G:[0], Spin:[0.03,0,0], Head:[0,0.1*s,0], Torso:[0,0.08*s,0], ShoulderL:[-0.35 + 0.3*s,0,0.75 + 0.2*c], ElbowL:[-0.5,0,0], WristL:[0,0,0], ShoulderR:[-0.35 - 0.3*s,0,-0.75 - 0.2*c], ElbowR:[-0.5,0,0],
       HipL:[-0.18 + 0.3*Math.sin(a),0,0.08], KneeL:[0.35 + 0.35*Math.max(0, -Math.sin(a)),0,0], HipR:[-0.18 - 0.3*Math.sin(a),0,-0.08], KneeR:[0.35 + 0.35*Math.max(0, Math.sin(a)),0,0]}; }), {}],
@@ -248,6 +289,7 @@ const GCLIP = {
     if ((window.__dragonOn || P.dead || NOWEAPON.includes(st) || window.__ridingKind === 'ship') && (armed || bowOn)){ if (window.__dragonOn || window.__ridingKind === 'ship'){ armed = false; bowOn = false; } }
     if (!armed && !window.__dragonOn && window.__ridingKind !== 'ship' && ['attack', 'bash', 'block', 'parry'].includes(st)){ armed = true; { const F = curFig(); F.userData.wk = Math.max(F.userData.wk || 0, 0.85); } say('Оружие достано'); }
     if (toastT > 0){ toastT -= dt; if (toastT <= 0) weaponToast.style.display = 'none'; }
+    window.__unarmedCh = armed && !NOWEAPON.includes(st) ? null : char;
     applyWeapon(curFig(), armed && !NOWEAPON.includes(st), dt);
     window.__bow = bowOn && !NOWEAPON.includes(st); bow.set(window.__bow, curFig()); bow.tick(dt); training.tick(dt, camera.position, P);
   }
