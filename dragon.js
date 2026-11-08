@@ -257,6 +257,14 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   const PROBES = [[0, 3, 22, 4], [0, -2, 6, 5], [0, -3, -8, 5], [0, -4, -24, 3], [-22, 0, -3, 3.5], [22, 0, -3, 3.5]];      // [вбок, вверх, вперёд, радиус] в системе дракона
   const probeWorld = (x, y, z, yaw, p) => { const sn = Math.sin(yaw), cs = Math.cos(yaw); return [x + p[0] * cs + p[2] * sn, y + p[1], z - p[0] * sn + p[2] * cs]; };
   function probeSolid(x, y, z, yaw) { for (const p of PROBES) { const w = probeWorld(x, y, z, yaw, p); if (solidHitAt(w[0], w[1], w[2], p[3])) return true; } return false; }
+  function overlapDir(x, y, z, yaw) {                   // куда выталкивать, если дракон уже внутри твёрдого бокса: от центра бокса
+    const S = richard.solids;
+    for (const p of PROBES) { const w = probeWorld(x, y, z, yaw, p);
+      for (let i = 0; i < S.length; i++) { const b = S[i]; if (b === sup || (b.max.y - b.min.y < 12 && (b.max.x - b.min.x) * (b.max.z - b.min.z) < 400)) continue;
+        if (w[0] > b.min.x - p[3] && w[0] < b.max.x + p[3] && w[1] > b.min.y - p[3] && w[1] < b.max.y + p[3] && w[2] > b.min.z - p[3] && w[2] < b.max.z + p[3]) {
+          let dx = x - (b.min.x + b.max.x) / 2, dz = z - (b.min.z + b.max.z) / 2; const d = Math.hypot(dx, dz) || 1; return { x: dx / d, z: dz / d }; } } }
+    return null;
+  }
   function terrainNeed(x, z, yaw) {                    // нижний допустимый уровень центра дракона по рельефу
     let need = -1e9;
     for (const p of PROBES) { if (Math.abs(p[0]) > 10) continue; const w = probeWorld(x, 0, z, yaw, p); need = Math.max(need, hAt(w[0], w[2]) + 0.4 + p[3] - p[1]); }      // концы крыльев о рельеф не считаем
@@ -351,7 +359,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       const fwdIn = ctl ? (K.has('KeyW') || K.has('ArrowUp') ? 1 : 0) - (K.has('KeyS') || K.has('ArrowDown') ? 1 : 0) : 0;
       const vIn = ctl ? (K.has('KeyZ') ? 1 : 0) - (K.has('KeyX') ? 1 : 0) : 0;
       m.boost = ctl && (K.has('ShiftLeft') || K.has('ShiftRight')) ? 1 : 0;
-      m.turn += (turnIn - m.turn) * Math.min(1, dt * 4); m.yaw += m.turn * 1.15 * dt;
+      m.turn += (turnIn - m.turn) * Math.min(1, dt * 4); { const py = m.yaw; m.yaw += m.turn * 1.15 * dt; if (m.turn && !probeSolid(m.x, m.y, m.z, py) && probeSolid(m.x, m.y, m.z, m.yaw)) m.yaw = py; }      // поворот не вгоняет крыло/голову в стену или дерево
       const spT = ride ? (fwdIn > 0 ? 66 * (m.boost ? 1.6 : 1) : fwdIn < 0 ? -24 : 0) : 0;
       m.speed += (spT - m.speed) * Math.min(1, dt * (ride ? 1.7 : 2.5));
       const vyT = ride ? (vIn > 0 ? 40 : vIn < 0 ? -50 : 0) : clamp((gT - m.y) * 2, -55, 55);
@@ -360,8 +368,9 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       const B = world.bounds; if (B) { const mg = 120; if (nx < B.x0 + mg || nx > B.x1 - mg || nz < B.z0 + mg || nz > B.z1 - mg) m.yaw += angDiff(m.yaw, Math.atan2((B.x0 + B.x1) / 2 - nx, (B.z0 + B.z1) / 2 - nz)) * Math.min(1, dt * 1.8); }
       {                                  // столкновения: несколько щупов по телу (голова, грудь, круп, хвост, концы крыльев) — по осям, чтобы скользить вдоль стен
         const stuck = probeSolid(m.x, m.y, m.z, m.yaw); let ax = m.x, ay = m.y, az = m.z, hit = false;
-        if (stuck || !probeSolid(nx, ay, az, m.yaw)) ax = nx; else hit = true;
-        if (stuck || !probeSolid(ax, ay, nz, m.yaw)) az = nz; else hit = true;
+        if (stuck) { const od = overlapDir(m.x, m.y, m.z, m.yaw); if (od) { ax = m.x + od.x * 55 * dt; az = m.z + od.z * 55 * dt; ay = m.y + 16 * dt; m.speed *= Math.pow(0.15, dt); m.vy = Math.max(m.vy, 0); } else { ax = nx; az = nz; } hit = true; }      // уже внутри — мягко выталкиваем наружу, а не отключаем столкновения
+        else { if (!probeSolid(nx, ay, az, m.yaw)) ax = nx; else hit = true;
+          if (!probeSolid(ax, ay, nz, m.yaw)) az = nz; else hit = true; }
         ny = Math.max(ny, terrainNeed(ax, az, m.yaw)); if (ride) { const cn = canopyNeed(ax, az, m.yaw); if (cn > ny) { ny = Math.min(cn, Math.max(ny, ay + 70 * dt)); m.speed *= Math.pow(0.45, dt); if (m.vy < 0) m.vy = 0; } }      // кроны: подъём не рывком, а до 70 ед/с; в листве дракон замедляется if (ny > ay && probeSolid(ax, ny, az, m.yaw) && !stuck) { ny = ay; m.vy = Math.min(m.vy, 0); hit = true; } else if (ny < ay && probeSolid(ax, ny, az, m.yaw) && !stuck) { ny = ay; m.vy = Math.max(m.vy, 0); hit = true; }
         if (hit) m.speed *= Math.pow(0.05, dt);
         for (const o of others.values()) { const ox = ax - o.x, oy = ay - o.y, oz = az - o.z, dd = Math.hypot(ox, oy, oz); if (dd < 20 && dd > 0.01) { const push = (20 - dd) / dd; ax += ox * push * 0.5; ay += oy * push * 0.5; az += oz * push * 0.5; m.speed *= Math.pow(0.3, dt); } }      // драконы не проходят друг сквозь друга
