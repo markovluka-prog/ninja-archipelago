@@ -508,7 +508,6 @@ def('boat_fishing', 'Лодка рыбацкая с сетью', (B, r) => {
   F.add(cyl(.2, .25, 8, P.w3, 0, 4.6, 3, 6), flag(B, F, 0, 8.4, 3, 2, 1.1, 0, P.red));
   [[-1.3, 5.3], [.8, 6.3], [1.3, 4.7], [-1, 4.2]].forEach(p => F.add(sph(1.1, '#9aa987', p[0], 1.5, p[1], 1.3, .6, 1, 7)));
   for (let i = 0; i < 6; i++) F.add(sph(.28, '#e8742c', -2.2 + i * .9, 2.1, 2.9 + r.pm(.2), 1, 1, 1, 5));
-  const n = gridCloth([[0, 0, 0], [5, 0, 0], [5, -3.2, 0], [0, -3.2, 0]], 6, 5, netMat(), [3, 2]); n.mesh.position.set(-1.8, 3.1, 3.4); n.mesh.rotation.set(0, Math.PI / 2, 0); n.mesh.position.set(h.rail(0) + .1, 3.1, -1); F.add(n.mesh);
   F.add(crateBox(1.6, 1.2, 1.6, P.w2, P.w3).translateX(-2).translateY(.6).translateZ(.5)); rock(B, .035, r() * 6);
   // детали: планширь, синий ящик с уловом у борта, кранцы (мягкие отбойники) на борту, фонари на стенах каюты, бухта у носа, глаза на носу
   sheerRail(F, h, 18, .6, { color: P.wd });
