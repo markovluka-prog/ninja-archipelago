@@ -189,26 +189,37 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     fragmentShader: '#include <common>\n#include <logdepthbuf_pars_fragment>\nvarying vec4 vC; void main(){\n#include <logdepthbuf_fragment>\n float r=length(gl_PointCoord-0.5); float a=smoothstep(0.5,0.0,r); gl_FragColor=vec4(vC.rgb, vC.a*a); }' });
   const fire = new THREE.Points(fgeo, fmat); fire.frustumCulled = false; fire.renderOrder = 30; scene.add(fire);
   let fcur = 0;
-  function emit(pos, dir, inherit, n) {
+  fl.em = new Float32Array(FN); fl.sd = new Float32Array(FN);
+  function emit(pos, dir, inherit, n) {      // не «струя из огнетушителя», а клубящееся пламя: разная скорость, широкий конус, завихрения, искры
     for (let k = 0; k < n; k++) {
-      const i = fcur, sp = 100 + Math.random() * 40; fcur = (fcur + 1) % FN;
-      const rx = (Math.random() - 0.5) * 0.2, ry = (Math.random() - 0.5) * 0.2, rz = (Math.random() - 0.5) * 0.2, t = Math.random() * 0.15;
+      const i = fcur; fcur = (fcur + 1) % FN; const ember = Math.random() < 0.12, sp = ember ? rndR(50, 200) : rndR(100, 300), spread = ember ? 0.55 : 0.3;
+      const rx = (Math.random() - 0.5) * spread, ry = (Math.random() - 0.5) * spread, rz = (Math.random() - 0.5) * spread, t = Math.random() * 0.1;
       fl.x[i] = pos.x + dir.x * sp * t; fl.y[i] = pos.y + dir.y * sp * t; fl.z[i] = pos.z + dir.z * sp * t;
       fl.vx[i] = (dir.x + rx) * sp + inherit.x; fl.vy[i] = (dir.y + ry) * sp + inherit.y; fl.vz[i] = (dir.z + rz) * sp + inherit.z;
-      fireLive = 1.6; fl.age[i] = 0; fl.life[i] = 0.7 + Math.random() * 0.55; fl.s0[i] = 1.4 + Math.random(); fl.s1[i] = 9 + Math.random() * 5;
+      fireLive = 2; fl.em[i] = ember ? 1 : 0; fl.sd[i] = Math.random() * 6.28; fl.age[i] = 0;
+      fl.life[i] = ember ? rndR(1.0, 1.7) : rndR(0.6, 1.35); fl.s0[i] = ember ? 0.5 : rndR(1.2, 2.4); fl.s1[i] = ember ? 1.4 : rndR(10, 17);
     }
   }
+  const rndR = (a, b) => a + Math.random() * (b - a);
   let fireLive = 0;
   function fireTick(dt) {
     if (fireLive <= 0) return; fireLive -= dt;      // огня нет — 700 частиц не обходим
     if (renderer && camera) uScale.value = renderer.domElement.height / (2 * Math.tan(camera.fov * Math.PI / 360));
     for (let i = 0; i < FN; i++) {
       if (fl.age[i] >= fl.life[i]) { fsz[i] = 0; fcol[i * 4 + 3] = 0; fpos[i * 3 + 1] = -9999; continue; }
-      fl.age[i] += dt; const k = fl.age[i] / fl.life[i];
-      fl.x[i] += fl.vx[i] * dt; fl.y[i] += (fl.vy[i] + 6) * dt; fl.z[i] += fl.vz[i] * dt; const dr = 1 - Math.min(1, dt * 1.1); fl.vx[i] *= dr; fl.vy[i] *= dr; fl.vz[i] *= dr;
-      fpos[i * 3] = fl.x[i]; fpos[i * 3 + 1] = fl.y[i]; fpos[i * 3 + 2] = fl.z[i]; fsz[i] = fl.s0[i] + (fl.s1[i] - fl.s0[i]) * k;
-      let r, g, b, a; if (k < 0.15) { r = 1; g = 0.95; b = 0.7; a = 0.95; } else if (k < 0.5) { const u = (k - 0.15) / 0.35; r = 1; g = 0.95 - 0.4 * u; b = 0.7 - 0.6 * u; a = 0.9; } else if (k < 0.85) { const u = (k - 0.5) / 0.35; r = 1 - 0.15 * u; g = 0.55 - 0.4 * u; b = 0.1 - 0.05 * u; a = 0.85 - 0.4 * u; } else { r = 0.5; g = 0.12; b = 0.05; a = 0.45 * (1 - (k - 0.85) / 0.15); }
-      fcol[i * 4] = r; fcol[i * 4 + 1] = g; fcol[i * 4 + 2] = b; fcol[i * 4 + 3] = a;
+      fl.age[i] += dt; const k = fl.age[i] / fl.life[i], em = fl.em[i] > 0, sd = fl.sd[i];
+      const sw = em ? 14 : 9 * k;                                             // завихрения: поток колышется из стороны в сторону
+      fl.vx[i] += Math.sin(fl.age[i] * 9 + sd) * sw * dt * 8; fl.vz[i] += Math.cos(fl.age[i] * 8 + sd * 1.7) * sw * dt * 8;
+      fl.x[i] += fl.vx[i] * dt; fl.y[i] += (fl.vy[i] + (em ? -4 : 16 + 28 * k)) * dt; fl.z[i] += fl.vz[i] * dt;      // горячий воздух поднимается, искры падают
+      const dr = Math.exp(-(em ? 0.6 : 1.8) * dt); fl.vx[i] *= dr; fl.vy[i] *= dr; fl.vz[i] *= dr;      // сильное торможение: у кончика пламя «распускается» облаком
+      fpos[i * 3] = fl.x[i]; fpos[i * 3 + 1] = fl.y[i]; fpos[i * 3 + 2] = fl.z[i]; fsz[i] = fl.s0[i] + (fl.s1[i] - fl.s0[i]) * Math.sqrt(k);
+      let r, g, b, a;
+      if (em) { r = 1; g = 0.55 + 0.3 * (1 - k); b = 0.15; a = 0.9 * (1 - k * k); }
+      else if (k < 0.12) { r = 1; g = 0.92; b = 0.55; a = 0.55; }                                 // ядро — жёлтое, не белое
+      else if (k < 0.4) { const u = (k - 0.12) / 0.28; r = 1; g = 0.8 - 0.35 * u; b = 0.3 - 0.25 * u; a = 0.5; }
+      else if (k < 0.75) { const u = (k - 0.4) / 0.35; r = 1 - 0.2 * u; g = 0.45 - 0.33 * u; b = 0.05; a = 0.45 - 0.15 * u; }
+      else { r = 0.55; g = 0.12; b = 0.04; a = 0.3 * (1 - (k - 0.75) / 0.25); }
+      fcol[i * 4] = r; fcol[i * 4 + 1] = g; fcol[i * 4 + 2] = b; fcol[i * 4 + 3] = Math.max(0, a);
     }
     fgeo.attributes.position.needsUpdate = fgeo.attributes.aSize.needsUpdate = fgeo.attributes.aCol.needsUpdate = true;
   }
