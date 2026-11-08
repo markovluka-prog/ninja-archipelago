@@ -174,7 +174,7 @@ const GCLIP = {
   const weaponToast = document.createElement('div');
   weaponToast.style.cssText = 'position:fixed;left:50%;bottom:26%;transform:translateX(-50%);font:600 15px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:5px 14px;border-radius:10px;pointer-events:none;display:none';
   document.body.appendChild(weaponToast); let toastT = 0;
-  const say = t => { weaponToast.textContent = t; weaponToast.style.display = 'block'; toastT = 1.6; };
+  const say = t => { if (/достан|Меч и щит|Лук —/.test(t) && window.__snd) window.__snd('clang', 0.3); weaponToast.textContent = t; weaponToast.style.display = 'block'; toastT = 1.6; };
   // меч и щит: в ножнах — меч на левом бедре, щит за спиной (персонаж не выглядит «пустым»); при доставании переходят в руки с «выскоком» масштаба, при убирании — сжимаются в руках и появляются на теле
   const HOLSTER = {
     Sword: { pos: [-1.38, 0.5, -0.15], rot: [1.45, 0.12, 0.1], sc: 0.9 },      // блеск вдоль +z → клинок вниз вдоль бедра
@@ -320,7 +320,7 @@ const GCLIP = {
   fn(T, OrbitControls, RoomEnvironment, RoundedBoxGeometry, GLTFExporter, { search: '?game=1' }, world.heightAt, __at, SX, SZ, fpHook);
   if (miss.length) console.warn('richard-mode: не сработали патчи: ' + miss.join(' ||| '));
   if (!window.__g) throw new Error('richard-mode: игра не запустилась');
-  setTimeout(() => { const h = [...document.querySelectorAll('div')].find(d => d.innerHTML.includes('Управление') && d.innerHTML.includes('Пробел')); if (h && !h.innerHTML.includes('X —')) h.innerHTML += '<br>1 — меч и щит · 2 — лук<br>V — позвать дракона, E — залезть/слезть · в полёте: WASD по горизонтали, Z/X вверх/вниз, Пробел — огонь<br>Лук: зажать ЛКМ/J — натянуть, отпустить — выстрел<br>В прыжке: J — удар · Пробел — 2-й прыжок, затем планирование'; }, 0);
+  setTimeout(() => { const h = [...document.querySelectorAll('div')].find(d => d.innerHTML.includes('Управление') && d.innerHTML.includes('Пробел')); if (h && !h.innerHTML.includes('X —')) h.innerHTML += '<br>1 — меч и щит · 2 — лук<br>V — позвать дракона, E — залезть/слезть, Q — спрыгнуть · в полёте: WASD по горизонтали, Z/X вверх/вниз, Пробел — огонь<br>Лук: зажать ЛКМ/J — натянуть, отпустить — выстрел<br>В прыжке: J — удар · Пробел — 2-й прыжок, затем планирование'; }, 0);
   const uiEls = [...document.body.children].filter(c => !before.has(c) && c.id !== '__rdom');
   const g = window.__g; G = g; uiEls.push(doorPrompt);
   // тренировочная площадка в городе и лук

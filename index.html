@@ -58,6 +58,7 @@ import { startLobby } from './lobby.js';
 import { startChat } from './chat.js';
 import { startGame } from './game.js';
 import { createDragons } from './dragon.js';
+import { createAudio } from './audio.js';
 import { startMinimap } from './minimap.js';
 import { createSky } from './sky.js';
 
@@ -482,6 +483,7 @@ const shipsApi = {                    // для режима «Морской б
   sink(v, dt) { v.sunk = true; v.sailsUp = false; v.y0 = Math.max(v.y0 - 1.7 * dt, -16); v.heel += (0.5 - v.heel) * Math.min(1, dt * 0.6); placeDeck(v); if (v.y0 <= -15) v.g.visible = false; },
 };
 if (richard) gameMode = startGame({ net, richard, world, scene, THREE, ships: shipsApi });
+let audio = null; if (richard) { try { audio = createAudio({ world, richard, net }); } catch (e) { console.error('звук', e); } }
 let dragons = null; if (richard) { try { dragons = createDragons({ THREE, scene, world, richard, net, camera, renderer }); } catch (e) { console.error('драконы', e); } }
 if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode, ships: shipsApi, getDbg: () => gameMode && gameMode.dbg });      // миникарта: где второй игрок (N — размер)
 
@@ -496,7 +498,7 @@ renderer.setAnimationLoop(now => {
         if (pr !== renderer.getPixelRatio()) { renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight); } } } }
   if (tod.auto) tod.t = (tod.t + dt / tod.len) % 1;
   if ((todF = (todF + 1) % 3) === 0) { if (tod.auto) $('tod').value = tod.t; applyTod(); }      // смена дня медленная: небо и свет пересчитываем 20 раз в секунду, а не каждый кадр
-  net.update(dt); if (dragons) dragons.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
+  net.update(dt); if (dragons) dragons.update(dt); if (audio) audio.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
   if (mode === 'walk' && richard) {
     const p = richard.P.pos;                                  // животные и жители твёрдые: выталкиваем Ричарда
     rideUpdate(dt); if (!riding && !window.__dragonOn) unstickShips(richard.P);

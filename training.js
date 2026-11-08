@@ -143,7 +143,7 @@ export function createTraining({ THREE, scene, world, solids, anchor }) {
         t.wind -= dt; const e = 0.4 + 0.4 * Math.sin(t.wind * 30); t.hm.material.emissive && t.hm.material.emissive.setRGB(e, 0.05, 0);
         if (t.wind <= 0) {
           t.hm.material.emissive && t.hm.material.emissive.setRGB(0, 0, 0); t.cd = 3 + Math.random() * 1.5;
-          if (bowRef) { const o = new V(t.x, site.y + 5.2, t.z), dir = new V(P.pos.x, P.pos.y + 5, P.pos.z).sub(o).normalize(); o.addScaledVector(dir, 3); bowRef.spawn(o, dir, 75, true); }
+          if (bowRef) { const o = new V(t.x, site.y + 5.2, t.z), dir = new V(P.pos.x, P.pos.y + 5, P.pos.z).sub(o).normalize(); o.addScaledVector(dir, 3); bowRef.spawn(o, dir, 75, true); if (window.__snd && Math.hypot(P.pos.x - t.x, P.pos.z - t.z) < 160) window.__snd('shoot', 0.5); }
         }
       } else { t.cd -= dt; if (t.cd <= 0) { t.wind = 0.85; floatText(new V(t.x, site.y + 9, t.z), '!', '#ff4a3a'); } }
     }
@@ -160,10 +160,10 @@ export function createTraining({ THREE, scene, world, solids, anchor }) {
     if (it.kind === 'dummy') {
       if (it.down > 0) return;
       it.hp = Math.max(0, it.hp - dmg); it.av += (Math.random() < 0.5 ? -1 : 1) * (12 + dmg * 0.8) * (0.8 + Math.random() * 0.4);      // крутится сильнее при сильном ударе
-      floatText(new V(it.x, site.y + 12, it.z), '-' + Math.round(dmg), '#ffd24a');
+      floatText(new V(it.x, site.y + 12, it.z), '-' + Math.round(dmg), '#ffd24a'); window.__snd && window.__snd('thunk', 1);
       if (it.hp <= 0) { it.down = 3.2; it.fall = 0; floatText(new V(it.x, site.y + 14, it.z), 'сломано!', '#ff7a5a'); }
       else if (!(it.wind > 0) && !(it.swing > 0)) { it.wind = 0.65; floatText(new V(it.x, site.y + 14.5, it.z), '!', '#ff4a3a'); }      // предупреждение: чучело «замахивается» — успейте отойти
-    } else { it.hits++; it.av += side * (3 + dmg * 0.15); floatText(new V(it.x, site.y + 10, it.z), String(it.hits), '#9be86a'); }
+    } else { window.__snd && window.__snd('ping', 1); it.hits++; it.av += side * (3 + dmg * 0.15); floatText(new V(it.x, site.y + 10, it.z), String(it.hits), '#9be86a'); }
   }
   return {
     site,

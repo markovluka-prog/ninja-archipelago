@@ -67,20 +67,20 @@ export function createBow({ THREE, scene, world, getG, getCam, training }) {
     const dir = aim.sub(_o).normalize();
     _o.addScaledVector(dir, 2.2);
     P.yaw = Math.atan2(dir.x, dir.z);
-    spawn(_o, dir, 50 + 90 * pw, false, 6 + 10 * pw);
+    spawn(_o, dir, 50 + 90 * pw, false, 6 + 10 * pw); window.__snd && window.__snd('shoot', 0.6 + 0.5 * pw);
     return true;
   }
   function spawn(origin, dir, speed, hostile, dmg = 12) {
     const a = makeArrow(hostile); a.position.copy(origin); scene.add(a);
     arrows.push({ g: a, v: dir.clone().multiplyScalar(speed), life: 5, stuck: 0, prev: origin.clone(), hostile, dmg });
   }
-  function begin() { if (cd > 0 || drawing) return false; drawing = true; drawT = 0; return true; }       // нажали — натягиваем; выстрел при отпускании
+  function begin() { if (cd > 0 || drawing) return false; drawing = true; drawT = 0; window.__snd && window.__snd('draw'); return true; }       // нажали — натягиваем; выстрел при отпускании
 
   const solidHit = (G, p) => { for (const b of G.solids) if (p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z) return true; return false; };
   const MAX_STUCK = 120;
   const drop = a => { a.g.parent && a.g.parent.remove(a.g); };
   function stick(a, parent, life) {
-    a.stuck = life; a.v.set(0, 0, 0);
+    a.stuck = life; a.v.set(0, 0, 0); window.__snd && window.__snd('arrowhit', 0.7);
     if (parent) parent.attach(a.g);
     const st = arrows.filter(q => q.stuck > 0); if (st.length > MAX_STUCK) { const old = st[0]; drop(old); arrows.splice(arrows.indexOf(old), 1); }
   }
@@ -105,7 +105,7 @@ export function createBow({ THREE, scene, world, getG, getCam, training }) {
         const dx = p.x - P.pos.x, dz = p.z - P.pos.z;
         if (dx * dx + dz * dz < 2.8 * 2.8 && p.y > P.pos.y && p.y < P.pos.y + 9.5) {
           const sp = a.v.length() || 1, vx = a.v.x / sp, vz = a.v.z / sp, front = -(vx * fx + vz * fz);
-          if (blocking && front > 0.2) { a.v.multiplyScalar(-0.5); a.v.y += 8; a.hostile = false; training && training.float && training.float(p.clone().setY(P.pos.y + 7), 'отбито!', '#8fd6ff'); }
+          if (blocking && front > 0.2) { a.v.multiplyScalar(-0.5); a.v.y += 8; a.hostile = false; window.__snd && window.__snd('clang'); training && training.float && training.float(p.clone().setY(P.pos.y + 7), 'отбито!', '#8fd6ff'); }
           else { training && training.knockPlayer && training.knockPlayer(vx, vz, 20); training && training.float && training.float(p.clone().setY(P.pos.y + 8), 'попал!', '#ff8a6a'); drop(a); arrows.splice(i, 1); }
           continue;
         }
