@@ -10,7 +10,7 @@ export const MODE_INFO = {
   ctf:     { icon: '🏴', name: 'Битва флагов', desc: 'Командная битва: украдите флаг соперника и принесите на свою базу. До 3 захватов.',
     goal: 'Первой команде притащить на свою базу 3 флага соперника.', rules: ['Бой идёт на самом большом острове — там базы и флаги', 'Подбегите к флагу соперника — вы понесёте его', 'Принесите его на свою базу, пока ваш флаг лежит дома', 'Убитый носитель роняет флаг; упавший флаг сам вернётся через 20 с. Таймера нет — играем до 3 флагов'] },
   hide:    { icon: '🙈', name: 'Прятки', desc: 'Один искатель (30 с слепой), остальные прячутся. Найденный (удар) становится искателем. Продержись 3 минуты!',
-    goal: 'Прячущимся — продержаться 3 минуты. Искателю — найти всех.', rules: ['Один случайный игрок — искатель: первые 30 секунд он слеп, но потом бегает в 1.75 раза быстрее',  'Остальные прячутся (имена над головами скрыты)', 'Найденный (удар искателя) сам становится искателем'] },
+    goal: 'Прячущимся — продержаться 3 минуты. Искателю — найти всех.', rules: ['Один случайный игрок — искатель: первые 30 секунд он слеп, но потом бегает в 1.75 раза быстрее',  'Игра идёт на одном случайном острове; в здания заходить нельзя', 'Остальные прячутся (имена над головами скрыты)', 'Найденный (удар искателя) сам становится искателем'] },
   naval:   { icon: '🚢', name: 'Морской бой', desc: 'У каждого свой корабль. Стреляйте из пушек бортовыми залпами и топите чужие корабли — побеждает последний на плаву.',
     goal: 'Потопить корабли соперников и остаться на плаву последним.', rules: ['Каждый стартует на своём корабле у штурвала: Q — паруса, A/D — поворот', 'Пушки стоят на бортах: подойдите к пушке и нажмите E, наведите (A/D — поворот ствола, W/S — угол; видна траектория) и стреляйте на X. E — отойти. Перезарядка 1 с', 'Пустые корабли тоже можно топить, но очков за них нет. Корабли сталкиваться не могут. Корпус держит ≈17 попаданий, потопленный игрок выбывает', 'Таймера нет — побеждает последний корабль на плаву'] },
   dragons: { icon: '🐉', name: 'Поединки драконов', desc: 'Все верхом на драконах. Сожгите пламенем всадника чужого дракона — первый, у кого 10 побед, получает 🪙.',
@@ -27,6 +27,7 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
   const P = richard.P, shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   let G = { phase: 'idle' }, lastHurtT = -99, lastAtk = { id: 0, t: -99 }, reported = false, fired = true, prevT = 0, prevState = '', grabT = 0, wasSeeker = false, lastPhase = 'idle';
   const T = () => performance.now() / 1000;
+  let islandAt = () => -1, hideGood = null;
 
   /* ───── данные мира для сервера: точки (острова/места) и места для реликвий (верхушки построек, вершины рельефа) ───── */
   function markIslands(spots) {              // острова = связные участки суши (сетка 20 м); spot.i — номер острова, spot.big — точка на самом большом
@@ -41,6 +42,7 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
     }
     const near = sp => { const cx = Math.round((sp.x - B.x0) / ST), cz = Math.round((sp.z - B.z0) / ST);
       for (let r = 0; r < 8; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) { const x = cx + dx, z = cz + dz; if (x >= 0 && z >= 0 && x < nx && z < nz && lab[z * nx + x] >= 0) return lab[z * nx + x]; } return -1; };
+    islandAt = (x, z) => { const ix = Math.round((x - B.x0) / ST), iz = Math.round((z - B.z0) / ST); return ix >= 0 && iz >= 0 && ix < nx && iz < nz ? lab[iz * nx + ix] : -1; };
     for (const sp of spots) sp.i = near(sp);
     let bigId = -1; for (let i = 0; i < area.length; i++) if (bigId < 0 || area[i] > area[bigId]) bigId = i;
     for (const sp of spots) sp.big = sp.i === bigId;
@@ -347,6 +349,12 @@ export function startGame({ net, richard, world, scene, THREE, ships: SH }) {
   function update(dt) {
     const t = T(), inG = meIn();
     window.__gameLock = inG && G.mode !== 'explore';
+    window.__noEnter = !!(inG && G.mode === 'hide');      // прятки: в здания входить нельзя
+    if (window.__noEnter && G.isl != null && !P.dead) {      // и только на выбранном острове: ушёл на другой — возвращаем на последнее место на своём
+      const il = islandAt(P.pos.x, P.pos.z);
+      if (il === G.isl) hideGood = { x: P.pos.x, z: P.pos.z };
+      else if (il >= 0 && hideGood) { richard.respawnAt(hideGood.x, hideGood.z, 0); banner('🚫 Играем только на этом острове', 2); }
+    } else hideGood = null;
     for (const o of root.children) if (o.userData.born != null && o.scale.x < 1) o.scale.setScalar(Math.min(1, 0.01 + (t - o.userData.born) / 1.2));
     if (introT > 0 && (introT -= dt) <= 0) intro.style.display = 'none';
     if (banT > 0 && (banT -= dt) <= 0) ban.style.display = 'none';

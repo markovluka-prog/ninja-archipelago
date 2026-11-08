@@ -236,6 +236,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail();
   });
   addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
+  addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, 0.02, 1.2); } });      // как при ходьбе: мышь крутит камеру
   addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) mouseDown = true; }); addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 
   const boxCss = 'position:fixed;left:50%;transform:translateX(-50%);font:600 14px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:6px 14px;border-radius:10px;pointer-events:none;display:none;z-index:15;white-space:nowrap';
@@ -339,7 +340,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   const seat = () => { P.pos.set(mine.x, mine.y - SEAT + LIFT, mine.z); P.vel.set(0, 0, 0); P.yaw = P.yawVis = mine.yaw; setSup(); };
   // камера дракона: цель — ТОЧНО седло (без отставания), углы и дистанция сглажены; её ставит хук из richard-mode (в конце camUpdate), а не штатная камера героя
   const cam_ = { p: 0.3, d: 62 };
-  const follow = dt => { mine.camYaw += angDiff(mine.camYaw, mine.yaw + Math.PI) * Math.min(1, dt * 2.6); cam_.p += (clamp(0.3 - mine.pitch * 0.25, 0.05, 0.75) - cam_.p) * Math.min(1, dt * 2); cam_.d += ((mine.boost ? 72 : 62) - cam_.d) * Math.min(1, dt * 2); };
+  const follow = dt => { const r = 1.7 * dt, ride = mine.st === 'ride'; if (ride) { if (K.has('ArrowLeft')) mine.camYaw += r; if (K.has('ArrowRight')) mine.camYaw -= r; if (K.has('ArrowUp')) cam_.p = clamp(cam_.p - r * 0.6, 0.02, 1.2); if (K.has('ArrowDown')) cam_.p = clamp(cam_.p + r * 0.6, 0.02, 1.2); } else { mine.camYaw += angDiff(mine.camYaw, mine.yaw + Math.PI) * Math.min(1, dt * 2.6); cam_.p += (clamp(0.3 - mine.pitch * 0.25, 0.05, 0.75) - cam_.p) * Math.min(1, dt * 2); } cam_.d += ((mine.boost ? 72 : 62) - cam_.d) * Math.min(1, dt * 2); };
   window.__camHook = (cam, tgt) => {
     if (mine.st !== 'ride' && mine.st !== 'land') return;
     tgt.set(mine.x, mine.y + 5, mine.z); const cp = Math.cos(cam_.p), d = window.__dragonCamD || cam_.d;
@@ -369,12 +370,14 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       if (u >= 1) { m.st = 'ride'; m.vy = 26; m.speed = 0; richard.play('Верхом', { fade: 0.15 }); }
     } else if (m.st === 'ride' || m.st === 'land') {
       const ride = m.st === 'ride', ctl = ride && !P.dead;
-      const turnIn = ctl ? (K.has('KeyA') || K.has('ArrowLeft') ? 1 : 0) - (K.has('KeyD') || K.has('ArrowRight') ? 1 : 0) : 0;
-      const fwdIn = ctl ? (K.has('KeyW') || K.has('ArrowUp') ? 1 : 0) - (K.has('KeyS') || K.has('ArrowDown') ? 1 : 0) : 0;
+      // как при ходьбе: камера свободна (мышь/стрелки), W/A/D — лететь в сторону взгляда/влево/вправо от него (дракон сам разворачивается), S — назад
+      const ix = ctl ? (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0) : 0, fwdIn = ctl ? (K.has('KeyW') ? 1 : 0) - (K.has('KeyS') ? 1 : 0) : 0;
+      const steer = ctl && (fwdIn > 0 || ix !== 0);
+      let turnIn = 0; if (steer) { const want = m.camYaw + Math.PI + Math.atan2(-ix, Math.max(fwdIn, 0)); turnIn = clamp(angDiff(m.yaw, want) * 1.6, -1, 1); }
       const vIn = ctl ? (K.has('KeyZ') ? 1 : 0) - (K.has('KeyX') ? 1 : 0) : 0;
       m.boost = ctl && (K.has('ShiftLeft') || K.has('ShiftRight')) ? 1 : 0;
-      m.turn += (turnIn - m.turn) * Math.min(1, dt * 4); { const py = m.yaw; m.yaw += m.turn * 1.15 * dt; if (m.turn && !probeSolid(m.x, m.y, m.z, py) && probeSolid(m.x, m.y, m.z, m.yaw)) m.yaw = py; }      // поворот не вгоняет крыло/голову в стену или дерево
-      const spT = ride ? (fwdIn > 0 ? 66 * (m.boost ? 1.6 : 1) : fwdIn < 0 ? -24 : 0) : 0;
+      m.turn += (turnIn - m.turn) * Math.min(1, dt * 4); { const py = m.yaw; m.yaw += m.turn * 1.9 * dt; if (m.turn && !probeSolid(m.x, m.y, m.z, py) && probeSolid(m.x, m.y, m.z, m.yaw)) m.yaw = py; }      // поворот не вгоняет крыло/голову в стену или дерево
+      const spT = ride ? (steer ? 66 * (m.boost ? 1.6 : 1) * (1 - 0.5 * Math.abs(turnIn)) : fwdIn < 0 ? -24 : 0) : 0;
       m.speed += (spT - m.speed) * Math.min(1, dt * (ride ? 1.7 : 2.5));
       const vyT = ride ? (vIn > 0 ? 40 : vIn < 0 ? -50 : 0) : clamp((gT - m.y) * 2, -55, 55);
       m.vy += (vyT - m.vy) * Math.min(1, dt * 3);

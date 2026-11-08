@@ -77,7 +77,7 @@ const toast = (pl, text) => send(pl, { t: 'ev', text });
 
 function spawnFor(p, first) {
   if (p.g.ship != null && WORLD.ships[p.g.ship]) { const sh = WORLD.ships[p.g.ship]; return { x: sh.x, z: sh.z, yaw: sh.yaw }; }                              // старт раунда: каждому своё место (команде — её база); возрождение в битве — случайная точка
-  const s = game.bases && p.g.team ? game.bases[p.g.team] : first && p.g.spawn ? p.g.spawn : WORLD.spots[Math.floor(Math.random() * WORLD.spots.length)], a = Math.random() * 6.283, r = 8 + Math.random() * 14;
+  const s = game.bases && p.g.team ? game.bases[p.g.team] : first && p.g.spawn ? p.g.spawn : (game.hideSpots || WORLD.spots)[Math.floor(Math.random() * (game.hideSpots || WORLD.spots).length)], a = Math.random() * 6.283, r = 8 + Math.random() * 14;
   return { x: s.x + Math.cos(a) * r, z: s.z + Math.sin(a) * r, yaw: s.yaw || 0 };
 }
 const sendSpawn = (p, first) => send(p, { t: 'spawn', ...spawnFor(p, first), ship: p.g.ship });
@@ -87,7 +87,7 @@ function snapshot() {
   const t = nowS(), M = MODES[game.mode];
   return {
     t: 'game', ver: 4, world: !!WORLD, armed: armed ? pickMode() : null, cd: autoAt ? Math.max(0, Math.ceil(autoAt - nowS())) : null, dm: pickMode(), np: playing().length, votes: votes(), first: firstPlayer(), pv: playing().filter(([, p]) => MODES[p.vote]).map(([id, p]) => [id, p.vote]), mode: game.mode, mn: M && M.name, phase: game.phase, sub: game.sub, left: game.endAt ? Math.max(0, Math.round(game.endAt - t)) : null,
-    hideLeft: game.sub === 'hiding' ? Math.max(0, Math.round(game.seekAt - t)) : 0, limit: game.limit != null ? game.limit : M && M.limit, winner: game.winner,
+    hideLeft: game.sub === 'hiding' ? Math.max(0, Math.round(game.seekAt - t)) : 0, isl: game.mode === 'hide' ? game.hideIsl : null, limit: game.limit != null ? game.limit : M && M.limit, winner: game.winner,
     sc: game.scores && { red: Math.floor(game.scores.red), blue: Math.floor(game.scores.blue) },
     pl: inGame().map(([id, p]) => [id, p.g.score, p.g.kills, p.g.team, p.g.alive ? 1 : 0, p.g.carry || '', p.g.seeker ? 1 : 0, Math.max(0, Math.round(p.g.hp)), p.g.ship]),
     relics: game.relics, bases: game.bases, nv: game.nhp && Object.entries(game.nhp).map(([k, hp]) => [+k, Math.round(hp)]),
@@ -110,7 +110,11 @@ function startGame(starter, mode) {
   game = { mode, phase: 'play', t0: t, endAt: M.secs ? t + M.secs : null, scores: { red: 0, blue: 0 }, rid: 0 };
   for (const [, p] of ps) p.g = newG();
   if (M.teams) { shuffle(ps).forEach(([, p], i) => { p.g.team = i % 2 ? 'blue' : 'red'; }); }
-  const S = WORLD.spots;
+  let S = WORLD.spots;
+  if (mode === 'hide') {                                  // прятки — на одном случайном острове (остальные острова вне игры)
+    const ids = [...new Set(S.filter(q => q.i != null && q.i >= 0).map(q => q.i))];
+    if (ids.length) { game.hideIsl = ids[Math.floor(Math.random() * ids.length)]; S = S.filter(q => q.i === game.hideIsl); game.hideSpots = S; }
+  }
   { const sp = shuffle(S.slice()); ps.forEach(([, p], i) => { p.g.spawn = mode === 'relics' || mode === 'explore' ? sp[0] : sp[i % sp.length]; }); game.avoid = mode === 'relics' ? sp[0] : null; }      // реликвии: все стартуют в одном месте; остальные режимы — у каждого своя точка
   const isl = s => s.i != null ? 'i' + s.i : 'n' + s.n, far = L => { let best = -1, A = L[0], B = L[1] || L[0]; for (const a of L) for (const b of L) { const d = dxz(a, b); if (d > best) { best = d; A = a; B = b; } } return [A, B]; };
   const bs = s => ({ n: s.n, x: s.x, y: s.y, z: s.z, yaw: s.yaw });

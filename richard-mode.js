@@ -185,8 +185,8 @@ const GCLIP = {
       const dist = Math.hypot(d.h.dx - p.x, d.h.dz - p.z);
       if (!d.vis && dist < 300 && doorBuilds < 1){ doorBuilds++; d.vis = d.h.makeDoor(); scene.add(d.vis.g); }
       if (d.vis && dist > 380){ scene.remove(d.vis.g); d.vis = null; }
-      d.open += (d.want - d.open) * (1 - Math.exp(-6 * dt));
-      const solid = d.open < 0.5 && !insideOf(d);      // изнутри всегда можно выйти — застрять нельзя
+      d.open += ((window.__noEnter ? 0 : d.want) - d.open) * (1 - Math.exp(-6 * dt));
+      const solid = (d.open < 0.5 || window.__noEnter) && !insideOf(d);      // изнутри всегда можно выйти — застрять нельзя
       if (solid !== d.solidOn){ d.solidOn = solid; const i = G.solids.indexOf(d.door); if (solid) G.solids.push(d.door); else if (i >= 0) G.solids.splice(i, 1); }
       if (d.vis) d.vis.setOpen(d.open);
     }
@@ -204,7 +204,7 @@ const GCLIP = {
   document.body.appendChild(doorPrompt);
   addEventListener('keydown', e => {
     if (e.code !== 'KeyE' || e.repeat || !window.__richardActive || window.__riding || window.__dragonNear || window.__leverNear || !G) return;
-    const d = nearDoor();
+    const d = window.__noEnter ? null : nearDoor();      // в прятках в здания не заходят
     if (!d || !['ground', 'air'].includes(P.state) || G.interactNear()) return;   // у сундука/рычага E достаётся им
     if (d.want === 1 && Math.hypot(d.h.dx - P.pos.x, d.h.dz - P.pos.z) < 2.2) return;   // в проёме дверь не закрыть
     d.want = 1 - d.want;

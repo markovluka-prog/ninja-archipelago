@@ -166,6 +166,7 @@ function hullFn(o) {
     }
   }
   if (!ps) { const r = ang.map(a => pt(-1, a)), c = [0, (top(-1) + bot(-1)) / 2, -L / 2]; for (let j = 0; j < r.length - 1; j++) tri(c, r[j], r[j + 1], cH); tri(c, r[r.length - 1], r[0], cH); }      // + верхний треугольник транца (раньше между центром и бортами сверху оставался треугольный вырез)
+  { const cap = t => { const r = ang.map(a => pt(t, a)), c = [0, (top(t) + bot(t)) / 2, t * L / 2]; for (let j = 0; j < r.length - 1; j++) tri(c, r[j], r[j + 1], cH); tri(c, r[r.length - 1], r[0], cH); }; cap(1); if (ps) cap(-1); }      // заглушка форштевня (и острой кормы): на острие оставалась узкая щель
   const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new T.Float32BufferAttribute(col, 3)); geo.computeVertexNormals();
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const half = (z, y) => { const t = clamp(z / (L / 2), -1, 1), tp = top(t), bt = bot(t), c = clamp((tp - y) / (tp - bt), 0, 1); return wf(t) * Math.sqrt(1 - c * c); };
