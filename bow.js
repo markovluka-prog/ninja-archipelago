@@ -59,7 +59,7 @@ export function createBow({ THREE, scene, world, getG, getCam, training }) {
 
   function fire(pw) {
     const G = getG(), cam = getCam(); if (!G || !cam) return false;
-    const P = G.P; cd = 0.35; kick = 1;
+    const P = G.P; cd = 0.6; kick = 1;
     cam.updateMatrixWorld(true);
     const aimDir = ndc.ok ? new V(ndc.x, ndc.y, 0.5).unproject(cam).sub(cam.position).normalize() : cam.getWorldDirection(new V());
     const aim = new V().copy(cam.position).addScaledVector(aimDir, 90);
@@ -67,7 +67,7 @@ export function createBow({ THREE, scene, world, getG, getCam, training }) {
     const dir = aim.sub(_o).normalize();
     _o.addScaledVector(dir, 2.2);
     P.yaw = Math.atan2(dir.x, dir.z);
-    spawn(_o, dir, 50 + 90 * pw, false, 6 + 10 * pw); window.__snd && window.__snd('shoot', 0.6 + 0.5 * pw);
+    spawn(_o, dir, 50 + 90 * pw, false, 5 + 11 * pw); window.__snd && window.__snd('shoot', 0.6 + 0.5 * pw);
     return true;
   }
   function spawn(origin, dir, speed, hostile, dmg = 12) {

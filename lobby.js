@@ -47,8 +47,6 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
     <label>Персонаж (тапните, чтобы выбрать)</label><div class="chars" id="lbChars"></div>
     <div class="row"><button class="btn add" id="lbAdd">▶ Играть (добавить игрока)</button><button class="btn del" id="lbDel">− Убрать игрока</button></div>
     <div class="row" style="margin-top:8px"><button class="btn alt" id="lbClose">Закрыть меню</button></div>
-    <label>Голосуйте за режим (голосование — только при 2+ игроках, игра начнётся сама, когда проголосуют все или через 20 секунд; пока вы один — идёт «Изучение»)</label><div class="modes" id="lbModes"></div><p class="mdesc" id="lbDesc"></p>
-    <div class="row" style="display:none"><button class="btn add" id="lbStart">▶ Начать режим</button><button class="btn del" id="lbStop">⏹ Закончить игру</button></div>
     <label>Сейчас в комнате</label><ul id="lbList"></ul></div></div>`;
   document.body.appendChild(el);
   const $ = id => el.querySelector('#' + id), nameIn = $('lbName');
@@ -61,13 +59,6 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
     b.onclick = () => { const o = net.roster.find(p => p.ch === key && p.id !== net.id); if (o) return; net.setLobby({ ch: key }); };
     $('lbChars').appendChild(b); cards[key] = b;
   }
-  let selMode = 'battle'; const mdBtns = {};
-  for (const [key, m] of Object.entries(MODE_INFO)) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'md'; b.innerHTML = `<span style="font-size:26px">${m.icon}</span><b>${m.name}<i style="font-style:normal;font-size:12px"></i></b>`;
-    b.onclick = () => { selMode = key; if (net.me && net.me.play) net.send({ t: 'vote', mode: key }); render(); }; $('lbModes').appendChild(b); mdBtns[key] = b;
-  }
-  $('lbStart').onclick = () => net.send({ t: 'start', mode: selMode });
-  $('lbStop').onclick = () => net.send({ t: 'stop' });
   const roomIn = $('lbRoom');
   const doJoin = () => { const c = roomIn.value.replace(/\D/g, ''); if (c.length !== 3) { $('lbErr').textContent = 'Код комнаты — ровно 3 цифры'; return; } $('lbErr').textContent = ''; net.join(c); };
   roomIn.addEventListener('input', () => { roomIn.value = roomIn.value.replace(/\D/g, '').slice(0, 3); });
@@ -95,21 +86,7 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
       b.querySelector('.st').textContent = mine ? 'ваш' : o ? 'занят' : 'свободен'; b.querySelector('.st').style.display = '';
       b.querySelector('.who').textContent = o ? '👤 ' + o.name : mine ? '👤 это вы' : ' ';
     }
-    const gm = net.game, running = !!(gm && gm.phase === 'play');
-    const mv = gm && (gm.pv || []).find(a => a[0] === net.id); if (mv && !running) selMode = mv[1];
-    const vc = (gm && gm.votes) || {}, fp = roster.find(p => p.id === (gm && gm.first));
-    for (const [k, b] of Object.entries(mdBtns)) { b.classList.toggle('sel', k === selMode); b.querySelector('i').textContent = vc[k] ? ' · 🗳 ' + vc[k] : ''; }
-    $('lbDesc').textContent = running ? `Сейчас идёт: ${MODE_INFO[gm.mode].icon} ${MODE_INFO[gm.mode].name}` : MODE_INFO[selMode].desc;
     const playing = !!(me && me.play);
-    const nPl = roster.filter(p => p.play).length, armed = gm && gm.armed;
-    $('lbStart').disabled = running || !playing || !net.online; $('lbStop').disabled = !running && !armed;
-    $('lbStart').textContent = nPl < 2 && !['explore', 'relics'].includes(selMode) ? '⏳ Выбрать режим (старт при 2 игроках)' : '▶ Начать режим';
-    $('lbStop').textContent = running ? '⏹ Закончить игру' : '✖ Отменить выбор';
-    if (!running && gm && gm.cd != null) $('lbDesc').textContent = `⏳ Выберите режим! Игра начнётся через ${gm.cd} с (или когда проголосуют все). Голос — тап по режиму.`;
-    else if (!running && armed) $('lbDesc').textContent = `⏳ Выбран «${MODE_INFO[armed].name}» — игра начнётся сама, когда войдёт второй игрок. Пока ходите где хотите.`;
-    else if (!running && nPl < 2) $('lbDesc').textContent += ' · Сейчас в игре ' + nPl + ' из 2 нужных.';
-    if (!running && Object.keys(vc).length) { const lead = Object.entries(vc).sort((a, b) => b[1] - a[1]), tie = lead.length > 1 && lead[0][1] === lead[1][1]; $('lbDesc').textContent += tie ? ` · Ничья голосов — выбирает первый игрок${fp ? ' (' + fp.name + ')' : ''}.` : ` · Лидирует «${MODE_INFO[lead[0][0]].name}».`; }
-    $('lbStart').title = !net.online ? 'Режимы работают только при запущенном сервере' : !playing ? 'Сначала добавьте себя в игру' : '';
     $('lbAdd').disabled = playing || !(me && me.ch); $('lbDel').disabled = !playing;
     $('lbAdd').textContent = me && me.ch ? '▶ Играть (добавить игрока)' : '① Сначала тапните персонажа';
     $('lbClose').textContent = playing ? 'Вернуться в игру' : 'Смотреть без игры';
@@ -117,6 +94,7 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
   }
   function applyState() {                                      // реакция игры на изменение «я в игре / не в игре / сменил персонажа»
     const me = net.me, play = !!(me && me.play), prevPlay = wasPlay, prevCh = wasCh;
+    if (play !== prevPlay) window.__dbg && window.__dbg('play=' + play + ' ch=' + (me && me.ch));
     wasPlay = play; wasCh = play ? me.ch : null;               // сначала состояние, потом действия (close() смотрит на wasPlay)
     if (play && (!prevPlay || me.ch !== prevCh)) {
       richard.setCharacter(me.ch); richard.setVisible(true);   // одна фигура: setCharacter показывает выбранную и прячет вторую
@@ -129,6 +107,16 @@ export function startLobby({ net, richard, world, setMode, getMode }) {
   let lastPh = 'idle';
   let cdOpened = false;      // голосование не вырывает игрока из мира: он остаётся в своём персонаже, подсказка — наверху (HUD), голос — в меню по M
   net.onChange(() => { applyState(); render(); { cdOpened = !!(net.game && net.game.cd != null); } const ph = net.game ? net.game.phase : 'idle'; if (ph === 'play' && lastPh !== 'play' && open_) close(); lastPh = ph; });
+  /* вошёл в комнату — сразу в игру: свободный персонаж выбирается сам, нажимать «Играть» не нужно (кто не хочет играть — «Убрать игрока») */
+  let autoRoom = null;
+  net.onChange(() => {
+    if (!net.room) { autoRoom = null; return; }
+    if (!net.online || !net.me || net.me.play || autoRoom === net.room || !(net.roster || []).length) return;
+    autoRoom = net.room;
+    const taken = new Set(net.roster.filter(p => p.id !== net.id && p.ch).map(p => p.ch));
+    const ch = net.me.ch && !taken.has(net.me.ch) ? net.me.ch : Object.keys(CHARS).find(k => !taken.has(k));
+    if (ch) net.setLobby({ ch, name: nameIn.value.trim() || (net.lobby && net.lobby.name) || 'Игрок', play: true });
+  });
   addEventListener('keydown', e => { if (e.code === 'KeyM' && !e.repeat && document.activeElement !== nameIn) { open_ ? close() : open(); } });
 
   /* автовход по ссылке: ?room=777&ch=richard&name=Я&vote=naval — комната, персонаж и голос за режим ставятся сами (для проверок и быстрых партий) */

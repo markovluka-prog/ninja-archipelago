@@ -5,7 +5,7 @@
   const ACTIONS = [
     ['fwd', 'Вперёд', 'KeyW'], ['back', 'Назад', 'KeyS'], ['left', 'Влево', 'KeyA'], ['right', 'Вправо', 'KeyD'],
     ['jump', 'Прыжок / планировать', 'Space'], ['run', 'Шагом (идти медленнее) / ускорение дракона', 'ShiftLeft'],
-    ['attack', 'Удар', 'KeyJ'], ['block', 'Блок', 'KeyK'], ['bash', 'Удар щитом', 'KeyL'], ['kick', 'Пинок', 'KeyF'], ['roll', 'Кувырок', 'KeyC'],
+    ['kick', 'Пинок / бочка-уворот на драконе', 'KeyF'],      // удар — ЛКМ, блок — ПКМ; J, K, L, C отключены
     ['use', 'Действие (дверь, лошадь, штурвал, пушка, дракон)', 'KeyE'], ['dragon', 'Позвать дракона', 'KeyV'], ['bail', 'Паруса / спрыгнуть с дракона', 'KeyQ'],
     ['sword', 'Меч и щит', 'Digit1'], ['bow', 'Лук', 'Digit2'], ['draw', 'Достать/убрать оружие · огонь из пушки · дракон вниз', 'KeyX'], ['up', 'Дракон вверх', 'KeyZ'],
     ['respawn', 'Возродиться (с Shift)', 'KeyR'], ['help', 'Панель управления', 'KeyH'], ['tp', 'Телепорт (карта)', 'KeyT'], ['lobby', 'Лобби / игроки', 'KeyM'], ['orbit', 'Облёт / ходьба', 'KeyG'],
@@ -15,7 +15,8 @@
   try { map = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
   const def = Object.fromEntries(ACTIONS.map(a => [a[0], a[2]]));
   const cur = a => map[a] || def[a];
-  let rev = {}, defs = new Set(ACTIONS.map(a => a[2]));      // реальная клавиша → стандартный код действия
+  const OFF = ['KeyJ', 'KeyK', 'KeyL', 'KeyC'];      // отключённые клавиши боя (остались мышь и F)
+  let rev = {}, defs = new Set([...ACTIONS.map(a => a[2]), ...OFF]);      // реальная клавиша → стандартный код действия
   const rebuild = () => { rev = {}; for (const [a, , d] of ACTIONS) rev[cur(a)] = d; };
   rebuild();
   const save = () => { const o = {}; for (const [a, , d] of ACTIONS) if (cur(a) !== d) o[a] = cur(a); map = o; try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} rebuild(); };
@@ -26,7 +27,7 @@
     if (inject) return;
     if (capturing) {                             // окно ждёт новую клавишу
       e.preventDefault(); e.stopImmediatePropagation();
-      if (e.type === 'keydown' && !e.repeat) capturing(e.code);
+      if (e.type === 'keydown' && !e.repeat && e.code !== 'F2') capturing(e.code);      // F2 зарезервирована под само окно
       return;
     }
     if (e.code === 'F2' && e.type === 'keydown' && !e.repeat) { e.preventDefault(); toggle(); return; }
@@ -86,4 +87,10 @@
   const mount = () => { document.body.appendChild(panel); document.body.appendChild(btn); };
   if (document.body) mount(); else addEventListener('DOMContentLoaded', mount);
   window.__keybinds = { toggle, get: cur };
+  /* отладка: ошибки браузера и ключевые события уходят в лог сервера (/__log), чтобы их можно было прочитать без консоли */
+  const tag = Math.random().toString(36).slice(2, 5);
+  window.__dbg = t => { try { navigator.sendBeacon('/__log', '[' + tag + '] ' + String(t).slice(0, 400)); } catch (e) {} };
+  addEventListener('error', e => window.__dbg('ERR ' + e.message + ' @' + String(e.filename || '').split('/').pop() + ':' + e.lineno));
+  addEventListener('unhandledrejection', e => window.__dbg('REJ ' + (e.reason && e.reason.message || e.reason)));
+  window.__dbg('страница загружена');
 })();

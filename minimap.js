@@ -53,9 +53,11 @@ export function startMinimap({ world, net, richard, getGame, getMode, ships, get
     const G = getGame() || {}, inPlay = G.phase === 'play', P = richard.P, pl = new Map((G.pl || []).map(a => [a[0], a])), names = new Map((net.roster || []).map(p => [p.id, p]));
     // объекты режима: базы, точки захвата, флаги
     if (inPlay) {
+      if (G.mk) for (const [x, z, e] of G.mk) { const [px, py] = toP(x, z); g.font = '18px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText(e, px, py); }
       if (G.bases) for (const t of ['red', 'blue']) { const b = G.bases[t]; if (!b) continue; const [px, py] = toP(b.x, b.z); g.strokeStyle = TEAM_COL[t]; g.lineWidth = 3; g.beginPath(); g.arc(px, py, 9, 0, 7); g.stroke(); g.font = '15px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText('🏠', px, py + 1); }
+      if (G.mode === 'naval') { const al = (G.pl || []).filter(x => x[4] && x[8] != null); if (al.length <= 2) for (const x of al) { const v = ships && ships.list && ships.list[x[8]]; if (!v || x[0] === net.id) continue; const [px, py] = toP(v.g.position.x, v.g.position.z); g.strokeStyle = '#ff2d2d'; g.lineWidth = 4; g.beginPath(); g.arc(px, py, 14 + 3 * Math.sin(performance.now() / 200), 0, 7); g.stroke(); g.fillStyle = '#ff2d2d'; g.font = 'bold 15px sans-serif'; g.textAlign = 'center'; g.fillText('ЦЕЛЬ', px, py - 20); } }
       if (G.points) for (const q of G.points) { const col = q.o ? TEAM_COL[q.o] : Math.abs(q.p) > 0.02 ? TEAM_COL[q.p > 0 ? 'red' : 'blue'] : '#cfcfcf', [px, py] = toP(q.x, q.z); g.fillStyle = col; g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(px, py, 8, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#000'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚑', px, py + 1); }
-      if (G.flags) for (const f of G.flags) { if (f.st === 'carried') continue; const [px, py] = toP(f.x, f.z); g.font = '16px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = TEAM_COL[f.team]; g.fillText('🚩', px, py); }
+      if (G.flags) for (const f of G.flags) { const [px, py] = toP(f.x, f.z); g.font = f.st === 'carried' ? '24px sans-serif' : '16px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = TEAM_COL[f.team]; g.fillText('🚩', px, py); }
     }
     // корабли: свои/чужие цветом хозяина, пустые — серые, потонувшие — крестом
     if (ships) { const own = new Map(); for (const a of G.pl || []) if (a[8] != null) own.set(a[8], a); const nvHp = new Map((G.nv || []).map(q => [q[0], q[1]]));
@@ -73,6 +75,7 @@ export function startMinimap({ world, net, richard, getGame, getMode, ships, get
       const dirI = Math.round(((Math.atan2(dx, -dz) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
       rows.push(`<div style="border-left:4px solid ${col}">${CHARS[who && who.ch] ? CHARS[who.ch].icon : '👤'} ${nm.replace(/</g, '&lt;')} — ${dist} м ${arrows[dirI]}</div>`);
     }
+    for (const f of window.__flags || []) dot(f[0], f[1], f[2] ? '#ffd23f' : '#ff7a2f', 5, '🚩');      // флажки (Изучение)
     // я: красная стрелка по направлению взгляда
     { const [px, py] = toP(P.pos.x, P.pos.z), yaw = P.yawVis ?? P.yaw; g.save(); g.translate(px, py); g.rotate(Math.PI - yaw); g.fillStyle = '#ff2d2d'; g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, -11); g.lineTo(7.5, 8); g.lineTo(0, 4); g.lineTo(-7.5, 8); g.closePath(); g.fill(); g.stroke(); g.restore(); }
     const html = hideAll ? '<div>🙈 В прятках игроки на карте скрыты</div>' : rows.join('') || '<div>Других игроков пока нет</div>';

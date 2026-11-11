@@ -643,7 +643,7 @@ def('fishing_sail_b', 'Рыбацкий люггер (два паруса)', (B,
     F.add(bar([0, 4.4, z + 2.4], [0, 4.6, z - 4.4], .1, P.w3, 5));
   });
   F.add(flag(B, F, 0, 17.8, -4.5, 2.2, 1.1, 0, P.red) && cyl(.07, .07, 1, P.w3, 0, 17.4, -4.5, 4));
-  for (let i = 0; i < 4; i++) F.add(barrelMesh(.85, 1.9, r.pick([P.w1, P.w2]), 8).translateX(-2 + (i % 2) * 2.2).translateY(.8).translateZ(-8 + Math.floor(i / 2) * 2));
+  for (let i = 0; i < 4; i++) F.add(barrelMesh(.85, 1.9, r.pick([P.w1, P.w2]), 8).translateX(-1.1 + (i % 2) * 2.2).translateY(.8).translateZ(-2.6 + Math.floor(i / 2) * 1.9));      // между мачтами, не у кормового борта
   F.add(box(3, 1.2, 2.4, P.w3, 0, 1.4, 9), sph(.9, '#8fa7b0', 1, 1.4, 1.5, 1.5, .5, .6, 6), coilMesh(1.1, 1).translateX(-2).translateY(.8).translateZ(2));
   F.add(bar([0, 3, 9.5], [0, 4.4, 15], .2, P.w3, 5)); rock(B, .03, r() * 6);
   // детали: кремовый планширь с мелкими стойками, кнехт у носа у борта

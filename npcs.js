@@ -147,10 +147,10 @@ export async function createNPCs({ scene, world, base = './' }) {
     g.fillStyle = '#111'; g.font = 'bold 40px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 46, 480);
     const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
-  function say(c) {
+  function say(c, text) {
     const lines = PHRASES[c.id] || DEFAULT_PHRASES;
     if (!c.bubble) { c.bubble = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false })); c.bubble.scale.set(30, 7.5, 1); }
-    const m = c.bubble.material; m.map?.dispose(); m.map = bubbleTex(lines[Math.floor(rnd() * lines.length)]); m.needsUpdate = true;
+    const m = c.bubble.material; m.map?.dispose(); m.map = bubbleTex(text || lines[Math.floor(rnd() * lines.length)]); m.needsUpdate = true;
     c.bubble.timer = 3.5; c.bubble.visible = true; if (!c.bubble.parent) scene.add(c.bubble);
   }
   function hideBubble(c) { if (c.bubble) { c.bubble.visible = false; c.bubble.timer = 0; scene.remove(c.bubble); } }
@@ -171,6 +171,18 @@ export async function createNPCs({ scene, world, base = './' }) {
     count: crowd.length,
     info() { return crowd.map(c => ({ id: c.id, name: DEF[c.id].name, role: DEF[c.id].role, icon: DEF[c.id].icon, work: DEF[c.id].workLabel, route: c.route, acts: c.acts, mode: c.mode, x: c.x, z: c.z, home: c.home ? { x: c.home.dx, z: c.home.dz } : null, inside: !!c.visit, state: c.state, rest: c.rest })); },
     bodies() { const o = []; for (const c of crowd) if (c.npc) o.push({ x: c.x, z: c.z, y: hAt(c.x, c.z), r: 1.4 }); return o; },
+    hit(px, pz, yaw, reach) {                        // удар игрока: два вздрагивания, на третий — падение (потом встаёт и идёт дальше); здоровья нет
+      const fx = Math.sin(yaw), fz = Math.cos(yaw); let n = 0;
+      for (const c of crowd) {
+        if (!c.npc || c.hurt && c.hurt.kind === 'fall') continue;
+        const dx = c.x - px, dz = c.z - pz, d = Math.hypot(dx, dz); if (d > reach + 1.4 || d < 0.05 || (dx * fx + dz * fz) / d < 0.3) continue;
+        const now = performance.now() / 1000; c.hits = now - (c.lastHit || -99) > 6 ? 1 : (c.hits || 0) + 1; c.lastHit = now; n++;
+        if (c.hits >= 3) { c.hits = 0; c.hurt = { kind: 'fall', t: 0, dur: 3.1 }; say(c, 'Ай!'); }
+        else { c.hurt = { kind: 'flinch', t: 0, dur: 0.5 }; if (rnd() < 0.5) say(c, 'Ой!'); }
+        c.yaw = Math.atan2(px - c.x, pz - c.z);      // оборачивается к обидчику
+      }
+      return n;
+    },
     update(dt, cam, camera) {
       if (camera) { fm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); view = view || new THREE.Frustum(); view.setFromProjectionMatrix(fm); }
       const inView = c => view && view.intersectsSphere(sph.set(pt.set(c.x, hAt(c.x, c.z) + 3, c.z), 8));      // жители появляются и исчезают только вне поля зрения камеры
@@ -182,7 +194,10 @@ export async function createNPCs({ scene, world, base = './' }) {
         if (homeTime && c.home && !c.visit) c.visit = { h: c.home, stage: 'toOut', t: Infinity, sleep: true };
         else if (homeTime && c.visit && !c.visit.sleep) { c.visit.sleep = true; c.visit.t = Infinity; }
         else if (!homeTime && c.visit && c.visit.sleep) { c.visit.sleep = false; c.visit.t = 0; }          // утро: просыпаются, выходят и идут на работу
-        if (c.visit) {                                   // заходит в дом: к двери → открывает → внутрь → дела → наружу → закрывает
+        if (c.hurt) {                                    // по жителю ударили: стоит на месте, пока длится вздрагивание/падение/вставание (здоровья у него нет)
+          c.hurt.t += dt; c.state = 'rest'; c.rest = 'idle';
+          if (c.hurt.t >= c.hurt.dur) c.hurt = null;
+        } else if (c.visit) {                            // заходит в дом: к двери → открывает → внутрь → дела → наружу → закрывает
           const v = c.visit, h = v.h, [nx, nz] = h.n, out = [h.dx + nx * 4, h.dz + nz * 4], inn = [(h.bx0 + h.bx1) / 2, (h.bz0 + h.bz1) / 2];
           const door = w => { if (h.doorObj) h.doorObj.want = w; };
           if (v.stage === 'stay') { v.t -= dt; c.state = 'rest'; c.rest = 'work'; if (v.t <= 0) { v.stage = 'out'; door(1); } }
@@ -221,7 +236,13 @@ export async function createNPCs({ scene, world, base = './' }) {
         if (dd > 230 && !inView(c)) { release(c); continue; }
         const root = c.npc.n.root;
         const vh = c.visit && c.x > c.visit.h.bx0 && c.x < c.visit.h.bx1 && c.z > c.visit.h.bz0 && c.z < c.visit.h.bz1 ? c.visit.h.gy : Math.max(0, hAt(c.x, c.z));
-        root.position.set(c.x, vh, c.z); root.rotation.y = c.yaw;
+        root.position.set(c.x, vh, c.z); root.rotation.set(0, c.yaw, 0, 'YXZ');
+        if (c.hurt) {                                    // вздрагивание: короткий наклон назад и дрожь; падение: на спину, лежит, поднимается
+          const h = c.hurt, k = Math.min(1, h.t / h.dur); let tilt = 0, roll = 0;
+          if (h.kind === 'flinch') { tilt = -0.32 * Math.sin(Math.PI * Math.min(1, k * 1.3)); roll = Math.sin(h.t * 45) * 0.09 * (1 - k); }
+          else { const d1 = 0.3, d2 = 1.5, u = h.t < d1 ? h.t / d1 : h.t < d1 + d2 ? 1 : 1 - (h.t - d1 - d2) / (h.dur - d1 - d2); const e = u * u * (3 - 2 * u); tilt = -1.52 * e; roll = h.t < d1 ? Math.sin(h.t * 30) * 0.1 : 0; root.position.y += Math.sin(-tilt) * 0.7; }
+          root.rotation.x = tilt; root.rotation.z = roll;
+        }
         setClip(c, c.state === 'walk' ? 'walk' : (c.rest || 'idle'));
         stationTick(c, dt);
         // реплики: раз в 6–14 с, если игрок/камера рядом (<25) или NPC болтает

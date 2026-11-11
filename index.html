@@ -126,6 +126,7 @@ function applyTod() {
   if (todTxt !== applyTod.last) { applyTod.last = todTxt; $('todT').textContent = todTxt; }      // в DOM пишем только когда текст изменился
 }
 $('tod').oninput = e => { tod.t = +e.target.value; applyTod(); };
+window.__todNext = () => { tod.t = (Math.floor(tod.t * 4) / 4 + 0.2501) % 1; applyTod(); };      // Изучение: клавиша смены времени суток
 $('todAuto').onclick = () => { tod.auto = !tod.auto; $('todAuto').textContent = '⏯ Смена дня: ' + (tod.auto ? 'вкл' : 'выкл'); };
 
 /* телепорты */
@@ -381,7 +382,7 @@ function shipGap(v, x, z, yaw) {
   return gap;
 }
 function stepShip(v, dt, turn, run) {
-  const g = v.g, B = world.bounds, sf = Math.max(0, (v.sailK - 0.07) / 0.93), sp = lerpN(4, run ? 21 : 13, sf);      // скорость корабля = скорость Ричарда (бег 13, с Shift 21)
+  const g = v.g, B = world.bounds, sf = Math.max(0, (v.sailK - 0.07) / 0.93), sp = lerpN(4, run ? 21 : 13, sf) * (v.slowK || 1);      // скорость корабля = скорость Ричарда (бег 13, с Shift 21)
   v.rv += ((v.sailsUp ? sp : 0) - v.rv) * Math.min(1, dt * 0.7);
   { const y0_ = v.yaw, ny = y0_ + turn * 0.55 * dt * Math.min(1, 0.25 + Math.abs(v.rv) / 8), px = g.position.x, pz = g.position.z; v.yaw = (ny !== y0_ && shipGap(v, px, pz, ny) < 0 && shipGap(v, px, pz, ny) < shipGap(v, px, pz, y0_)) ? y0_ : ny; }
   const dx = Math.sin(v.yaw), dz = Math.cos(v.yaw), nx = g.position.x + dx * v.rv * dt, nz = g.position.z + dz * v.rv * dt, la = Math.sign(v.rv || 1) * v.L * 0.45;
@@ -485,6 +486,8 @@ const shipsApi = {                    // для режима «Морской б
 };
 if (richard) gameMode = startGame({ net, richard, world, scene, THREE, ships: shipsApi });
 let audio = null; if (richard) { try { audio = createAudio({ world, richard, net }); } catch (e) { console.error('звук', e); } }
+const NPC_SWING = { attack: [0.22, 7.5], kick: [0.2, 6.5], bash: [0.25, 6.5] }, npcSw = { s: '', t: 0, f: true };
+addEventListener('mountedswing', () => { if (richard && npcs.hit && !richard.P.dead) npcs.hit(richard.P.pos.x, richard.P.pos.z, richard.P.yawVis ?? richard.P.yaw, 11); });
 let dragons = null; if (richard) { try { dragons = createDragons({ THREE, scene, world, richard, net, camera, renderer }); } catch (e) { console.error('драконы', e); } }
 if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode, ships: shipsApi, getDbg: () => gameMode && gameMode.dbg });      // миникарта: где второй игрок (N — размер)
 
@@ -503,6 +506,9 @@ renderer.setAnimationLoop(now => {
   if (mode === 'walk' && richard) {
     const p = richard.P.pos;                                  // животные и жители твёрдые: выталкиваем Ричарда
     rideUpdate(dt); if (!riding && !window.__dragonOn) unstickShips(richard.P);
+    { const R = richard.P, sw = NPC_SWING[R.state];      // удары по жителям: работают в любом режиме, здоровья у них нет (вздрагивают, на третий удар падают)
+      if (sw && !R.dead && !riding && !window.__dragonOn && npcs.hit) { if (npcSw.s !== R.state || R.t < npcSw.t) npcSw.f = false; if (!npcSw.f && R.t >= sw[0]) { npcSw.f = true; npcs.hit(R.pos.x, R.pos.z, R.yawVis ?? R.yaw, sw[1]); } } else npcSw.f = true;
+      npcSw.s = R.state; npcSw.t = R.t; }
     for (const b of riding || window.__dragonOn ? [] : [...animals.bodies(), ...(npcs.bodies ? npcs.bodies() : []), ...net.bodies()]) {
       if (Math.abs(p.y - b.y) > 6) continue;
       const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz), m = b.r + 1.1;

@@ -169,7 +169,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
         const r = lerp(radii[i0], radii[i0 + 1], k); sp.position.y += r * 0.92; sp.quaternion.setFromUnitVectors(up, tmp.set(0, 1, 0).addScaledVector(Tt, -0.45).normalize());
         const sz = 0.5 + r * 0.38; sp.scale.set(sz, sz * (0.9 + 0.5 * Math.sin(sp.userData.u * 9)), sz);
       }
-      head.position.copy(pts[RINGS - 1]); head.rotation.x = 0.22;
+      head.position.copy(pts[RINGS - 1]); head.rotation.order = 'YXZ'; { const aw = st.aw || 0; head.rotation.set(0.22 + (( -(st.ae || 0) - 0.1) - 0.22) * aw, (st.ay || 0) * aw, 0); }      // голова поворачивается на прицел (aw — вес прицеливания)
       jawPivot.rotation.x = 0.04 + inst.fire * 0.62 + Math.sin(inst.t * 1.2) * 0.02; glow.material.opacity = inst.fire * 0.85; glow.scale.setScalar(0.8 + inst.fire * 0.5);
       // пасть и направление дыхания в мировых координатах
       root.updateMatrixWorld(true); head.updateMatrixWorld(true);
@@ -225,6 +225,55 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   }
   const flameLight = new THREE.PointLight(0xff8a30, 0, 150, 1.4); scene.add(flameLight);
 
+  /* ───── горящий мир: пламя дракона поджигает деревья, растения и деревянные дома (камень и вода не горят); горит ~10 с и затухает.
+     Горение считается у каждого клиента сам по лучу пламени (своего и чужих драконов) — по сети ничего не шлём. ───── */
+  const BN = 1400, bpos = new Float32Array(BN * 3), bsz = new Float32Array(BN), bcol = new Float32Array(BN * 4);
+  const bl = { x: new Float32Array(BN), y: new Float32Array(BN), z: new Float32Array(BN), vy: new Float32Array(BN), age: new Float32Array(BN).fill(9), life: new Float32Array(BN).fill(1), s0: new Float32Array(BN), s1: new Float32Array(BN), sd: new Float32Array(BN) };
+  const bgeo = new THREE.BufferGeometry(); bgeo.setAttribute('position', new THREE.BufferAttribute(bpos, 3).setUsage(THREE.DynamicDrawUsage)); bgeo.setAttribute('aSize', new THREE.BufferAttribute(bsz, 1).setUsage(THREE.DynamicDrawUsage)); bgeo.setAttribute('aCol', new THREE.BufferAttribute(bcol, 4).setUsage(THREE.DynamicDrawUsage));
+  const bfire = new THREE.Points(bgeo, fmat); bfire.frustumCulled = false; bfire.renderOrder = 29; scene.add(bfire);
+  const burning = new Set(), BURN_T = 10, MAXB = 45, burnLight = new THREE.PointLight(0xff7a22, 0, 70, 1.5); scene.add(burnLight);
+  let bcur = 0, bLive = 0; const _ge = new V();
+  function igniteAt(x, y, z, r) {
+    if (!world.flamNear || burning.size >= MAXB) return;
+    world.flamNear(x, z, r, o => { if (o.burn > 0 || burning.size >= MAXB || y < o.y - 3 || y > o.y + o.h + 4) return; o.burn = BURN_T; o.acc = 0; burning.add(o); });
+  }
+  function igniteBeam(mouth, dir) {                // вдоль струи пламени (как в burn): рельеф гасит её, всё горючее по пути загорается
+    _ge.copy(mouth).addScaledVector(dir, 105); let hit = false;
+    for (let s = 1; s <= 20; s++) { const u = s / 20, px = mouth.x + (_ge.x - mouth.x) * u, py = mouth.y + (_ge.y - mouth.y) * u, pz = mouth.z + (_ge.z - mouth.z) * u; const g = hAt(px, pz);
+      if (g > py) { igniteAt(px, g, pz, 3 + 5 * u); hit = true; break; }
+      igniteAt(px, py, pz, 2 + 5 * u); }
+    if (!hit) igniteAt(_ge.x, _ge.y, _ge.z, 7);
+  }
+  function burnTick(dt) {
+    if (!burning.size && bLive <= 0) { burnLight.intensity = 0; return; }
+    if (burning.size) bLive = 2; else bLive -= dt;
+    const cx = camera ? camera.position.x : 0, cy = camera ? camera.position.y : 0, cz = camera ? camera.position.z : 0; let near = null, nd = 1e9;
+    for (const o of burning) {
+      o.burn -= dt; if (o.burn <= 0) { o.burn = 0; burning.delete(o); continue; }
+      const inten = Math.min(1, o.burn / 1.8) * Math.min(1, (BURN_T - o.burn) / 0.6 + 0.3), d = Math.hypot(o.x - cx, o.z - cz); if (d < nd) { nd = d; near = o; }
+      if (d > 450) continue;                       // далёкие горят «молча»: считаем время, но частицы не тратим
+      const sz = o.k === 'house' ? 1 : o.k === 'tree' ? 0.8 : 0.35, rate = (o.k === 'plant' ? 9 : 28 + Math.min(40, o.r * o.h * 0.15)) * inten;
+      o.acc += rate * dt; const n = Math.floor(o.acc); o.acc -= n;
+      for (let k = 0; k < n; k++) {
+        const i = bcur, a = Math.random() * 6.283, rr = Math.sqrt(Math.random()) * o.r * (o.k === 'tree' ? 0.55 : 0.8);
+        bl.x[i] = o.x + Math.cos(a) * rr; bl.z[i] = o.z + Math.sin(a) * rr; bl.y[i] = o.y + o.h * (o.k === 'plant' ? Math.random() * 0.7 : 0.2 + Math.random() * 0.75);
+        bcur = (bcur + 1) % BN; bl.vy[i] = rndR(7, 16); bl.age[i] = 0; bl.life[i] = rndR(0.7, 1.4); bl.sd[i] = Math.random() * 6.28; bl.s0[i] = (1 + Math.random()) * (0.4 + sz); bl.s1[i] = (2.5 + Math.random() * 3) * (0.35 + sz * 1.5) * (0.6 + 0.4 * inten);
+      }
+    }
+    if (near && nd < 220) { burnLight.position.set(near.x, near.y + near.h * 0.6, near.z); burnLight.intensity += (3.5 * Math.min(1, near.burn / 1.8) - burnLight.intensity) * Math.min(1, dt * 8); } else burnLight.intensity *= Math.max(0, 1 - dt * 8);
+    if (renderer && camera) uScale.value = renderer.domElement.height / (2 * Math.tan(camera.fov * Math.PI / 360));
+    for (let i = 0; i < BN; i++) {
+      if (bl.age[i] >= bl.life[i]) { bsz[i] = 0; bcol[i * 4 + 3] = 0; bpos[i * 3 + 1] = -9999; continue; }
+      bl.age[i] += dt; const k = bl.age[i] / bl.life[i];
+      bl.y[i] += bl.vy[i] * dt * (1 - 0.4 * k); bl.x[i] += Math.sin(bl.age[i] * 7 + bl.sd[i]) * 2.2 * dt; bl.z[i] += Math.cos(bl.age[i] * 6 + bl.sd[i]) * 2.2 * dt;
+      bpos[i * 3] = bl.x[i]; bpos[i * 3 + 1] = bl.y[i]; bpos[i * 3 + 2] = bl.z[i]; bsz[i] = bl.s0[i] + (bl.s1[i] - bl.s0[i]) * Math.sqrt(k);
+      let r, g, b, a;
+      if (k < 0.25) { r = 1; g = 0.85 - k * 1.2; b = 0.3; a = 0.5; } else if (k < 0.65) { const u = (k - 0.25) / 0.4; r = 1; g = 0.5 - 0.35 * u; b = 0.08; a = 0.5 - 0.1 * u; } else { r = 0.6; g = 0.12; b = 0.05; a = 0.4 * (1 - (k - 0.65) / 0.35); }
+      bcol[i * 4] = r; bcol[i * 4 + 1] = g; bcol[i * 4 + 2] = b; bcol[i * 4 + 3] = Math.max(0, a);
+    }
+    bgeo.attributes.position.needsUpdate = bgeo.attributes.aSize.needsUpdate = bgeo.attributes.aCol.needsUpdate = true;
+  }
+
   /* ───── мой дракон ─────
      Жизненный цикл: none → arrive (подлетает и садится рядом) → landed (ждёт) → mount (игрок забирается: E) → ride (полёт) → land (E у земли: снижается)
      → hop (игрок спрыгивает) → landed → leave (улетает прочь и тает вдали) → none. Дракон не появляется из воздуха и не исчезает на месте. */
@@ -233,7 +282,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   addEventListener('keydown', e => {
     if (typing()) return; K.add(e.code);
     if (mine.st === 'ride' && (e.code === 'Space' || e.code.startsWith('Arrow'))) e.preventDefault();
-    if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail();
+    if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && inDragonMode() && (oh.rollCd || 0) <= 0) { oh.rollT = 0.5; oh.rollCd = 2; net.send({ t: 'inv' }); }
   });
   addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
   addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, 0.02, 1.2); } });      // как при ходьбе: мышь крутит камеру
@@ -241,11 +290,12 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
 
   const boxCss = 'position:fixed;left:50%;transform:translateX(-50%);font:600 14px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:6px 14px;border-radius:10px;pointer-events:none;display:none;z-index:15;white-space:nowrap';
   const mkBox = bottom => { const d = document.createElement('div'); d.style.cssText = boxCss + ';bottom:' + bottom; document.body.appendChild(d); return d; };
+  const oh = { heat: 0, lock: 0, rollT: 0, rollCd: 0, bonus: 0 };      // перегрев огня и бочка-уворот
   const hud = mkBox('5%'), toast = mkBox('16%'), prompt_ = mkBox('26%'); let toastT = 0;
   const say = t => { toast.textContent = t; toast.style.display = 'block'; toastT = 2.2; };
 
   const palOf = id => PALETTES[Math.abs(+id || 0) % PALETTES.length], REST = 10.2, easeN = u => u * u * (3 - 2 * u);
-  const mine = { st: 'none', auto: false, d: null, pal: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, vy: 0, fire: false, turn: 0, boost: 0, camYaw: 0, t: 0, tx: 0, tz: 0, from: new V(), dest: new V(), yaw0: 0, idle: 0, leaveT: 0, leaveMax: 6, emitAcc: 0, fireHitT: {}, rate: 2.3, amp: 1 };
+  const mine = { st: 'none', auto: false, d: null, pal: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, vy: 0, fire: false, turn: 0, boost: 0, aw: 0, ay: 0, ae: 0, camYaw: 0, t: 0, tx: 0, tz: 0, from: new V(), dest: new V(), yaw0: 0, idle: 0, leaveT: 0, leaveMax: 6, emitAcc: 0, fireHitT: {}, rate: 2.3, amp: 1 };
   window.__dragonDbg = mine;
   const sup = { min: new V(), max: new V() }; let supOn = false;
   const setSup = () => { sup.min.set(P.pos.x - 1.3, P.pos.y - 0.9, P.pos.z - 1.3); sup.max.set(P.pos.x + 1.3, P.pos.y, P.pos.z + 1.3); if (!supOn) { richard.solids.push(sup); supOn = true; } };
@@ -300,6 +350,12 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   }
   function summon(auto) {
     if (mine.st !== 'none') return;
+    if (window.__carrying) return say('🚩 С флагом дракона звать нельзя');
+    if (auto && inDragonMode()) {                    // поединки: возрождение сразу в воздухе — дракон подхватывает героя на высоте
+      if (!mine.d) { mine.pal = Math.abs(net.id ?? 0) % PALETTES.length; mine.d = makeDragon(PALETTES[mine.pal]); scene.add(mine.d.root); }
+      Object.assign(mine, { st: 'mount', t: 0, auto: true, x: P.pos.x, z: P.pos.z, y: hAt(P.pos.x, P.pos.z) + 90, yaw: P.yawVis ?? P.yaw, yaw0: P.yawVis ?? P.yaw, pitch: 0, roll: 0, speed: 0, vy: 0, fire: false, fireHitT: {} }); mine.from.copy(P.pos);
+      mine.d.root.visible = true; mine.d.root.scale.setScalar(1); window.__riding = window.__dragonOn = true; richard.clearKeys(); oh.heat = 0; oh.lock = 0; return;
+    }
     const py = P.yawVis ?? P.yaw; let spot = null;
     for (const dist of [18, 30, 46]) { for (const da of [0, 0.7, -0.7, 1.4, -1.4, 2.2, -2.2, Math.PI]) {
       const x = P.pos.x + Math.sin(py + da) * dist, z = P.pos.z + Math.cos(py + da) * dist, h = hAt(x, z);
@@ -313,6 +369,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   }
   function onV() {
     if (window.__gameLock || !window.__richardActive || inDragonMode()) return;
+    if (window.__noEnter && mine.st === 'none') return;      // прятки: дракона звать нельзя
     if (mine.st === 'none') { if (P.dead || window.__riding) return; summon(false); }
     else if (mine.st === 'landed' || mine.st === 'arrive') leaveNow();
     else if (mine.st === 'ride') tryLand();
@@ -333,15 +390,27 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   function leaveNow() { if (mine.st === 'landed' || mine.st === 'arrive') { mine.st = 'leave'; mine.leaveT = 0; mine.leaveMax = 6; mine.speed = Math.max(mine.speed, 20); } }
   function release() { const g = g_(); if (g && g.cam) g.cam(mine.camYaw, 0.3, 34); window.__dragonOn = false; window.__riding = false; window.__dragonNear = false; dropSup(); richard.release(); P.vel.set(0, 0, 0); hud.style.display = 'none'; }
   function riderDied() { release(); mine.st = 'leave'; mine.leaveT = 0; mine.leaveMax = 3.5; mine.fire = false; mine.speed = Math.max(mine.speed, 30); }
-  window.__dragonSend = () => mine.d && mine.st !== 'none' ? { x: +mine.x.toFixed(1), y: +mine.y.toFixed(1), z: +mine.z.toFixed(1), w: +mine.yaw.toFixed(2), p: +mine.pitch.toFixed(2), r: +mine.roll.toFixed(2), f: mine.fire ? 1 : 0, c: mine.pal, b: mine.boost ? 1 : 0, t: +mine.turn.toFixed(2), l: mine.st === 'landed' || mine.st === 'mount' ? 1 : 0, k: mine.st === 'ride' ? 1 : 0, sc: +(mine.d.root.scale.x).toFixed(2) } : undefined;
+  window.__dragonSend = () => mine.d && mine.st !== 'none' ? { x: +mine.x.toFixed(1), y: +mine.y.toFixed(1), z: +mine.z.toFixed(1), w: +mine.yaw.toFixed(2), p: +mine.pitch.toFixed(2), r: +mine.roll.toFixed(2), f: mine.fire ? 1 : 0, c: mine.pal, b: mine.boost ? 1 : 0, t: +mine.turn.toFixed(2), l: mine.st === 'landed' || mine.st === 'mount' ? 1 : 0, k: mine.st === 'ride' ? 1 : 0, sc: +(mine.d.root.scale.x).toFixed(2), aw: +mine.aw.toFixed(2), ay: +mine.ay.toFixed(2), ae: +mine.ae.toFixed(2) } : undefined;
   net.on && net.on('spawn', () => { if (mine.st === 'arrive' || mine.st === 'landed') { mine.st = 'none'; if (mine.d) mine.d.root.visible = false; } });      // переродились в другом месте — дракон прилетит заново
 
-  const _a = new V(), _b = new V(), _c = new V(), _end = new V();
+  const _a = new V(), _b = new V(), _c = new V(), _end = new V(), _d1 = new V(), _d2 = new V(), _qq = new THREE.Quaternion();
+  // прицел огня: пока горит пламя, голова смотрит туда, куда направлена камера (точка в перекрестье на 220 м), в пределах поворота шеи; иначе плавно возвращается вперёд
+  const aimStep = (m, dt) => {
+    let ty = 0, te = 0, tw = 0;
+    if (m.fire && m.st === 'ride' && camera && m.d) {
+      camera.getWorldDirection(_d1); _d2.copy(camera.position).addScaledVector(_d1, 220).sub(m.d.mouth).normalize();
+      _qq.copy(m.d.root.quaternion).invert(); _d2.applyQuaternion(_qq);
+      ty = clamp(Math.atan2(_d2.x, _d2.z), -1.2, 1.2); te = clamp(Math.asin(clamp(_d2.y, -1, 1)), -1.1, 0.8); tw = 1;
+    }
+    const k = Math.min(1, dt * 9); m.aw += (tw - m.aw) * k; if (tw) { m.ay += (ty - m.ay) * k; m.ae += (te - m.ae) * k; }
+  };
   const seat = () => { P.pos.set(mine.x, mine.y - SEAT + LIFT, mine.z); P.vel.set(0, 0, 0); P.yaw = P.yawVis = mine.yaw; setSup(); };
   // камера дракона: цель — ТОЧНО седло (без отставания), углы и дистанция сглажены; её ставит хук из richard-mode (в конце camUpdate), а не штатная камера героя
   const cam_ = { p: 0.3, d: 62 };
   const follow = dt => { const r = 1.7 * dt, ride = mine.st === 'ride'; if (ride) { if (K.has('ArrowLeft')) mine.camYaw += r; if (K.has('ArrowRight')) mine.camYaw -= r; if (K.has('ArrowUp')) cam_.p = clamp(cam_.p - r * 0.6, 0.02, 1.2); if (K.has('ArrowDown')) cam_.p = clamp(cam_.p + r * 0.6, 0.02, 1.2); } else { mine.camYaw += angDiff(mine.camYaw, mine.yaw + Math.PI) * Math.min(1, dt * 2.6); cam_.p += (clamp(0.3 - mine.pitch * 0.25, 0.05, 0.75) - cam_.p) * Math.min(1, dt * 2); } cam_.d += ((mine.boost ? 72 : 62) - cam_.d) * Math.min(1, dt * 2); };
+  let killerId = null; net.on && net.on('hurt', m => { killerId = m.from; });
   window.__camHook = (cam, tgt) => {
+    if (P.dead && inDragonMode() && killerId != null) { const kr = (net.dragonRiders ? net.dragonRiders() : []).find(q => q.id === killerId); if (kr) { tgt.set(kr.dg.x, kr.dg.y + 5, kr.dg.z); cam.position.set(kr.dg.x + 30, kr.dg.y + 40, kr.dg.z + 30); return; } }
     if (mine.st !== 'ride' && mine.st !== 'land') return;
     tgt.set(mine.x, mine.y + 5, mine.z); const cp = Math.cos(cam_.p), d = window.__dragonCamD || cam_.d;
     cam.position.set(tgt.x + Math.sin(mine.camYaw) * cp * d, tgt.y + Math.sin(cam_.p) * d, tgt.z + Math.cos(mine.camYaw) * cp * d);
@@ -377,7 +446,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       const vIn = ctl ? (K.has('KeyZ') ? 1 : 0) - (K.has('KeyX') ? 1 : 0) : 0;
       m.boost = ctl && (K.has('ShiftLeft') || K.has('ShiftRight')) ? 1 : 0;
       m.turn += (turnIn - m.turn) * Math.min(1, dt * 4); { const py = m.yaw; m.yaw += m.turn * 1.9 * dt; if (m.turn && !probeSolid(m.x, m.y, m.z, py) && probeSolid(m.x, m.y, m.z, m.yaw)) m.yaw = py; }      // поворот не вгоняет крыло/голову в стену или дерево
-      const spT = ride ? (steer ? 66 * (m.boost ? 1.6 : 1) * (1 - 0.5 * Math.abs(turnIn)) : fwdIn < 0 ? -24 : 0) : 0;
+      const spT = ride ? (steer ? 66 * (m.boost ? 1.6 : 1) * (1 - 0.5 * Math.abs(turnIn)) * (oh.bonus > 0 ? 1.35 : 1) : fwdIn < 0 ? -24 : 0) : 0;
       m.speed += (spT - m.speed) * Math.min(1, dt * (ride ? 1.7 : 2.5));
       const vyT = ride ? (vIn > 0 ? 40 : vIn < 0 ? -50 : 0) : clamp((gT - m.y) * 2, -55, 55);
       m.vy += (vyT - m.vy) * Math.min(1, dt * 3);
@@ -399,6 +468,8 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       const hover = 1 - clamp(Math.abs(m.speed) / 45, 0, 1);
       rate = 2.3 + hover * 1.0 + (m.boost ? 1.4 : 0) + Math.max(0, m.vy) * 0.02; amp = 1;
       m.fire = ctl && (K.has('Space') || mouseDown);
+      if (inDragonMode()) { if (oh.lock > 0) { oh.lock -= dt; m.fire = false; } else if (m.fire) { oh.heat += dt; if (oh.heat > 4) { oh.lock = 2; oh.heat = 0; m.fire = false; } } else oh.heat = Math.max(0, oh.heat - dt * 1.5); }
+      oh.rollCd -= dt; if (oh.rollT > 0) { oh.rollT -= dt; m.roll = (1 - oh.rollT / 0.5) * Math.PI * 2 * (m.turn < 0 ? -1 : 1); }
       if (!P.dead) { seat(); follow(dt); }
       if (!ride && Math.abs(m.y - gT) < 0.5 && Math.abs(m.speed) < 6) {
         m.st = 'hop'; m.t = 0; m.from.copy(P.pos); m.yaw0 = m.yaw;
@@ -417,19 +488,34 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     }
     if (m.st === 'none') return;
     d.root.position.set(m.x, m.y, m.z); d.root.rotation.set(-m.pitch, m.yaw, m.roll, 'YXZ');
-    d.update(dt, { rate, amp, fire: m.fire, turn: m.turn, pitch: m.pitch });
+    aimStep(m, dt); d.update(dt, { rate, amp, fire: m.fire, turn: m.turn, pitch: m.pitch, aw: m.aw, ay: m.ay, ae: m.ae });
     if (d.flapped) { d.flapped = false; if (window.__snd && m.st !== 'landed') window.__snd('flap', m.st === 'ride' || m.st === 'land' ? 0.9 : 0.6); }
     if (m.fire) {
       m.emitAcc += dt * 230; const n = Math.floor(m.emitAcc); m.emitAcc -= n; _a.set(Math.sin(m.yaw) * m.speed, m.vy, Math.cos(m.yaw) * m.speed).multiplyScalar(0.6);
-      emit(d.mouth, d.dir, _a, n); burn(d.mouth, d.dir);
+      emit(d.mouth, d.dir, _a, n); burn(d.mouth, d.dir); igniteBeam(d.mouth, d.dir);
     }
+  }
+  const rings = []; let ringsOn = false;
+  function ringsStep(dt) {                        // бонус-кольца: пролёт даёт 5 с ускорения и усиленного огня без перегрева
+    if (!ringsOn) { ringsOn = true; const B = world.bounds || { x0: -400, x1: 400, z0: -400, z1: 400 }, cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2, R = Math.min(B.x1 - B.x0, B.z1 - B.z0) * 0.3;
+      for (let i = 0; i < 6; i++) { const x = cx + Math.cos(i * 1.047) * R, z = cz + Math.sin(i * 1.047) * R, m = new THREE.Mesh(new THREE.TorusGeometry(12, 1.2, 8, 24), new THREE.MeshBasicMaterial({ color: 0xffd040 })); m.position.set(x, hAt(x, z) + 70 + (i % 3) * 30, z); m.rotation.y = i; scene.add(m); rings.push(m); } }
+    for (const m of rings) { m.visible = inDragonMode(); m.rotation.z += dt; if (mine.st === 'ride' && m.visible && Math.hypot(mine.x - m.position.x, mine.y - m.position.y, mine.z - m.position.z) < 16) { oh.bonus = 5; say('⭐ Бонус: ускорение и мощный огонь 5 с'); } }
+    if (oh.bonus > 0) { oh.bonus -= dt; oh.heat = 0; }
+  }
+  let warnT = 0;
+  function nearestArrow() {                      // стрелка на ближайшего чужого дракона
+    let best = null, bd = 1e9; for (const o of others.values()) { const d = Math.hypot(o.x - mine.x, o.z - mine.z); if (d < bd) { bd = d; best = o; } }
+    if (!best) return ''; 
+    const k = Math.round(((Math.atan2(best.x - mine.x, best.z - mine.z) - mine.camYaw - Math.PI) / (Math.PI / 4)) % 8 + 8) % 8;      // 0 — вперёд (камера смотрит на -yaw)
+    return ' · враг ' + '⬆↖⬅↙⬇↘➡↗'[k] + ' ' + Math.round(bd) + ' м';
   }
   function burn(mouth, dir) {                    // пламя поражает чужих всадников (сервер проверяет дальность и режим)
     if (!inDragonMode() || P.dead) return;
     _end.copy(mouth).addScaledVector(dir, 105); const t = performance.now() / 1000;
+    for (let s = 1; s <= 10; s++) { const px = mouth.x + (_end.x - mouth.x) * s / 10, pz = mouth.z + (_end.z - mouth.z) * s / 10; if (hAt(px, pz) > mouth.y + (_end.y - mouth.y) * s / 10) { _end.set(px, mouth.y + (_end.y - mouth.y) * s / 10, pz); break; } }      // рельеф гасит пламя
     for (const b of net.bodies()) {
       _a.set(b.x, b.y + 4.4, b.z); _b.subVectors(_end, mouth); const len2 = _b.lengthSq(); const u = clamp(_c.subVectors(_a, mouth).dot(_b) / len2, 0, 1);
-      _c.copy(mouth).addScaledVector(_b, u); const r = 3.2 + 7 * u;
+      _c.copy(mouth).addScaledVector(_b, u); const r = (3.2 + 7 * u) * (oh.bonus > 0 ? 1.4 : 1);
       if (_c.distanceTo(_a) < r && (!mine.fireHitT[b.id] || t - mine.fireHitT[b.id] > 0.3)) { mine.fireHitT[b.id] = t; net.send({ t: 'hit', to: b.id, dmg: 45 }); }
     }
   }
@@ -438,21 +524,23 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   const others = new Map(); let othersFrame = 0, remoteFire = 0;
   function updateOthers(dt) {
     const list = net.dragonRiders ? net.dragonRiders() : [], seen = new Set(), k = 1 - Math.exp(-14 * dt);
-    othersFrame++; remoteFire = 0;
+    othersFrame++; remoteFire = 0; warnT -= dt;
     for (const r of list) {
       const dg = r.dg; if (!Number.isFinite(dg.x)) continue; seen.add(r.id); let o = others.get(r.id);
       if (!o) { o = { d: makeDragon(palOf(dg.c)), c: dg.c, x: dg.x, y: dg.y, z: dg.z, yaw: dg.w || 0, pitch: 0, roll: 0, turn: 0, acc: 0, px: dg.x, py: dg.y, pz: dg.z }; scene.add(o.d.root); others.set(r.id, o); }
       else if (o.c !== dg.c) { scene.remove(o.d.root); o.d.dispose(); o.d = makeDragon(palOf(dg.c)); o.c = dg.c; scene.add(o.d.root); }
       o.x += (dg.x - o.x) * k; o.y += (dg.y - o.y) * k; o.z += (dg.z - o.z) * k; o.yaw += angDiff(o.yaw, dg.w || 0) * k;
+      o.aw = (o.aw || 0) + ((dg.aw || 0) - (o.aw || 0)) * k; o.ay = (o.ay || 0) + ((dg.ay || 0) - (o.ay || 0)) * k; o.ae = (o.ae || 0) + ((dg.ae || 0) - (o.ae || 0)) * k;
       o.pitch += ((dg.p || 0) - o.pitch) * k; o.roll += ((dg.r || 0) - o.roll) * k; o.turn += ((dg.t || 0) - o.turn) * k;
       o.d.root.position.set(o.x, o.y, o.z); o.d.root.rotation.set(-o.pitch, o.yaw, o.roll, 'YXZ'); o.d.root.scale.setScalar(dg.sc || 1);
       const vx = (o.x - o.px) / Math.max(dt, 1e-3), vy = (o.y - o.py) / Math.max(dt, 1e-3), vz = (o.z - o.pz) / Math.max(dt, 1e-3); o.px = o.x; o.py = o.y; o.pz = o.z;
       const dc = camera ? o.d.root.position.distanceTo(camera.position) : 0; o.d.root.visible = dc < 1600;
       if (dc > 1600 || (dc > 350 && (othersFrame & 1))) { if (dg.f && o.d.root.visible) { /* огонь рисуем всегда */ } else continue; }      // далёкие драконы: тело пересчитываем через кадр, совсем далёкие не считаем
-      o.d.update(dt, dg.l ? { rate: 0.9, amp: 0.3, fire: false, turn: 0, pitch: 0 } : { rate: 2.5 + (dg.b ? 1.4 : 0), amp: 1, fire: !!dg.f, turn: o.turn, pitch: o.pitch });
+      o.d.update(dt, dg.l ? { rate: 0.9, amp: 0.3, fire: false, turn: 0, pitch: 0 } : { rate: 2.5 + (dg.b ? 1.4 : 0), amp: 1, fire: !!dg.f, turn: o.turn, pitch: o.pitch, aw: o.aw, ay: o.ay, ae: o.ae });
       if (o.d.flapped) { o.d.flapped = false; const dv = 1 - dc / 500; if (dv > 0.05 && window.__snd && !dg.l) window.__snd('flap', dv * 0.8); }
+      if (dg.f && mine.st === 'ride' && inDragonMode() && warnT <= 0) { const wx = mine.x - o.x, wy = mine.y - o.y, wz = mine.z - o.z, wd = Math.hypot(wx, wy, wz); if (wd < 130 && (wx * Math.sin(o.yaw) + wz * Math.cos(o.yaw)) / wd > 0.93) { warnT = 1.2; window.__snd && window.__snd('roar', 0.5); say('⚠ В вас целятся!'); } }
       if (dg.f) remoteFire = Math.max(remoteFire, Math.max(0, 1 - dc / 400) * 0.8);
-      if (dg.f) { o.acc += dt * 230; const n = Math.floor(o.acc); o.acc -= n; _a.set(clamp(vx, -90, 90), clamp(vy, -90, 90), clamp(vz, -90, 90)).multiplyScalar(0.6); emit(o.d.mouth, o.d.dir, _a, n); }
+      if (dg.f) { o.acc += dt * 230; const n = Math.floor(o.acc); o.acc -= n; _a.set(clamp(vx, -90, 90), clamp(vy, -90, 90), clamp(vz, -90, 90)).multiplyScalar(0.6); emit(o.d.mouth, o.d.dir, _a, n); igniteBeam(o.d.mouth, o.d.dir); }
     }
     for (const [id, o] of [...others]) if (!seen.has(id)) { scene.remove(o.d.root); o.d.dispose(); others.delete(id); }
   }
@@ -473,11 +561,12 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     prompt_.style.display = window.__dragonNear ? 'block' : 'none'; if (window.__dragonNear) prompt_.textContent = '🐉 E — забраться на дракона';
     if (mine.st === 'ride') {
       hud.style.display = 'block';
-      hud.textContent = `🐉 ${PALETTES[mine.pal].name} дракон · W/S — вперёд/назад · A/D — поворот · Z/X — вверх/вниз · Shift — ускорение · Пробел/ЛКМ — огонь · E — приземлиться · Q — спрыгнуть · высота ${Math.round(mine.y - hAt(mine.x, mine.z))}`;
+      hud.textContent = `🐉 ${PALETTES[mine.pal].name} дракон · W/S — вперёд/назад · A/D — поворот · Z/X — вверх/вниз · Shift — ускорение · Пробел/ЛКМ — огонь · E — приземлиться · Q — спрыгнуть · высота ${Math.round(mine.y - hAt(mine.x, mine.z))} · C — бочка${oh.lock > 0 ? ' · 🔥 ПЕРЕГРЕВ' : oh.heat > 0.3 ? ' · жар ' + Math.round(oh.heat / 4 * 100) + '%' : ''}${nearestArrow()}`;
     } else if (mine.st === 'land') { hud.style.display = 'block'; hud.textContent = '🐉 Приземляемся…'; }
-    updateOthers(dt);
+    updateOthers(dt); ringsStep(dt);
     if (window.__sndLoop) window.__sndLoop('fire', true, Math.max(mine.st === 'ride' && mine.fire ? 1 : 0, remoteFire));
     fireTick(dt);
+    burnTick(dt);
     const lit = mine.st === 'ride' && mine.fire;
     flameLight.intensity += ((lit ? 7 : 0) - flameLight.intensity) * Math.min(1, dt * 12);
     if (lit) flameLight.position.copy(mine.d.mouth).addScaledVector(mine.d.dir, 14);
