@@ -14,6 +14,7 @@ const SEAT = 4.4, LIFT = 4.2;                      // от седла до ст�
 export function createDragons({ THREE, scene, world, richard, net, camera, renderer }) {
   const V = THREE.Vector3, P = richard.P, clamp = (v, a, b) => Math.max(a, Math.min(b, v)), lerp = (a, b, t) => a + (b - a) * t;
   const angDiff = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  const angWrap = a => Math.atan2(Math.sin(a), Math.cos(a));
   const hAt = (x, z) => { const h = world.heightAt(x, z); return h < 0.3 ? -3 : h; };      // над водой «земля» — чуть ниже поверхности: дракон может сесть на воду и плыть над ней низко
 
   /* ───── текстура чешуи ───── */
@@ -358,7 +359,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   addEventListener('keydown', e => {
     if (typing()) return; K.add(e.code);
     if (mine.st === 'ride' && (e.code === 'Space' || e.code.startsWith('Arrow'))) e.preventDefault();
-    if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && (oh.rollCd || 0) <= 0) { oh.rollT = 0.5; oh.rollCd = 2; if (inDragonMode()) net.send({ t: 'inv' }); }
+    if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && (oh.rollCd || 0) <= 0) { oh.rollT = 0.65; oh.rollDir = mine.turn < 0 ? -1 : 1; oh.rollCd = 2; if (inDragonMode()) net.send({ t: 'inv' }); }
   });
   addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
   addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, -0.5, 1.2); } });      // как при ходьбе: мышь крутит камеру
@@ -466,7 +467,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   function leaveNow() { if (mine.st === 'landed' || mine.st === 'arrive') { mine.st = 'leave'; mine.leaveT = 0; mine.leaveMax = 6; mine.speed = Math.max(mine.speed, 20); } }
   function release() { const g = g_(); if (g && g.cam) g.cam(mine.camYaw, 0.3, 34); window.__dragonOn = false; window.__riding = false; window.__dragonNear = false; dropSup(); richard.release(); P.vel.set(0, 0, 0); hud.style.display = 'none'; }
   function riderDied() { release(); mine.st = 'leave'; mine.leaveT = 0; mine.leaveMax = 3.5; mine.fire = false; mine.speed = Math.max(mine.speed, 30); }
-  window.__dragonSend = () => mine.d && mine.st !== 'none' ? { x: +mine.x.toFixed(1), y: +mine.y.toFixed(1), z: +mine.z.toFixed(1), w: +mine.yaw.toFixed(2), p: +mine.pitch.toFixed(2), r: +mine.roll.toFixed(2), f: mine.fire ? 1 : 0, c: mine.pal, b: mine.boost ? 1 : 0, t: +mine.turn.toFixed(2), l: mine.st === 'landed' || mine.st === 'mount' ? 1 : 0, k: mine.st === 'ride' ? 1 : 0, sc: +(mine.d.root.scale.x).toFixed(2), aw: +mine.aw.toFixed(2), ay: +mine.ay.toFixed(2), ae: +mine.ae.toFixed(2) } : undefined;
+  window.__dragonSend = () => mine.d && mine.st !== 'none' ? { x: +mine.x.toFixed(1), y: +mine.y.toFixed(1), z: +mine.z.toFixed(1), w: +mine.yaw.toFixed(2), p: +mine.pitch.toFixed(2), r: +angWrap(mine.roll + (mine.barrel || 0)).toFixed(2), f: mine.fire ? 1 : 0, c: mine.pal, b: mine.boost ? 1 : 0, t: +mine.turn.toFixed(2), l: mine.st === 'landed' || mine.st === 'mount' ? 1 : 0, k: mine.st === 'ride' ? 1 : 0, sc: +(mine.d.root.scale.x).toFixed(2), aw: +mine.aw.toFixed(2), ay: +mine.ay.toFixed(2), ae: +mine.ae.toFixed(2) } : undefined;
   net.on && net.on('spawn', () => { if (mine.st === 'arrive' || mine.st === 'landed') { mine.st = 'none'; if (mine.d) mine.d.root.visible = false; } });      // переродились в другом месте — дракон прилетит заново
 
   const _a = new V(), _b = new V(), _c = new V(), _end = new V(), _d1 = new V(), _d2 = new V(), _qq = new THREE.Quaternion();
@@ -545,7 +546,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       rate = 2.3 + hover * 1.0 + (m.boost ? 1.4 : 0) + Math.max(0, m.vy) * 0.02; amp = 1;
       m.fire = ctl && (K.has('Space') || mouseDown);
       if (inDragonMode()) { if (oh.lock > 0) { oh.lock -= dt; m.fire = false; } else if (m.fire) { oh.heat += dt; if (oh.heat > 4) { oh.lock = 2; oh.heat = 0; m.fire = false; } } else oh.heat = Math.max(0, oh.heat - dt * 1.5); }
-      oh.ult = Math.min(1, oh.ult + dt / 10); oh.rollCd -= dt; if (oh.rollT > 0) { oh.rollT -= dt; m.roll = (1 - oh.rollT / 0.5) * Math.PI * 2 * (m.turn < 0 ? -1 : 1); }
+      oh.ult = Math.min(1, oh.ult + dt / 10); oh.rollCd -= dt; if (oh.rollT > 0) { oh.rollT -= dt; const u = clamp(1 - oh.rollT / 0.65, 0, 1); m.barrel = u * u * (3 - 2 * u) * Math.PI * 2 * (oh.rollDir || 1); } else m.barrel = 0;      // бочка — отдельный угол поверх обычного крена: после неё дракон не «раскручивается» назад
       if (!P.dead) { seat(); follow(dt); }
       if (!ride && Math.abs(m.y - gT) < 0.5 && Math.abs(m.speed) < 6) {
         m.st = 'hop'; m.t = 0; m.from.copy(P.pos); m.yaw0 = m.yaw;
@@ -563,7 +564,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       if (m.leaveT >= m.leaveMax) { d.root.visible = false; m.st = 'none'; m.fire = false; }
     }
     if (m.st === 'none') return;
-    d.root.position.set(m.x, m.y, m.z); d.root.rotation.set(-m.pitch, m.yaw, m.roll, 'YXZ');
+    d.root.position.set(m.x, m.y, m.z); d.root.rotation.set(-m.pitch, m.yaw, m.roll + (m.barrel || 0), 'YXZ');
     aimStep(m, dt); d.update(dt, { rate, amp, fire: m.fire, turn: m.turn, pitch: m.pitch, aw: m.aw, ay: m.ay, ae: m.ae });
     if (d.flapped) { d.flapped = false; if (window.__snd && m.st !== 'landed') window.__snd('flap', m.st === 'ride' || m.st === 'land' ? 0.9 : 0.6); }
     if (m.fire) {
@@ -607,7 +608,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       else if (o.c !== dg.c) { scene.remove(o.d.root); o.d.dispose(); o.d = makeDragon(palOf(dg.c)); o.c = dg.c; scene.add(o.d.root); }
       o.x += (dg.x - o.x) * k; o.y += (dg.y - o.y) * k; o.z += (dg.z - o.z) * k; o.yaw += angDiff(o.yaw, dg.w || 0) * k;
       o.aw = (o.aw || 0) + ((dg.aw || 0) - (o.aw || 0)) * k; o.ay = (o.ay || 0) + ((dg.ay || 0) - (o.ay || 0)) * k; o.ae = (o.ae || 0) + ((dg.ae || 0) - (o.ae || 0)) * k;
-      o.pitch += ((dg.p || 0) - o.pitch) * k; o.roll += ((dg.r || 0) - o.roll) * k; o.turn += ((dg.t || 0) - o.turn) * k;
+      o.pitch += ((dg.p || 0) - o.pitch) * k; o.roll += angDiff(o.roll, dg.r || 0) * k; o.turn += ((dg.t || 0) - o.turn) * k;
       o.d.root.position.set(o.x, o.y, o.z); o.d.root.rotation.set(-o.pitch, o.yaw, o.roll, 'YXZ'); o.d.root.scale.setScalar(dg.sc || 1);
       const vx = (o.x - o.px) / Math.max(dt, 1e-3), vy = (o.y - o.py) / Math.max(dt, 1e-3), vz = (o.z - o.pz) / Math.max(dt, 1e-3); o.px = o.x; o.py = o.y; o.pz = o.z;
       const dc = camera ? o.d.root.position.distanceTo(camera.position) : 0; o.d.root.visible = dc < 1600;
