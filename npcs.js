@@ -138,7 +138,7 @@ export async function createNPCs({ scene, world, base = './' }) {
     const it = (pool[c.id] ||= []).pop() || { n: mod.makeNPC(DEF[c.id]) };
     c.npc = it; it.n.root.scale.setScalar(SCALE); it.n.root.traverse(o => { if (o.isMesh) o.castShadow = true; }); scene.add(it.n.root); c.clip = null; return it;
   }
-  function release(c) { const it = c.npc; if (it.n.station) it.n.station.visible = false; scene.remove(it.n.root); pool[c.id].push(it); c.npc = null; hideBubble(c); }
+  function release(c) { c.hurt = null; c.hits = 0; const it = c.npc; if (it.n.station) it.n.station.visible = false; scene.remove(it.n.root); pool[c.id].push(it); c.npc = null; hideBubble(c); }
   // облачко-реплика: один спрайт на NPC, создаётся лениво, висит ~3.5 с
   function bubbleTex(text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const g = cv.getContext('2d');
@@ -194,6 +194,7 @@ export async function createNPCs({ scene, world, base = './' }) {
         if (homeTime && c.home && !c.visit) c.visit = { h: c.home, stage: 'toOut', t: Infinity, sleep: true };
         else if (homeTime && c.visit && !c.visit.sleep) { c.visit.sleep = true; c.visit.t = Infinity; }
         else if (!homeTime && c.visit && c.visit.sleep) { c.visit.sleep = false; c.visit.t = 0; }          // утро: просыпаются, выходят и идут на работу
+        if (c.hurt && Math.hypot(c.x - cam.x, c.z - cam.z) > 230) { c.hurt = null; c.hits = 0; }      // игрок далеко — ушиб забыт
         if (c.hurt) {                                    // по жителю ударили: стоит на месте, пока длится вздрагивание/падение/вставание (здоровья у него нет)
           c.hurt.t += dt; c.state = 'rest'; c.rest = 'idle';
           if (c.hurt.t >= c.hurt.dur) c.hurt = null;

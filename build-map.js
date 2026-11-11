@@ -584,6 +584,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     const r = m > 0 ? m : Math.max(v.size.x, v.size.z) * 0.06; trunkCache.set(key, r); return r;
   }
   const SOLID_RE = /^(hut|town|fish|pirate|jp_|farm|tavern|inn|church|fortress|citadel|tower|pagoda|warehouse|lighthouse|windmill|big_hall|manor|tent|wall|pier|fountain|crane|stall|barracks|smithy|townhall|gate_|dock)/;
+  const foundMat = new THREE.MeshStandardMaterial({ color: 0x6b5f52, roughness: 1 });
   const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V3 = new THREE.Vector3(), S3 = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
   // перед дверью дома — свободно: деревья, камни, кусты и мелочь в 5.5 ед. от точки перед дверью убираем
   for (const p of placements) {
@@ -704,6 +705,12 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
         }
       }
       if (box) solidBoxes.push(box);
+    }
+    if (!p.vessel && !p.pier && BUILD_RE.test(p.id) && v.size) {      // фундамент: на склоне дом не «висит» над землёй — под ним каменный цоколь до самой низкой точки рельефа под постройкой
+      const hx = v.size.x * p.s * 0.45, hz = v.size.z * p.s * 0.45, cs = Math.cos(p.rot), sn = Math.sin(p.rot); let lo = y;
+      for (let i = -1; i <= 1; i += 0.5) for (let j = -1; j <= 1; j += 0.5) lo = Math.min(lo, heightAt(p.x + i * hx * cs + j * hz * sn, p.z - i * hx * sn + j * hz * cs));
+      lo = Math.max(lo, y - 14);
+      if (y - lo > 0.35) { const hh = y - lo + 0.8, m = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, hh, hz * 2), foundMat); m.position.set(p.x, y - 0.02 - hh / 2, p.z); m.rotation.y = p.rot; m.castShadow = m.receiveShadow = true; m.name = 'Foundation'; scene.add(m); }
     }
     if (v.parts) {
       let b = batches.get(p.id + ':' + p.seedV); if (!b) batches.set(p.id + ':' + p.seedV, b = { v, mats: [] });

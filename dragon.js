@@ -251,7 +251,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     for (const o of burning) {
       o.burn -= dt; if (o.burn <= 0) { o.burn = 0; burning.delete(o); continue; }
       const inten = Math.min(1, o.burn / 1.8) * Math.min(1, (BURN_T - o.burn) / 0.6 + 0.3), d = Math.hypot(o.x - cx, o.z - cz); if (d < nd) { nd = d; near = o; }
-      if (d > 450) continue;                       // далёкие горят «молча»: считаем время, но частицы не тратим
+      if (d > 350) { o.burn = 0; burning.delete(o); continue; }      // игрок далеко — огонь гаснет (не видно и не считаем)
       const sz = o.k === 'house' ? 1 : o.k === 'tree' ? 0.8 : 0.35, rate = (o.k === 'plant' ? 9 : 28 + Math.min(40, o.r * o.h * 0.15)) * inten;
       o.acc += rate * dt; const n = Math.floor(o.acc); o.acc -= n;
       for (let k = 0; k < n; k++) {
