@@ -285,7 +285,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && inDragonMode() && (oh.rollCd || 0) <= 0) { oh.rollT = 0.5; oh.rollCd = 2; net.send({ t: 'inv' }); }
   });
   addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
-  addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, 0.02, 1.2); } });      // как при ходьбе: мышь крутит камеру
+  addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, -0.5, 1.2); } });      // как при ходьбе: мышь крутит камеру
   addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) mouseDown = true; }); addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 
   const boxCss = 'position:fixed;left:50%;transform:translateX(-50%);font:600 14px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:6px 14px;border-radius:10px;pointer-events:none;display:none;z-index:15;white-space:nowrap';
@@ -400,14 +400,14 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     if (m.fire && m.st === 'ride' && camera && m.d) {
       camera.getWorldDirection(_d1); _d2.copy(camera.position).addScaledVector(_d1, 220).sub(m.d.mouth).normalize();
       _qq.copy(m.d.root.quaternion).invert(); _d2.applyQuaternion(_qq);
-      ty = clamp(Math.atan2(_d2.x, _d2.z), -1.2, 1.2); te = clamp(Math.asin(clamp(_d2.y, -1, 1)), -1.1, 0.8); tw = 1;
+      ty = clamp(Math.atan2(_d2.x, _d2.z), -1.4, 1.4); te = clamp(Math.asin(clamp(_d2.y, -1, 1)), -1.1, 1.0); tw = 1;
     }
     const k = Math.min(1, dt * 9); m.aw += (tw - m.aw) * k; if (tw) { m.ay += (ty - m.ay) * k; m.ae += (te - m.ae) * k; }
   };
   const seat = () => { P.pos.set(mine.x, mine.y - SEAT + LIFT, mine.z); P.vel.set(0, 0, 0); P.yaw = P.yawVis = mine.yaw; setSup(); };
   // камера дракона: цель — ТОЧНО седло (без отставания), углы и дистанция сглажены; её ставит хук из richard-mode (в конце camUpdate), а не штатная камера героя
   const cam_ = { p: 0.3, d: 62 };
-  const follow = dt => { const r = 1.7 * dt, ride = mine.st === 'ride'; if (ride) { if (K.has('ArrowLeft')) mine.camYaw += r; if (K.has('ArrowRight')) mine.camYaw -= r; if (K.has('ArrowUp')) cam_.p = clamp(cam_.p - r * 0.6, 0.02, 1.2); if (K.has('ArrowDown')) cam_.p = clamp(cam_.p + r * 0.6, 0.02, 1.2); } else { mine.camYaw += angDiff(mine.camYaw, mine.yaw + Math.PI) * Math.min(1, dt * 2.6); cam_.p += (clamp(0.3 - mine.pitch * 0.25, 0.05, 0.75) - cam_.p) * Math.min(1, dt * 2); } cam_.d += ((mine.boost ? 72 : 62) - cam_.d) * Math.min(1, dt * 2); };
+  const follow = dt => { const r = 1.7 * dt, ride = mine.st === 'ride'; if (ride) { if (K.has('ArrowLeft')) mine.camYaw += r; if (K.has('ArrowRight')) mine.camYaw -= r; if (K.has('ArrowUp')) cam_.p = clamp(cam_.p - r * 0.6, -0.5, 1.2); if (K.has('ArrowDown')) cam_.p = clamp(cam_.p + r * 0.6, -0.5, 1.2); } else { mine.camYaw += angDiff(mine.camYaw, mine.yaw + Math.PI) * Math.min(1, dt * 2.6); cam_.p += (clamp(0.3 - mine.pitch * 0.25, 0.05, 0.75) - cam_.p) * Math.min(1, dt * 2); } cam_.d += ((mine.boost ? 72 : 62) - cam_.d) * Math.min(1, dt * 2); };
   let killerId = null; net.on && net.on('hurt', m => { killerId = m.from; });
   window.__camHook = (cam, tgt) => {
     if (P.dead && inDragonMode() && killerId != null) { const kr = (net.dragonRiders ? net.dragonRiders() : []).find(q => q.id === killerId); if (kr) { tgt.set(kr.dg.x, kr.dg.y + 5, kr.dg.z); cam.position.set(kr.dg.x + 30, kr.dg.y + 40, kr.dg.z + 30); return; } }
