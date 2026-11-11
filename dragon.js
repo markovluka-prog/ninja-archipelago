@@ -238,10 +238,12 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   function igniteAt(x, y, z, r) {
     if (!world.flamNear) return;
     world.flamNear(x, z, r, o => {
-      if (o.burn > 0 || y < o.y - 3 || y > o.y + o.h + 4) return;
-      if (o.k === 'plant' ? nPlant >= 18 : burning.size - nPlant >= MAXB) return;
-      o.burn = BURN_T; o.acc = 0; burning.add(o); if (o.k === 'plant') nPlant++;
+      if (y < o.y - 3 || y > o.y + o.h + 4) return; lightUp(o);
     });
+  }
+  function lightUp(o) {
+    if (o.burn > 0 || (o.k === 'plant' ? nPlant >= 18 : burning.size - nPlant >= MAXB)) return;
+    o.burn = BURN_T; o.acc = 0; burning.add(o); if (o.k === 'plant') nPlant++;
   }
   function igniteBeam(mouth, dir) {                // вдоль струи пламени (как в burn): рельеф гасит её, всё горючее по пути загорается
     _ge.copy(mouth).addScaledVector(dir, 105); let hit = false;
@@ -280,6 +282,41 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     bgeo.attributes.position.needsUpdate = bgeo.attributes.aSize.needsUpdate = bgeo.attributes.aCol.needsUpdate = true;
   }
 
+
+  /* ───── ульта дракона: ПКМ при полном заряде (копится 10 с) — огненный шар летит в точку прицела, пока не упрётся во что-то, и взрывается:
+     поджигает всё вокруг и бьёт всадников (урон намного больше, чем у дыхания). Шар и взрыв видны только самому стрелку; урон и поджог у других считает сервер/их огонь. ───── */
+  const ult = { on: false, p: new V(), v: new V(), t: 0 }, _z0 = new V(), _u1 = new V();
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(3.4, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  ball.add(new THREE.Mesh(new THREE.SphereGeometry(1.9, 12, 10), new THREE.MeshBasicMaterial({ color: 0xfff0b0 }))); ball.visible = false; ball.renderOrder = 31; scene.add(ball);
+  const ballLight = new THREE.PointLight(0xff8a30, 0, 140, 1.2), boomLight = new THREE.PointLight(0xffa050, 0, 260, 1.1); scene.add(ballLight, boomLight); let boomT = 0;
+  function launchUlt() {
+    if (mine.st !== 'ride' || !mine.d || ult.on || !camera) return;
+    if (oh.ult < 1) return say('☄ Ульта заряжается: ' + Math.round(oh.ult * 100) + '%');
+    oh.ult = 0; camera.getWorldDirection(_u1); _a.copy(camera.position).addScaledVector(_u1, 220).sub(mine.d.mouth).normalize();
+    ult.p.copy(mine.d.mouth).addScaledVector(_a, 7); ult.v.copy(_a).multiplyScalar(150); ult.on = true; ult.t = 0; ball.visible = true; ball.position.copy(ult.p);
+    window.__snd && window.__snd('roar', 0.9); say('☄ Огненный шар!');
+  }
+  function boom(p) {
+    ult.on = false; ball.visible = false; ballLight.intensity = 0; boomT = 1.3; boomLight.position.copy(p); const R = 32;
+    for (let k = 0; k < 26; k++) { _a.set(Math.random() - 0.5, Math.random() - 0.25, Math.random() - 0.5).normalize(); emit(p, _a, _z0, 14); }
+    if (world.flamNear) world.flamNear(p.x, p.z, R, o => { if (p.y > o.y - R && p.y < o.y + o.h + R) lightUp(o); });
+    for (const b of net.bodies()) if (Math.hypot(b.x - p.x, b.y + 4.4 - p.y, b.z - p.z) < R) net.send({ t: 'hit', to: b.id, dmg: 90, st: 'ult' });
+    window.__snd && window.__snd('land', 1.6);
+  }
+  function ultTick(dt) {
+    if (boomT > 0) { boomT -= dt; boomLight.intensity = Math.max(0, boomT / 1.3) * 16; } else boomLight.intensity = 0;
+    if (!ult.on) return;
+    ult.t += dt; let rem = dt;
+    while (rem > 0) {
+      const st = Math.min(rem, 0.03); rem -= st; ult.p.addScaledVector(ult.v, st); const x = ult.p.x, y = ult.p.y, z = ult.p.z;
+      let hit = ult.t > 14 || y < hAt(x, z) + 0.5 || y < 0.4 || solidHitAt(x, y, z, 2.5) || (world.treeTopAt && world.treeTopAt(x, z, 1) > y);
+      if (!hit) for (const b of net.bodies()) if (Math.hypot(b.x - x, b.y + 4.4 - y, b.z - z) < 9) { hit = true; break; }
+      if (hit) { boom(ult.p); return; }
+    }
+    ball.position.copy(ult.p); ball.scale.setScalar(1 + Math.sin(ult.t * 30) * 0.08); ballLight.position.copy(ult.p); ballLight.intensity = 6;
+    _a.copy(ult.v).normalize().negate(); _b.copy(ult.v).multiplyScalar(0.9); emit(ult.p, _a, _b, 5); igniteAt(ult.p.x, ult.p.y, ult.p.z, 4);
+  }
+
   /* ───── мой дракон ─────
      Жизненный цикл: none → arrive (подлетает и садится рядом) → landed (ждёт) → mount (игрок забирается: E) → ride (полёт) → land (E у земли: снижается)
      → hop (игрок спрыгивает) → landed → leave (улетает прочь и тает вдали) → none. Дракон не появляется из воздуха и не исчезает на месте. */
@@ -288,15 +325,15 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   addEventListener('keydown', e => {
     if (typing()) return; K.add(e.code);
     if (mine.st === 'ride' && (e.code === 'Space' || e.code.startsWith('Arrow'))) e.preventDefault();
-    if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && inDragonMode() && (oh.rollCd || 0) <= 0) { oh.rollT = 0.5; oh.rollCd = 2; net.send({ t: 'inv' }); }
+    if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && (oh.rollCd || 0) <= 0) { oh.rollT = 0.5; oh.rollCd = 2; if (inDragonMode()) net.send({ t: 'inv' }); }
   });
   addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
   addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, -0.5, 1.2); } });      // как при ходьбе: мышь крутит камеру
-  addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) mouseDown = true; }); addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+  addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) mouseDown = true; if (e.button === 2 && document.pointerLockElement && mine.st === 'ride') launchUlt(); }); addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 
   const boxCss = 'position:fixed;left:50%;transform:translateX(-50%);font:600 14px -apple-system,Segoe UI,sans-serif;color:#fff;background:rgba(0,0,0,.5);padding:6px 14px;border-radius:10px;pointer-events:none;display:none;z-index:15;white-space:nowrap';
   const mkBox = bottom => { const d = document.createElement('div'); d.style.cssText = boxCss + ';bottom:' + bottom; document.body.appendChild(d); return d; };
-  const oh = { heat: 0, lock: 0, rollT: 0, rollCd: 0, bonus: 0 };      // перегрев огня и бочка-уворот
+  const oh = { heat: 0, lock: 0, rollT: 0, rollCd: 0, bonus: 0, ult: 1 };      // перегрев огня и бочка-уворот
   const hud = mkBox('5%'), toast = mkBox('16%'), prompt_ = mkBox('26%'); let toastT = 0;
   const say = t => { toast.textContent = t; toast.style.display = 'block'; toastT = 2.2; };
 
@@ -475,7 +512,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       rate = 2.3 + hover * 1.0 + (m.boost ? 1.4 : 0) + Math.max(0, m.vy) * 0.02; amp = 1;
       m.fire = ctl && (K.has('Space') || mouseDown);
       if (inDragonMode()) { if (oh.lock > 0) { oh.lock -= dt; m.fire = false; } else if (m.fire) { oh.heat += dt; if (oh.heat > 4) { oh.lock = 2; oh.heat = 0; m.fire = false; } } else oh.heat = Math.max(0, oh.heat - dt * 1.5); }
-      oh.rollCd -= dt; if (oh.rollT > 0) { oh.rollT -= dt; m.roll = (1 - oh.rollT / 0.5) * Math.PI * 2 * (m.turn < 0 ? -1 : 1); }
+      oh.ult = Math.min(1, oh.ult + dt / 10); oh.rollCd -= dt; if (oh.rollT > 0) { oh.rollT -= dt; m.roll = (1 - oh.rollT / 0.5) * Math.PI * 2 * (m.turn < 0 ? -1 : 1); }
       if (!P.dead) { seat(); follow(dt); }
       if (!ride && Math.abs(m.y - gT) < 0.5 && Math.abs(m.speed) < 6) {
         m.st = 'hop'; m.t = 0; m.from.copy(P.pos); m.yaw0 = m.yaw;
@@ -567,12 +604,12 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     prompt_.style.display = window.__dragonNear ? 'block' : 'none'; if (window.__dragonNear) prompt_.textContent = '🐉 E — забраться на дракона';
     if (mine.st === 'ride') {
       hud.style.display = 'block';
-      hud.textContent = `🐉 ${PALETTES[mine.pal].name} дракон · W/S — вперёд/назад · A/D — поворот · Z/X — вверх/вниз · Shift — ускорение · Пробел/ЛКМ — огонь · E — приземлиться · Q — спрыгнуть · высота ${Math.round(mine.y - hAt(mine.x, mine.z))} · C — бочка${oh.lock > 0 ? ' · 🔥 ПЕРЕГРЕВ' : oh.heat > 0.3 ? ' · жар ' + Math.round(oh.heat / 4 * 100) + '%' : ''}${nearestArrow()}`;
+      hud.textContent = `🐉 ${PALETTES[mine.pal].name} дракон · W/S — вперёд/назад · A/D — поворот · Z/X — вверх/вниз · Shift — ускорение · Пробел/ЛКМ — огонь · E — приземлиться · Q — спрыгнуть · высота ${Math.round(mine.y - hAt(mine.x, mine.z))} · F — бочка · ПКМ — ☄ ${oh.ult >= 1 ? 'УЛЬТА ГОТОВА' : 'ульта ' + Math.round(oh.ult * 100) + '%'}${oh.lock > 0 ? ' · 🔥 ПЕРЕГРЕВ' : oh.heat > 0.3 ? ' · жар ' + Math.round(oh.heat / 4 * 100) + '%' : ''}${nearestArrow()}`;
     } else if (mine.st === 'land') { hud.style.display = 'block'; hud.textContent = '🐉 Приземляемся…'; }
     updateOthers(dt); ringsStep(dt);
     if (window.__sndLoop) window.__sndLoop('fire', true, Math.max(mine.st === 'ride' && mine.fire ? 1 : 0, remoteFire));
     fireTick(dt);
-    burnTick(dt);
+    burnTick(dt); ultTick(dt);
     const lit = mine.st === 'ride' && mine.fire;
     flameLight.intensity += ((lit ? 7 : 0) - flameLight.intensity) * Math.min(1, dt * 12);
     if (lit) flameLight.position.copy(mine.d.mouth).addScaledVector(mine.d.dir, 14);
