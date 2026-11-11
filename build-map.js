@@ -619,8 +619,8 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     }
   }
   console.info('[столкновения]', JSON.stringify(colInfo));
-  const NOFLAM_RE = /^(rock|stone|cliff|sea_|reef|shell|beach|pebbles|starfish|waterlily|mount|hill|volcano|cave|buoy|boat|raft|canoe|ship|hut_stone|fortress|citadel|church|tower|wall|fountain|lighthouse|gate_|torii|crane|flag|x_mark)/;
-  const flam = [];      // то, что может гореть (дерево, растения, деревянные дома); камень и вода — нет. Горит ~10 с (см. dragon.js)
+  const NOFLAM_RE = /^(rock|stone|cliff|sea_|reef|shell|beach|pebbles|starfish|waterlily|mount|hill|volcano|cave|buoy|wall|fountain|gate_|torii|flag|x_mark)/;
+  const flam = [];      // то, что может гореть (деревья, растения, все здания, корабли и лодки); голые камни, стены и вода — нет. Горит ~10 с (см. dragon.js)
   const treeCanopy = [];      // кроны деревьев для полёта драконов: {x, z, top (высота макушки), cr (радиус кроны)}
   for (const p of placements) {
     const v = variant(p.id, p.seedV); if (!v || p.dead) continue;
@@ -629,7 +629,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     {
       const hgt = v.bb.max.y * p.s;
       let box = null;
-      if (!p.vessel && !NOFLAM_RE.test(p.id)) flam.push({ x: p.x, z: p.z, y, h: Math.max(hgt, 0.8), r: Math.max(0.6, Math.max(v.size.x, v.size.z) * p.s * 0.5), k: TREE_RE.test(p.id) ? 'tree' : SOLID_RE.test(p.id) ? 'house' : 'plant', burn: 0 });
+      if (!NOFLAM_RE.test(p.id)) flam.push({ x: p.x, z: p.z, y, h: Math.max(hgt, 0.8), r: Math.max(0.6, Math.max(v.size.x, v.size.z) * p.s * 0.5), k: TREE_RE.test(p.id) ? 'tree' : SOLID_RE.test(p.id) ? 'house' : 'plant', burn: 0 });
       if (TREE_RE.test(p.id)) {                                  // ствол: радиус считаем по вершинам у основания модели
         const r = Math.min(2.0, Math.max(0.6, trunkRadius(v) * p.s));
         box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'tree' };
@@ -847,7 +847,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   for (const b of finalSolids) { if (b.kind === 'ship' || b.kind === 'pier' || b.kind === 'boat') continue; for (let cx = Math.floor(b.x0 / BCS); cx <= Math.floor(b.x1 / BCS); cx++) for (let cz = Math.floor(b.z0 / BCS); cz <= Math.floor(b.z1 / BCS); cz++) { const k = cx + ',' + cz; (BG.get(k) || BG.set(k, []).get(k)).push(b); } }
   const FCS = 16, FGm = new Map(); for (const o of flam) { const k = Math.floor(o.x / FCS) + ',' + Math.floor(o.z / FCS); (FGm.get(k) || FGm.set(k, []).get(k)).push(o); }
   /** перебор горючих объектов, у которых центр ближе r + их радиус к точке (x, z) */
-  const flamNear = (x, z, r, cb) => { const R = r + 24, c0 = Math.floor((x - R) / FCS), c1 = Math.floor((x + R) / FCS), d0 = Math.floor((z - R) / FCS), d1 = Math.floor((z + R) / FCS); for (let i = c0; i <= c1; i++) for (let j = d0; j <= d1; j++) { const a_ = FGm.get(i + ',' + j); if (a_) for (const o of a_) { const m = r + o.r; if ((o.x - x) ** 2 + (o.z - z) ** 2 < m * m) cb(o); } } };
+  const flamNear = (x, z, r, cb) => { const R = r + 40, c0 = Math.floor((x - R) / FCS), c1 = Math.floor((x + R) / FCS), d0 = Math.floor((z - R) / FCS), d1 = Math.floor((z + R) / FCS); for (let i = c0; i <= c1; i++) for (let j = d0; j <= d1; j++) { const a_ = FGm.get(i + ',' + j); if (a_) for (const o of a_) { const m = r + o.r; if ((o.x - x) ** 2 + (o.z - z) ** 2 < m * m) cb(o); } } };
   const TCS = 24, TG = new Map(); for (const t of treeCanopy) { const k = Math.floor(t.x / TCS) + ',' + Math.floor(t.z / TCS); (TG.get(k) || TG.set(k, []).get(k)).push(t); }
   /** высота ближайшей к точке кроны дерева (макушка), в радиусе r от крон; -Infinity, если деревьев рядом нет */
   const treeTopAt = (x, z, r = 0) => { const cx = Math.floor(x / TCS), cz = Math.floor(z / TCS); let best = -Infinity; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a_ = TG.get((cx + i) + ',' + (cz + j)); if (a_) for (const t of a_) { const d = (t.x - x) ** 2 + (t.z - z) ** 2, m = t.cr + r; if (d < m * m && t.top > best) best = t.top; } } return best; };
