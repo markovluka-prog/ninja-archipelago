@@ -158,6 +158,10 @@ function handle(pl, msg) {
   else if (msg.t === 'stop') { /* ручного завершения нет: игра заканчивается по условиям режима */ }
   else if (msg.t === 'home') { if (pl.g && pl.g.alive && pl.pos && game.mode === 'capture' && game.phase === 'play') { const mine = game.points.filter(q => q.owner === pl.g.team), c = (mine.length ? mine : [game.bases[pl.g.team]]).sort((a, b) => dxz(a, pl.pos) - dxz(b, pl.pos))[0]; if (c) send(pl, { t: 'spawn', x: c.x + 3, z: c.z, yaw: 0 }); } }
   else if (msg.t === 'inv') { if (pl.g && game.mode === 'dragons') pl.g.invUntil = nowS() + 0.5; }
+  else if (msg.t === 'ult' || msg.t === 'boom') {                                       // огненный шар дракона: запуск и взрыв — остальным (рисуют у себя)
+    if (!pl.play || ![msg.x, msg.y, msg.z].every(Number.isFinite)) return;
+    broadcast(msg.t === 'ult' ? { t: 'ult', id, x: msg.x, y: msg.y, z: msg.z, vx: +msg.vx || 0, vy: +msg.vy || 0, vz: +msg.vz || 0 } : { t: 'boom', id, x: msg.x, y: msg.y, z: msg.z }, id);
+  }
   else if (msg.t === 'hit') onHit(pl, msg);
   else if (msg.t === 'decoy') onDecoy(pl, msg);
   else if (msg.t === 'died') onDied(pl, msg);
@@ -410,7 +414,7 @@ function onHit(pl, msg) {                                  // удар по др
   if (!MODES[game.mode].pvp) return;
   if (MODES[game.mode].teams && pl.g.team === tg.g.team) return;           // по своим не бьём
   if (msg.st === 'bash' && game.mode === 'battle') send(tg, { t: 'slow', s: 0.4 });
-  send(tg, { t: 'hurt', from: pl.id, dmg: Math.min(ul ? 90 : dr ? 45 : msg.st === 'heavy' ? 55 : 35, Math.max(1, +msg.dmg || 15)), x: pl.pos.x, y: pl.pos.y, z: pl.pos.z });
+  send(tg, { t: 'hurt', from: pl.id, dmg: Math.min(ul ? 90 : dr ? 45 : 35, Math.max(1, +msg.dmg || 15)), x: pl.pos.x, y: pl.pos.y, z: pl.pos.z });
 }
 const HS = () => players.hs || (players.hs = { tot: {}, n: 0, next: null });      // серия пряток по комнате
 function onDecoy(pl, msg) {                                // приманка: один раз за раунд звук в другой точке (слышат все)

@@ -284,38 +284,71 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
 
 
   /* ───── ульта дракона: ПКМ при полном заряде (копится 10 с) — огненный шар летит в точку прицела, пока не упрётся во что-то, и взрывается:
-     поджигает всё вокруг и бьёт всадников (урон намного больше, чем у дыхания). Шар и взрыв видны только самому стрелку; урон и поджог у других считает сервер/их огонь. ───── */
-  const ult = { on: false, p: new V(), v: new V(), t: 0 }, _z0 = new V(), _u1 = new V();
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(3.4, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
-  ball.add(new THREE.Mesh(new THREE.SphereGeometry(1.9, 12, 10), new THREE.MeshBasicMaterial({ color: 0xfff0b0 }))); ball.visible = false; ball.renderOrder = 31; scene.add(ball);
-  const ballLight = new THREE.PointLight(0xff8a30, 0, 140, 1.2), boomLight = new THREE.PointLight(0xffa050, 0, 260, 1.1); scene.add(ballLight, boomLight); let boomT = 0;
+     поджигает всё вокруг и бьёт всадников (до 90 урона, у дыхания 45). Запуск и взрыв рассылаются по сети: шар, взрыв и поджог видят все игроки,
+     урон считает стрелок и отправляет серверу (как у дыхания), сервер проверяет. ───── */
+  const _z0 = new V(), _u1 = new V(), SHELL = new THREE.SphereGeometry(1, 20, 14), BOOM_R = 32;
+  const addMat = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  function makeBall() {                           // многослойный шар: белое ядро, жёлтая и оранжевая оболочки, красное «гало»
+    const g = new THREE.Group(), layers = [[1.6, 0xfff4c8, 1], [2.6, 0xffc040, 0.8], [3.8, 0xff7a1a, 0.5], [5.4, 0xd83a10, 0.25]];
+    for (const [r, c, o] of layers) { const m = new THREE.Mesh(SHELL, addMat(c, o)); m.scale.setScalar(r); m.renderOrder = 31; g.add(m); }
+    g.visible = false; scene.add(g); return g;
+  }
+  const mineBall = makeBall(), ult = { on: false, p: new V(), v: new V(), t: 0 }, remoteBalls = new Map(), ballLight = new THREE.PointLight(0xff8a30, 0, 160, 1.2), boomLight = new THREE.PointLight(0xffa050, 0, 300, 1.1);
+  scene.add(ballLight, boomLight); let boomT = 0; const booms = [];
+  const pulse = (g, t) => { g.scale.setScalar(1 + Math.sin(t * 28) * 0.07 + Math.sin(t * 17) * 0.05); g.rotation.y = t * 3; };
   function launchUlt() {
     if (mine.st !== 'ride' || !mine.d || ult.on || !camera) return;
     if (oh.ult < 1) return say('☄ Ульта заряжается: ' + Math.round(oh.ult * 100) + '%');
     oh.ult = 0; camera.getWorldDirection(_u1); _a.copy(camera.position).addScaledVector(_u1, 220).sub(mine.d.mouth).normalize();
-    ult.p.copy(mine.d.mouth).addScaledVector(_a, 7); ult.v.copy(_a).multiplyScalar(150); ult.on = true; ult.t = 0; ball.visible = true; ball.position.copy(ult.p);
+    ult.p.copy(mine.d.mouth).addScaledVector(_a, 8); ult.v.copy(_a).multiplyScalar(150); ult.on = true; ult.t = 0; mineBall.visible = true; mineBall.position.copy(ult.p);
+    net.send({ t: 'ult', x: +ult.p.x.toFixed(1), y: +ult.p.y.toFixed(1), z: +ult.p.z.toFixed(1), vx: +ult.v.x.toFixed(1), vy: +ult.v.y.toFixed(1), vz: +ult.v.z.toFixed(1) });
+    for (let k = 0; k < 20; k++) { _b.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).addScaledVector(_a, 2).normalize(); emit(ult.p, _b, _z0, 6); }      // вспышка у пасти
     window.__snd && window.__snd('roar', 0.9); say('☄ Огненный шар!');
   }
-  function boom(p) {
-    ult.on = false; ball.visible = false; ballLight.intensity = 0; boomT = 1.3; boomLight.position.copy(p); const R = 32;
-    for (let k = 0; k < 26; k++) { _a.set(Math.random() - 0.5, Math.random() - 0.25, Math.random() - 0.5).normalize(); emit(p, _a, _z0, 14); }
-    if (world.flamNear) world.flamNear(p.x, p.z, R, o => { if (p.y > o.y - R && p.y < o.y + o.h + R) lightUp(o); });
-    for (const b of net.bodies()) if (Math.hypot(b.x - p.x, b.y + 4.4 - p.y, b.z - p.z) < R) net.send({ t: 'hit', to: b.id, dmg: 90, st: 'ult' });
-    window.__snd && window.__snd('land', 1.6);
+  function boomFx(p, mineOwn) {                   // взрыв: вспышка, расширяющиеся огненный шар и ударная волна, брызги пламени, поджог всего вокруг
+    boomT = 1.3; boomLight.position.copy(p);
+    for (let k = 0; k < 40; k++) { _a.set(Math.random() - 0.5, Math.random() - 0.2, Math.random() - 0.5).normalize(); emit(p, _a, _z0, 14); }
+    const fb = new THREE.Mesh(SHELL, addMat(0xff8a2a, 0.9)), sw = new THREE.Mesh(SHELL, addMat(0xffe0a0, 0.45)), core = new THREE.Mesh(SHELL, addMat(0xfff4d0, 1)); fb.renderOrder = sw.renderOrder = core.renderOrder = 32;
+    for (const m of [fb, sw, core]) { m.position.copy(p); scene.add(m); } booms.push({ fb, sw, core, t: 0 });
+    if (world.flamNear) world.flamNear(p.x, p.z, BOOM_R, o => { if (p.y > o.y - BOOM_R && p.y < o.y + o.h + BOOM_R) lightUp(o); });
+    const dist = camera ? camera.position.distanceTo(p) : 0; if (window.__snd) window.__snd('land', Math.max(0.2, 1.8 - dist / 400));
+  }
+  function boomHit(p) {                           // урон считает стрелок: до 90 в центре, не меньше 45 на краю
+    for (const b of net.bodies()) { const d = Math.hypot(b.x - p.x, b.y + 4.4 - p.y, b.z - p.z); if (d < BOOM_R) net.send({ t: 'hit', to: b.id, dmg: Math.round(90 - 45 * d / BOOM_R), st: 'ult' }); }
+  }
+  function boomTick(dt) {
+    for (let i = booms.length - 1; i >= 0; i--) {
+      const b = booms[i]; b.t += dt; const k = b.t / 0.7;
+      if (k >= 1) { for (const m of [b.fb, b.sw, b.core]) { scene.remove(m); m.material.dispose(); } booms.splice(i, 1); continue; }
+      const e = 1 - (1 - k) * (1 - k); b.fb.scale.setScalar(4 + (BOOM_R * 0.8) * e); b.fb.material.opacity = 0.9 * (1 - k); b.sw.scale.setScalar(4 + BOOM_R * 1.5 * e); b.sw.material.opacity = 0.45 * (1 - k) * (1 - k); b.core.scale.setScalar(3 + 10 * (1 - k)); b.core.material.opacity = Math.max(0, 1 - k * 2.2);
+    }
   }
   function ultTick(dt) {
-    if (boomT > 0) { boomT -= dt; boomLight.intensity = Math.max(0, boomT / 1.3) * 16; } else boomLight.intensity = 0;
+    if (boomT > 0) { boomT -= dt; boomLight.intensity = Math.max(0, boomT / 1.3) * 18; } else boomLight.intensity = 0;
+    boomTick(dt);
+    for (const [id, r] of remoteBalls) {          // чужие шары: летят по тем же скорости и направлению; взрыв приходит отдельным сообщением
+      r.t += dt; r.p.addScaledVector(r.v, dt); r.g.position.copy(r.p); pulse(r.g, r.t); _a.copy(r.v).normalize().negate(); _b.copy(r.v).multiplyScalar(0.9); emit(r.p, _a, _b, 5); igniteAt(r.p.x, r.p.y, r.p.z, 4);
+      if (r.t > 16) { scene.remove(r.g); remoteBalls.delete(id); }
+    }
     if (!ult.on) return;
     ult.t += dt; let rem = dt;
     while (rem > 0) {
       const st = Math.min(rem, 0.03); rem -= st; ult.p.addScaledVector(ult.v, st); const x = ult.p.x, y = ult.p.y, z = ult.p.z;
       let hit = ult.t > 14 || y < hAt(x, z) + 0.5 || y < 0.4 || solidHitAt(x, y, z, 2.5) || (world.treeTopAt && world.treeTopAt(x, z, 1) > y);
       if (!hit) for (const b of net.bodies()) if (Math.hypot(b.x - x, b.y + 4.4 - y, b.z - z) < 9) { hit = true; break; }
-      if (hit) { boom(ult.p); return; }
+      if (hit) { ult.on = false; mineBall.visible = false; ballLight.intensity = 0; _a.copy(ult.p); boomFx(_a, true); boomHit(_a); net.send({ t: 'boom', x: +_a.x.toFixed(1), y: +_a.y.toFixed(1), z: +_a.z.toFixed(1) }); return; }
     }
-    ball.position.copy(ult.p); ball.scale.setScalar(1 + Math.sin(ult.t * 30) * 0.08); ballLight.position.copy(ult.p); ballLight.intensity = 6;
-    _a.copy(ult.v).normalize().negate(); _b.copy(ult.v).multiplyScalar(0.9); emit(ult.p, _a, _b, 5); igniteAt(ult.p.x, ult.p.y, ult.p.z, 4);
+    mineBall.position.copy(ult.p); pulse(mineBall, ult.t); ballLight.position.copy(ult.p); ballLight.intensity = 7;
+    _a.copy(ult.v).normalize().negate(); _b.copy(ult.v).multiplyScalar(0.9); emit(ult.p, _a, _b, 6); igniteAt(ult.p.x, ult.p.y, ult.p.z, 4);
   }
+  net.on && net.on('ult', m => {                  // чужой шар: рисуем у себя
+    if (![m.x, m.y, m.z, m.vx, m.vy, m.vz].every(Number.isFinite)) return; const old = remoteBalls.get(m.id); if (old) scene.remove(old.g);
+    const g = makeBall(); g.visible = true; remoteBalls.set(m.id, { g, p: new V(m.x, m.y, m.z), v: new V(m.vx, m.vy, m.vz), t: 0 });
+  });
+  net.on && net.on('boom', m => {                 // чужой взрыв: на месте, которое прислал стрелок
+    if (![m.x, m.y, m.z].every(Number.isFinite)) return; const r = remoteBalls.get(m.id); if (r) { scene.remove(r.g); remoteBalls.delete(m.id); }
+    boomFx(new V(m.x, m.y, m.z), false);
+  });
 
   /* ───── мой дракон ─────
      Жизненный цикл: none → arrive (подлетает и садится рядом) → landed (ждёт) → mount (игрок забирается: E) → ride (полёт) → land (E у земли: снижается)
