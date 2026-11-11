@@ -233,9 +233,15 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   const bfire = new THREE.Points(bgeo, fmat); bfire.frustumCulled = false; bfire.renderOrder = 29; scene.add(bfire);
   const burning = new Set(), BURN_T = 10, MAXB = 45, burnLight = new THREE.PointLight(0xff7a22, 0, 70, 1.5); scene.add(burnLight);
   let bcur = 0, bLive = 0; const _ge = new V();
+  let nPlant = 0;      // трава и кусты считаем отдельно: иначе сотня травинок занимает весь лимит и чучела, корабли и дома не загораются
+  function snuff(o) { if (burning.delete(o) && o.k === 'plant') nPlant--; o.burn = 0; }
   function igniteAt(x, y, z, r) {
-    if (!world.flamNear || burning.size >= MAXB) return;
-    world.flamNear(x, z, r, o => { if (o.burn > 0 || burning.size >= MAXB || y < o.y - 3 || y > o.y + o.h + 4) return; o.burn = BURN_T; o.acc = 0; burning.add(o); });
+    if (!world.flamNear) return;
+    world.flamNear(x, z, r, o => {
+      if (o.burn > 0 || y < o.y - 3 || y > o.y + o.h + 4) return;
+      if (o.k === 'plant' ? nPlant >= 18 : burning.size - nPlant >= MAXB) return;
+      o.burn = BURN_T; o.acc = 0; burning.add(o); if (o.k === 'plant') nPlant++;
+    });
   }
   function igniteBeam(mouth, dir) {                // вдоль струи пламени (как в burn): рельеф гасит её, всё горючее по пути загорается
     _ge.copy(mouth).addScaledVector(dir, 105); let hit = false;
@@ -249,9 +255,9 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     if (burning.size) bLive = 2; else bLive -= dt;
     const cx = camera ? camera.position.x : 0, cy = camera ? camera.position.y : 0, cz = camera ? camera.position.z : 0; let near = null, nd = 1e9;
     for (const o of burning) {
-      o.burn -= dt; if (o.burn <= 0) { o.burn = 0; burning.delete(o); continue; }
+      o.burn -= dt; if (o.burn <= 0) { snuff(o); continue; }
       const inten = Math.min(1, o.burn / 1.8) * Math.min(1, (BURN_T - o.burn) / 0.6 + 0.3), d = Math.hypot(o.x - cx, o.z - cz); if (d < nd) { nd = d; near = o; }
-      if (d > 350) { o.burn = 0; burning.delete(o); continue; }      // игрок далеко — огонь гаснет (не видно и не считаем)
+      if (d > 350) { snuff(o); continue; }      // игрок далеко — огонь гаснет (не видно и не считаем)
       const sz = o.k === 'house' ? 1 : o.k === 'tree' ? 0.8 : 0.35, rate = (o.k === 'plant' ? 9 : 28 + Math.min(40, o.r * o.h * 0.15)) * inten;
       o.acc += rate * dt; const n = Math.floor(o.acc); o.acc -= n;
       for (let k = 0; k < n; k++) {

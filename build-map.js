@@ -630,7 +630,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     {
       const hgt = v.bb.max.y * p.s;
       let box = null;
-      if (!NOFLAM_RE.test(p.id)) flam.push({ x: p.x, z: p.z, y, h: Math.max(hgt, 0.8), r: Math.max(0.6, Math.max(v.size.x, v.size.z) * p.s * 0.5), k: TREE_RE.test(p.id) ? 'tree' : SOLID_RE.test(p.id) ? 'house' : 'plant', burn: 0 });
+      if (!NOFLAM_RE.test(p.id)) flam.push({ x: p.x, z: p.z, y, h: Math.max(hgt, 0.8), r: Math.max(0.6, Math.max(v.size.x, v.size.z) * p.s * 0.5), k: TREE_RE.test(p.id) || /^(mannequin|dummy)/.test(p.id) ? 'tree' : p.vessel || SOLID_RE.test(p.id) ? 'house' : 'plant', burn: 0 });
       if (TREE_RE.test(p.id)) {                                  // ствол: радиус считаем по вершинам у основания модели
         const r = Math.min(2.0, Math.max(0.6, trunkRadius(v) * p.s));
         box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'tree' };

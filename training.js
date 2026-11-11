@@ -63,7 +63,7 @@ export function createTraining({ THREE, scene, world, solids, anchor }) {
     const bar = hpBar(); bar.position.set(0, 11.4, 0); g.add(bar);
     const it = { kind: 'dummy', stick: spin, g, spin, bar, body, x: site.x + x, z: site.z + z, r: 2.2, h: 10, hp: 100, maxHp: 100, av: 0, flash: 0, fall: 0, down: 0, mats: [] };
     spin.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); it.mats.push(o.material); } });
-    world.addFlam && world.addFlam({ x: it.x, z: it.z, y: site.y, h: 10, r: 2.2, k: 'plant' });      // чучело горит от пламени дракона
+    world.addFlam && world.addFlam({ x: it.x, z: it.z, y: site.y, h: 10, r: 2.2, k: 'tree' });      // чучело горит от пламени дракона
     items.push(it); solids.push(box(it.x - 1.4, it.x + 1.4, site.y, site.y + 10, it.z - 1.4, it.z + 1.4));
     return it;
   }
@@ -77,7 +77,7 @@ export function createTraining({ THREE, scene, world, solids, anchor }) {
     rings.forEach(([r, m], i) => { const d = add(pivot, new THREE.CylinderGeometry(r, r, 0.35 + i * 0.03, 24), m.clone(), 0, 0, 0.02 * i); d.rotation.x = Math.PI / 2; mats.push(d.material); });
     const wx = site.x + x, wz = site.z + z;
     const it = { kind: 'target', stick: pivot, g, pivot, mats, x: wx, z: wz, cy: site.y + gy + 7.1, r: 3.7, av: 0, ang: 0, flash: 0, hits: 0, mats0: mats.map(m => m.color.clone()) };
-    world.addFlam && world.addFlam({ x: wx, z: wz, y: site.y + gy, h: 8, r: 3, k: 'plant' });      // мишень тоже горит
+    world.addFlam && world.addFlam({ x: wx, z: wz, y: site.y + gy, h: 8, r: 3, k: 'tree' });      // мишень тоже горит
     items.push(it); solids.push(box(wx - 1.2, wx + 1.2, site.y + gy - 1, site.y + gy + 8, wz - 2.9, wz + 2.9));
     return it;
   }
