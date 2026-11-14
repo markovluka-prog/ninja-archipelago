@@ -263,7 +263,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       }
       case 'lift': case 'fly': {
         if (selfT || (!objectsNamed && !heldItems.length && !elem && !info.flora.length)) {
-          const hu = 6 * sz, J = Jlift(PMASS, hu); A(`взлететь на ${(hu * U).toFixed(1)} м и парить — ПРОЦЕСС: держать в воздухе ${fmtJ(selfUp())}/с, пока хватает сил (losna eka или U — прекратить)`, J, () => { flyOn = true; flyT = 0; rooted = null; flyY = P.pos.y + hu + (P.state === 'ground' ? 3 : 0); if (P.state === 'ground') boost(24); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
+          const hu = 3 * sz, J = Jlift(PMASS, hu); A(`оторваться от земли — ПРОЦЕСС: подъём силой. Каждый метр высоты — работа ~mgh (${fmtJ(Jlift(PMASS, 1 / U) * 0.12)}/м), удержание ${fmtJ(selfUp())}/с. Space — выше, Shift — ниже; losna eka или U — прекратить`, J, () => { flyOn = true; flyT = 0; rooted = null; flyY = P.pos.y + (P.state === 'ground' ? hu + 3 : 0.5); if (P.state === 'ground') boost(24); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
         }
         if (elem === 'water') return { acts: manifest('water', p, { ...aim, d: new V(0, 1, 0).add(aim.d).normalize() }, sz, n) };
         const its = targetItems(); if (!its.length) return { err: 'Нечего поднимать: ' + (info.kinds[0] ? 'такой вещи рядом нет' : 'вещей рядом нет') };
@@ -498,7 +498,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       if (box.classList.contains('on') && Math.random() < 0.04) refresh();
       { const L = [], e = eta(); let drain = 0;
         for (const it of items.items) { if (it.held) { const d = itemUp(it) / e; drain += d; L.push(`🤲 ${it.name} −${Math.round(d)}`); } else if (it.hover) { const d = itemUp(it) / e; drain += d; L.push(`⇧ ${it.name} парит −${Math.round(d)}`); } }
-        if (flyOn) { const d = selfUp() / e; drain += d; L.push(`🕊 полёт −${Math.round(d)}`); } if (rooted) { const d = (P.state === 'ground' ? 25 : selfUp()) / e; drain += d; L.push(`✋ остановлен −${Math.round(d)}`); }
+        if (flyOn) { const d = selfUp() / e; drain += d; L.push(`🕊 полёт −${Math.round(d)} (Space выше · Shift ниже)`); } if (rooted) { const d = (P.state === 'ground' ? 25 : selfUp()) / e; drain += d; L.push(`✋ остановлен −${Math.round(d)}`); }
         if (wardJ > 0) L.push(`🛡 оберег ${Math.floor(wardJ)} Дж`); if (orbT > 0) { drain += 6 / e; L.push('✨ светлячок −' + Math.round(6 / e)); } if (rainT > 0) L.push('🌧 ливень');
         procB.style.display = L.length ? 'block' : 'none'; if (L.length) procB.textContent = 'Процессы (Дж/с): ' + L.join(' · ') + (drain ? ` · всего −${Math.round(drain)}/с` : '') + ' · U — прервать всё'; }
       if (!scatterDone) { scatter(P.pos.x, P.pos.z, 14, 20, 90); scatter(P.pos.x, P.pos.z, 10, 90, 220); scatterDone = true; }
@@ -531,7 +531,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     if (boostW > 0) { boostW -= dt; if (boostW <= 0 || P.state !== 'ground') { window.__g && window.__g.release('Space'); if (boostV) { P.vel.y = boostV; boostV = 0; } boostW = 0; } }
     if (flyOn && !P.dead) {      // процесс: полёт держится, пока хватает сил
       flyT += dt; E -= selfUp() / eta() * dt; if (E <= 0) { E = 0; flyOn = false; show('…', 'Сил не хватило держаться в воздухе'); }
-      else if (P.state !== 'ground' && P.state !== 'dead') { { P.vel.y = 0; const dy = flyY + Math.sin(performance.now() / 400) * 0.5 - P.pos.y, mv = Math.max(-26 * dt, Math.min(26 * dt, dy * 5 * dt)); P.pos.y += mv; } if (Math.random() < 0.5) spawn(P.pos.x + rnd(-1.5, 1.5), P.pos.y + 0.3, P.pos.z + rnd(-1.5, 1.5), 0, -6, 0, COL.lev, 1.2, 0.3, 0.6, 0.6, 0, 0.5); }
+      else if (P.state !== 'ground' && P.state !== 'dead') { { const kd = window.__g && window.__g.kd, upK = kd && kd.has('Space'), dnK = kd && kd.has('ShiftLeft'); if (upK) { flyY += 14 * dt; E -= PMASS * G0 * 14 * dt * U * 0.12 / eta(); } else if (dnK) flyY -= 14 * dt; flyY = Math.max(flyY, hAt(P.pos.x, P.pos.z) + 1.5); P.vel.y = 0; const dy = flyY + Math.sin(performance.now() / 400) * 0.5 - P.pos.y, mv = Math.max(-26 * dt, Math.min(26 * dt, dy * 5 * dt)); P.pos.y += mv; } if (Math.random() < 0.5) spawn(P.pos.x + rnd(-1.5, 1.5), P.pos.y + 0.3, P.pos.z + rnd(-1.5, 1.5), 0, -6, 0, COL.lev, 1.2, 0.3, 0.6, 0.6, 0, 0.5); }
     }
     if (rooted && !P.dead) {      // процесс: «остановлен» — ни шагу, ни падения, пока держится заклинание
       const air = P.state !== 'ground'; E -= (air ? selfUp() : 25) / eta() * dt; if (E <= 0) { E = 0; rooted = null; show('…', 'Сил не хватило удерживать себя'); }
