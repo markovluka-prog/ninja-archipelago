@@ -187,7 +187,11 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     npcs && npcs.hitAt && npcs.hitAt(x, z, 9, false);
   }
   /* ───── состояния мага: щит-оберег, полёт, свет, хватка, ловушки ───── */
-  let wardJ = 0, levT = 0, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
+  let wardJ = 0, flyOn = false, flyT = 0, rooted = null, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
+  const selfUp = () => PMASS * G0 * 0.12 * U * 6;      // Дж/с, чтобы держать себя в воздухе
+  const itemUp = it => it.m * G0 * 0.35 * U * 6;      // Дж/с, чтобы держать предмет против тяжести
+  function procCount(scope) { let n = 0; if (scope !== 'items') { if (rooted) n++; if (flyOn) n++; } if (scope === 'all') { if (wardJ > 0) n++; if (orbT > 0) n++; if (rainT > 0) n++; } if (scope !== 'self') for (const it of items.items) if (it.held || it.hover || it.pin > 0) n++; return n; }
+  function stopProcs(scope) { const n = procCount(scope); if (scope !== 'items') { rooted = null; flyOn = false; } if (scope === 'all') { wardJ = 0; orbT = 0; rainT = 0; } if (scope !== 'self') for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } return n; }
   function boost(vy) { if (P.state === 'ground') { window.__g && window.__g.press('Space'); boostV = vy; boostW = 0.08; } else P.vel.y = Math.max(P.vel.y, vy); }
   function selfVis(main, spec, o, own, id) {      // видимая часть самонаправленных заклинаний (у чужих — только картинка)
     const c = COL[main] || COL.mind, body = own ? P.pos : (net.bodies().find(b => b.id === id) || { x: o.x, y: o.y - 6, z: o.z }), at = new V(body.x, body.y + 5, body.z);
@@ -259,11 +263,11 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       }
       case 'lift': case 'fly': {
         if (selfT || (!objectsNamed && !heldItems.length && !elem && !info.flora.length)) {
-          const hu = 6 * sz, J = Jlift(PMASS, hu) + 45 * 5 * (act === 'fly' ? 2 : 1); A(`взлететь на ${(hu * U).toFixed(1)} м и парить (масса мага ${PMASS} кг)`, J, () => { levT = (act === 'fly' ? 7 : 4) * M.dur; boost(24 + 4 * sz); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
+          const hu = 6 * sz, J = Jlift(PMASS, hu) + 45 * 5 * (act === 'fly' ? 2 : 1); A(`взлететь на ${(hu * U).toFixed(1)} м и парить — ПРОЦЕСС: держать в воздухе ${fmtJ(selfUp())}/с, пока хватает сил (losna eka или U — прекратить)`, J, () => { flyOn = true; flyT = 0; rooted = null; boost(24 + 4 * sz); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
         }
         if (elem === 'water') return { acts: manifest('water', p, { ...aim, d: new V(0, 1, 0).add(aim.d).normalize() }, sz, n) };
         const its = targetItems(); if (!its.length) return { err: 'Нечего поднимать: ' + (info.kinds[0] ? 'такой вещи рядом нет' : 'вещей рядом нет') };
-        for (const it of its) { const hu = (act === 'fly' ? 9 : 7) * sz; A(`поднять ${it.name} (${kg(it).toFixed(1)} кг) на ${(hu * U).toFixed(1)} м`, Jlift(it.m, hu) * (1 + M.dur * 0.4), () => { it.hover = { y: it.p.y + hu, t: (act === 'fly' ? 9 : 6) * M.dur }; it.held = 0; }, 'mind'); }
+        for (const it of its) { const hu = (act === 'fly' ? 9 : 7) * sz; A(`поднять ${it.name} (${kg(it).toFixed(1)} кг) на ${(hu * U).toFixed(1)} м и держать — ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, Jlift(it.m, hu) * (1 + M.dur * 0.4), () => { it.hover = { y: it.p.y + hu, t: Infinity }; it.held = 0; }, 'mind'); }
         return { acts: L };
       }
       case 'push': case 'throw': {
@@ -276,17 +280,17 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       }
       case 'hold': {
         const its = targetItems(); if (!its.length) return { err: 'Нечего хватать: такой вещи у цели нет' };
-        for (const it of its) A(`схватить ${it.name} (${kg(it).toFixed(1)} кг) — держать стоит ${fmtJ(it.m * G0 * 0.35 * U * 6)}/с`, Jlift(it.m, 2) , () => { it.held = 1; it.hover = null; it.hd = Math.max(8, Math.min(26, it.p.distanceTo(P.pos))); }, 'mind');
+        for (const it of its) A(`схватить ${it.name} (${kg(it).toFixed(1)} кг) — ПРОЦЕСС: держать ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, Jlift(it.m, 2) , () => { it.held = 1; it.hover = null; it.hd = Math.max(8, Math.min(26, it.p.distanceTo(P.pos))); }, 'mind');
         return { acts: L };
       }
-      case 'release': { const hs = heldItems; if (!hs.length && !wardJ) return { err: 'Нечего отпускать' }; A('отпустить', 0, () => { for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } }, 'mind'); return { acts: L }; }
+      case 'release': case 'unbind': { const scope = selfT ? 'self' : (info.kinds.length || info.mats.length) ? 'items' : 'all'; if (!procCount(scope)) return { err: 'Нечего отпускать: ни одно заклинание-процесс не действует' }; A(`отпустить (${scope === 'self' ? 'себя' : scope === 'items' ? 'предметы' : 'всё'})`, 0, () => { stopProcs(scope); }, 'mind'); return { acts: L }; }
       case 'stop': {
         if (selfT) {      // Letta eka — остановить себя: гасит скорость (в падении — зависнуть в воздухе)
           const vm = Math.hypot(P.vel.x, P.vel.y, P.vel.z) * U, J = 0.5 * PMASS * vm * vm + 30;
-          A(`остановить себя: погасить ${vm.toFixed(1)} м/с (масса мага ${PMASS} кг)`, J, () => { P.vel.set(0, 0, 0); if (P.state !== 'ground') levT = Math.max(levT, 1.6); puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 20, { spd: 5, s0: 1.4, s1: 3, life: 0.7, a: 0.6 }); ring(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 7, 0.4); }, 'mind'); return { acts: L };
+          A(`остановить себя: погасить ${vm.toFixed(1)} м/с и ПРОДОЛЖАТЬ удерживать на месте — ${fmtJ(P.state === 'ground' ? 25 : selfUp())}/с (losna eka или U — отпустить)`, J, () => { P.vel.set(0, 0, 0); rooted = P.pos.clone(); flyOn = false; puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 20, { spd: 5, s0: 1.4, s1: 3, life: 0.7, a: 0.6 }); ring(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 7, 0.4); }, 'mind'); return { acts: L };
         }
         if (elem === 'fire') { A('остановить огонь: потушить', 150 * sz, () => { const n2 = dragons ? dragons.extinguish(aim.tgt.x, aim.tgt.y, aim.tgt.z, 16 * sz) : 0; if (n2) steam(aim.tgt, 8); ring(aim.tgt, COL.steam, 14 * sz, 0.5); }, 'mind'); return { acts: L }; }
-        if (elem === 'water') return { acts: freeze(aim, sz) };
+        if (elem === 'water') return { acts: freezeIce(aim, sz) };
         const its = (objectsNamed || heldItems.length) ? targetItems() : items.items.filter(i => i.v.length() > 3 && i.p.distanceTo(aim.tgt) < 30);
         if (its.length) { for (const it of its) A(`остановить ${it.name}: поглотить ${fmtJ(items.energyJ(it))}`, items.energyJ(it) + 15, () => { it.v.set(0, 0, 0); it.pin = 4 * M.dur; it.hover = null; }, 'mind'); return { acts: L }; }
         const bs = pickBodies(aim, 10); if (bs.length) { A('остановить существо на 3 с', 250, () => { for (const b of bs.slice(0, 2)) npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, 'bind', 3 * M.dur); }, 'mind'); return { acts: L }; }
@@ -319,7 +323,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
         const its = targetItems(); A('высушить ' + (its[0] ? its[0].name : 'вещь'), 60, () => { for (const it of its) { it.wet = 0; it.T += 30; } }, 'mind'); return { acts: L };
       }
       case 'harden': {
-        if (elem === 'water') return { acts: freeze(aim, sz) };
+        if (elem === 'water') return { acts: freezeIce(aim, sz) };
         const its = targetItems(); if (!its.length) return { err: 'Нечего закалять' }; for (const it of its) A(`закалить ${it.name}`, 90 * it.m ** 0.5, () => { it.hard = (it.hard || 1) * 1.5; it.T = 15; puff(it.p, [.8, .9, 1], 10, { spd: 4, s0: 1, s1: 2, life: 0.6 }); }, 'mind'); return { acts: L };
       }
       case 'heal': {
@@ -330,8 +334,8 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
         const W = 800 * sz * (M.pow > 1 ? 1 : 1) * M.dur; A(`оберег: вложить ${fmtJ(W)} — гасит удары по 40 Дж за 1 урона`, W, () => { wardJ += W; selfVis('shield', { size: 1, bright: 0 }, aim.o, true); }, 'shield'); return { acts: L };
       }
       case 'light': {
-        if (info.kinds.length) { const its = targetItems(); if (its.length) { A(`заставить сиять: ${its[0].name}`, 60, () => { orbBind = its[0]; orbT = 90 * M.dur; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light'); return { acts: L }; } }
-        A('зажечь светлячок (не пламя — свет)', 60 * (1 + M.bright), () => { orbT = 120 * M.dur; orbBind = null; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light'); return { acts: L };
+        if (info.kinds.length) { const its = targetItems(); if (its.length) { A(`заставить сиять: ${its[0].name}`, 60, () => { orbBind = its[0]; orbT = 1e9; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light'); return { acts: L }; } }
+        A('зажечь светлячок (не пламя — свет) — ПРОЦЕСС: горит, пока хватает сил (~6 Дж/с)', 60 * (1 + M.bright), () => { orbT = 1e9; orbBind = null; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light'); return { acts: L };
       }
       case 'sleep': case 'bind': case 'slow': case 'wake': {
         const bs = pickBodies(aim, 12).filter(b => b.kind === 'npc'); if (!bs.length) return { err: act === 'wake' ? 'Некого будить' : 'Нет живой цели в поле зрения (усыпить можно только жителей)' };
@@ -357,13 +361,13 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   function shockwave(p, R) { ring(p, COL.stone, R, 0.5); puff(new V(p.x, p.y + 0.5, p.z), COL.stone, 40, { spd: R * 0.9, s0: 2, s1: 6, life: 1.1, up: 2, grav: 6, a: 0.5 }); for (const it of items.items) { const d = it.p.distanceTo(p); if (d < R) { _a.set(it.p.x - p.x, 0.6, it.p.z - p.z).normalize(); it.v.addScaledVector(_a, 30 / Math.max(0.5, it.m ** 0.4)); it.v.y += 12; it.held = 0; } } npcs && npcs.hitAt && npcs.hitAt(p.x, p.z, R, true); areaHurt(p, R * 0.8, 6, 'spell'); }
   function shatter(it) { const frag = it.kind === 'stone' || it.kind === 'boulder' ? 'stone' : it.mat === 'wood' ? 'stick' : null; puff(it.p, [.7, .65, .55], 18, { spd: 9, s0: 1, s1: 3, life: 0.8, grav: 14 }); const n = Math.min(5, Math.max(2, Math.round(it.m ** 0.4 + 1))); if (frag) for (let k = 0; k < n; k++) { const f = items.spawn(frag, it.p.x, it.p.y + 0.5, it.p.z, { mscale: it.m / (KIND[frag].m * n) }); if (f) { f.scale = Math.max(0.4, Math.min(1, (it.m / n / KIND[frag].m) ** 0.33)); f.v.set(rnd(-14, 14), rnd(6, 16), rnd(-14, 14)); } } items.remove(it); }
   function splitItem(it) { puff(it.p, [.9, .92, 1], 8, { spd: 5, s0: 1, s1: 0.3, life: 0.4 }); const h = items.spawn(it.kind, it.p.x, it.p.y + 0.4, it.p.z, { mscale: it.m / KIND[it.kind].m / 2 }); if (h) { h.scale = it.scale * 0.85; h.v.set(rnd(-6, 6), 8, rnd(-6, 6)); items.setMat(h, it.mat); h.T = it.T; } it.m /= 2; it.scale *= 0.85; it.v.set(rnd(-6, 6), 8, rnd(-6, 6)); }
-  function freeze(aim, sz) { return [{ label: 'заморозить воду: лёд', J: 700 * sz, run: () => { const R = 8 * sz; ring(aim.tgt, COL.ice, R, 0.5); frost(aim.tgt, R, sz); }, vis: 'ice' }]; }
+  function freezeIce(aim, sz) { return [{ label: 'заморозить воду: лёд', J: 700 * sz, run: () => { const R = 8 * sz; ring(aim.tgt, COL.ice, R, 0.5); frost(aim.tgt, R, sz); }, vis: 'ice' }]; }
   function manifest(elem, p, aim, sz, n) {      // стихия «из ничего»: цена — энергия, нагревающая/разгоняющая нужное количество вещества
     const spec = { fx: [elem], size: p.mods.size, count: Math.min(4, n), bright: p.mods.bright, pow: p.mods.pow }; const baseJ = { fire: 400, water: 250, ice: 500, bolt: 1500, wind: 200, light: 60, shadow: 150, mist: 100, rain: 700, heal: 0 }[elem];
     if (baseJ === undefined) return [{ label: 'стихия «' + elem + '» не проявляется', J: 20, run: () => {}, vis: 'mind' }];
     const names = { fire: 'огненный шар', water: 'струя воды', ice: 'ледяной удар', bolt: 'молния', wind: 'порыв ветра', light: 'светлячок', shadow: 'облако тьмы', mist: 'туман', rain: 'ливень' };
     const J = baseJ * Math.pow(sz, 1.3) * Math.pow(spec.count, 0.85) * (elem === 'fire' ? p.mods.heat : 1);
-    return [{ label: `${names[elem]}${spec.count > 1 ? ' ×' + spec.count : ''}: ${elem === 'fire' ? 'нагрев' : elem === 'bolt' ? 'разряд' : 'разгон массы'}`, J, man: true, run: () => { if (elem === 'shadow' || elem === 'mist') puff(new V(aim.tgt.x, aim.tgt.y + 3, aim.tgt.z), elem === 'shadow' ? COL.shadow : COL.mist, 50, { spd: 7, s0: 4, s1: 11, life: 3, a: 0.4, drag: 1 }); else if (elem === 'light') { orbT = 120 * p.mods.dur; orbBind = null; selfVis('light', spec, aim.o, true); } else if (elem === 'rain') startRain(true); else perform(spec, aim.o, aim.d, true, null); }, vis: elem }];
+    return [{ label: `${names[elem]}${spec.count > 1 ? ' ×' + spec.count : ''}: ${elem === 'fire' ? 'нагрев' : elem === 'bolt' ? 'разряд' : 'разгон массы'}`, J, man: true, run: () => { if (elem === 'shadow' || elem === 'mist') puff(new V(aim.tgt.x, aim.tgt.y + 3, aim.tgt.z), elem === 'shadow' ? COL.shadow : COL.mist, 50, { spd: 7, s0: 4, s1: 11, life: 3, a: 0.4, drag: 1 }); else if (elem === 'light') { orbT = 1e9; orbBind = null; selfVis('light', spec, aim.o, true); } else if (elem === 'rain') startRain(true); else perform(spec, aim.o, aim.d, true, null); }, vis: elem }];
   }
   function applyElem(elem, info, aim, p, n, sz) {      // стихия действует на названную вещь (brisingr traevam, eldrvarí stenr, vindr sverd …)
     const L = [], M = p.mods, its = (info.kinds.length || info.mats.length || info.pron.length) ? pickItems(info, aim, n, true) : [];
@@ -440,6 +444,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   document.body.appendChild(box);
   const inp = box.querySelector('input.m'), flt = box.querySelector('input.f'), pv = box.querySelector('.pv'), chips = box.querySelector('.ch'), hdr = box.querySelector('h3 i');
   const manaB = document.createElement('div'); manaB.id = 'manaB'; manaB.innerHTML = '<span>✦ Y — заклинание</span><i><u></u></i>'; document.body.appendChild(manaB); const manaU = manaB.querySelector('u'), manaT = manaB.querySelector('span');
+  const procB = document.createElement('div'); procB.style.cssText = 'position:fixed;left:50%;bottom:46px;transform:translateX(-50%);z-index:30;pointer-events:none;display:none;text-align:center;font:11.5px -apple-system,Segoe UI,sans-serif;color:#ffe9a8;text-shadow:0 1px 3px #000;max-width:90vw'; document.body.appendChild(procB);
   const toast = document.createElement('div'); toast.id = 'spellToast'; document.body.appendChild(toast); let toastT = 0;
   const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   function showWords() {
@@ -477,6 +482,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   });
   inp.addEventListener('keyup', stop);
   addEventListener('keydown', e => { if (e.code === 'KeyY' && !e.repeat && !box.classList.contains('on') && !/^(INPUT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName)) { e.preventDefault(); open(); } });
+  addEventListener('keydown', e => { if (e.code === 'KeyU' && !e.repeat && !/^(INPUT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName) && richard.active) { const n = stopProcs('all'); if (n) show('✦', 'Заклинания-процессы прекращены (' + n + ')'); } });
   net.on('spell', m => {
     if (!Array.isArray(m.fx) || ![m.x, m.y, m.z, m.vx, m.vy, m.vz].every(Number.isFinite)) return; if (Math.hypot(m.x - camera.position.x, m.z - camera.position.z) > 500) return;
     perform({ fx: m.fx, size: m.size || 1, count: m.count || 1, bright: m.bright || 0, pow: 1 }, new V(m.x, m.y, m.z), new V(m.vx, m.vy, m.vz).normalize(), false, m.id);
@@ -488,8 +494,13 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     const active = richard.active && !window.__dragonOn; manaB.style.display = active ? 'block' : 'none';
     if (active) {
       E = Math.min(EMAX, E + REGEN * dt * (cd > 0 ? 0.3 : 1)); manaU.style.width = (E / EMAX * 100) + '%';
-      const held = items.items.filter(i => i.held); manaT.textContent = `✦ ${Math.floor(E)}/${EMAX} Дж · Y — заклинание${held.length ? ' · в хватке: ' + held.map(i => i.name).join(', ') : ''}${wardJ > 0 ? ' · оберег ' + Math.floor(wardJ) + ' Дж' : ''}`;
+      const held = items.items.filter(i => i.held); manaT.textContent = `✦ ${Math.floor(E)}/${EMAX} Дж · Y — заклинание`;
       if (box.classList.contains('on') && Math.random() < 0.04) refresh();
+      { const L = [], e = eta(); let drain = 0;
+        for (const it of items.items) { if (it.held) { const d = itemUp(it) / e; drain += d; L.push(`🤲 ${it.name} −${Math.round(d)}`); } else if (it.hover) { const d = itemUp(it) / e; drain += d; L.push(`⇧ ${it.name} парит −${Math.round(d)}`); } }
+        if (flyOn) { const d = selfUp() / e; drain += d; L.push(`🕊 полёт −${Math.round(d)}`); } if (rooted) { const d = (P.state === 'ground' ? 25 : selfUp()) / e; drain += d; L.push(`✋ остановлен −${Math.round(d)}`); }
+        if (wardJ > 0) L.push(`🛡 оберег ${Math.floor(wardJ)} Дж`); if (orbT > 0) { drain += 6 / e; L.push('✨ светлячок −' + Math.round(6 / e)); } if (rainT > 0) L.push('🌧 ливень');
+        procB.style.display = L.length ? 'block' : 'none'; if (L.length) procB.textContent = 'Процессы (Дж/с): ' + L.join(' · ') + (drain ? ` · всего −${Math.round(drain)}/с` : '') + ' · U — прервать всё'; }
       if (!scatterDone) { scatter(P.pos.x, P.pos.z, 14, 20, 90); scatter(P.pos.x, P.pos.z, 10, 90, 220); scatterDone = true; }
       scT += dt; if (scT > 8) { scT = 0; let near = 0; for (const it of items.items) if (it.p.distanceTo(P.pos) < 180) near++; if (near < 12) scatter(P.pos.x, P.pos.z, 5, 40, 130); }
     }
@@ -500,8 +511,8 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     // хватка: предмет следует за прицелом, удержание стоит энергии каждую секунду; повисшие предметы парят
     camera.getWorldDirection(_a);
     for (const it of items.items) {
-      if (it.held) { const hd = it.hd || 14; _b.set(P.pos.x + _a.x * hd, P.pos.y + 6.5 + _a.y * hd, P.pos.z + _a.z * hd); it.v.set((_b.x - it.p.x) * 10, (_b.y - it.p.y) * 10, (_b.z - it.p.z) * 10); const up = it.m * G0 * 0.35 * U * 6; E -= up * dt; if (E <= 0 || P.dead || window.__dragonOn) { E = Math.max(0, E); it.held = 0; show('…', 'Сил не хватило держать ' + it.name); } }
-      else if (it.hover && it.hover.t > 0) { it.hover.t -= dt; it.v.y = (it.hover.y - it.p.y) * 4; it.v.x *= 1 - Math.min(1, dt * 1.5); it.v.z *= 1 - Math.min(1, dt * 1.5); }
+      if (it.held) { const hd = it.hd || 14; _b.set(P.pos.x + _a.x * hd, P.pos.y + 6.5 + _a.y * hd, P.pos.z + _a.z * hd); it.v.set((_b.x - it.p.x) * 10, (_b.y - it.p.y) * 10, (_b.z - it.p.z) * 10); E -= itemUp(it) / eta() * dt; if (E <= 0 || P.dead || window.__dragonOn) { E = Math.max(0, E); it.held = 0; show('…', 'Сил не хватило держать ' + it.name); } }
+      else if (it.hover && it.hover.t > 0) { E -= itemUp(it) / eta() * dt; if (E <= 0) { E = 0; it.hover = null; show('…', 'Сил не хватило держать ' + it.name); continue; } it.v.y = (it.hover.y - it.p.y) * 4; it.v.x *= 1 - Math.min(1, dt * 1.5); it.v.z *= 1 - Math.min(1, dt * 1.5); }
       else if (it.hover) it.hover = null;
       if (it.pin > 0) { it.pin -= dt; it.v.set(0, 0, 0); }
     }
@@ -518,12 +529,20 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       if (dead) bolts.splice(i, 1);
     }
     if (boostW > 0) { boostW -= dt; if (boostW <= 0 || P.state !== 'ground') { window.__g && window.__g.release('Space'); if (boostV) { P.vel.y = boostV; boostV = 0; } boostW = 0; } }
-    if (levT > 0 && !P.dead) { levT -= dt; E -= 40 * dt; if (E <= 0) { E = 0; levT = 0; } else if (P.state !== 'ground' && P.state !== 'dead') { if (levT < 3.5) P.vel.y += (Math.sin(performance.now() / 350) * 1.5 - P.vel.y) * Math.min(1, dt * 5); if (Math.random() < 0.5) spawn(P.pos.x + rnd(-1.5, 1.5), P.pos.y + 0.3, P.pos.z + rnd(-1.5, 1.5), 0, -6, 0, COL.lev, 1.2, 0.3, 0.6, 0.6, 0, 0.5); } }
+    if (flyOn && !P.dead) {      // процесс: полёт держится, пока хватает сил
+      flyT += dt; E -= selfUp() / eta() * dt; if (E <= 0) { E = 0; flyOn = false; show('…', 'Сил не хватило держаться в воздухе'); }
+      else if (P.state !== 'ground' && P.state !== 'dead') { if (flyT > 0.9) P.vel.y += (Math.sin(performance.now() / 350) * 1.5 - P.vel.y) * Math.min(1, dt * 5); if (Math.random() < 0.5) spawn(P.pos.x + rnd(-1.5, 1.5), P.pos.y + 0.3, P.pos.z + rnd(-1.5, 1.5), 0, -6, 0, COL.lev, 1.2, 0.3, 0.6, 0.6, 0, 0.5); }
+    }
+    if (rooted && !P.dead) {      // процесс: «остановлен» — ни шагу, ни падения, пока держится заклинание
+      const air = P.state !== 'ground'; E -= (air ? selfUp() : 25) / eta() * dt; if (E <= 0) { E = 0; rooted = null; show('…', 'Сил не хватило удерживать себя'); }
+      else { P.pos.x = rooted.x; P.pos.z = rooted.z; if (air) P.pos.y = rooted.y; P.vel.set(0, 0, 0); if (Math.random() < 0.3) spawn(P.pos.x + rnd(-2, 2), P.pos.y + rnd(1, 8), P.pos.z + rnd(-2, 2), 0, 1, 0, COL.mind, 1, 0.2, 0.6, 0.4, 0, 0.5); }
+    }
     // оберег: удары по магу съедают его энергию (1 здоровья = 40 Дж), пока она не кончится
     if (P.hp < lastHp - 0.01 && wardJ > 0 && !P.dead) { const dmg = lastHp - P.hp, ab = Math.min(dmg, wardJ / 40); P.hp += ab; wardJ -= ab * 40; puff(new V(P.pos.x, P.pos.y + 5, P.pos.z), COL.shield, 12, { spd: 8, s0: 1.2, s1: 2.5, life: 0.4 }); flash(COL.shield, 6); }
     lastHp = P.hp;
     if (wardJ > 0) { if (bubble) { bubble.position.set(P.pos.x, P.pos.y + 5, P.pos.z); bubble.material.opacity = Math.min(0.3, 0.1 + wardJ / 4000) + 0.05 * Math.sin(performance.now() / 120); } } else if (bubble) { scene.remove(bubble); bubble.material.dispose(); bubble = null; }
-    if (orbT > 0) { orbT -= dt; const tm = performance.now() / 1000; if (!orb) { orb = new THREE.Mesh(gSph, mkMat([1, .95, .7], 0.95)); orb.scale.setScalar(0.8); orb.renderOrder = 32; scene.add(orb); } if (orbBind && items.items.includes(orbBind)) orb.position.set(orbBind.p.x, orbBind.p.y + 2, orbBind.p.z); else orb.position.set(P.pos.x + Math.cos(tm * 1.3) * 4, P.pos.y + 11 + Math.sin(tm * 2) * 0.8, P.pos.z + Math.sin(tm * 1.3) * 4); orbL.position.copy(orb.position); orbL.intensity = 3.4; if (Math.random() < 0.4) spawn(orb.position.x, orb.position.y, orb.position.z, rnd(-1, 1), rnd(-1, 1), rnd(-1, 1), COL.light, 1.6, 0.2, 0.7, 0.5, 0, 0.5); if (orbT <= 0) { orbL.intensity = 0; scene.remove(orb); orb.material.dispose(); orb = null; } }
+    if (orbT > 0) { orbT -= dt; E -= 6 / eta() * dt; if (E <= 0) { E = 0; orbT = 0; } const tm = performance.now() / 1000; if (!orb) { orb = new THREE.Mesh(gSph, mkMat([1, .95, .7], 0.95)); orb.scale.setScalar(0.8); orb.renderOrder = 32; scene.add(orb); } if (orbBind && items.items.includes(orbBind)) orb.position.set(orbBind.p.x, orbBind.p.y + 2, orbBind.p.z); else orb.position.set(P.pos.x + Math.cos(tm * 1.3) * 4, P.pos.y + 11 + Math.sin(tm * 2) * 0.8, P.pos.z + Math.sin(tm * 1.3) * 4); orbL.position.copy(orb.position); orbL.intensity = 3.4; if (Math.random() < 0.4) spawn(orb.position.x, orb.position.y, orb.position.z, rnd(-1, 1), rnd(-1, 1), rnd(-1, 1), COL.light, 1.6, 0.2, 0.7, 0.5, 0, 0.5); if (orbT <= 0) { orbL.intensity = 0; scene.remove(orb); orb.material.dispose(); orb = null; } }
+    else if (orb) { orbL.intensity = 0; scene.remove(orb); orb.material.dispose(); orb = null; }
     // ливень
     if (rainT > 0) { rainT -= dt; const cx = camera.position.x, cz = camera.position.z; for (let k = 0; k < 16; k++) { const a = Math.random() * 6.283, d = Math.sqrt(Math.random()) * 55; spawn(cx + Math.cos(a) * d, camera.position.y + 40, cz + Math.sin(a) * d, 0, -70, 0, [.55, .72, 1], 0.5, 0.3, 0.75, 0.45, 0, 0); } if (dragons && Math.random() < dt * 0.6) dragons.wet(P.pos.x, P.pos.z, 80, 10); for (const it of items.items) if (it.p.distanceTo(P.pos) < 90) it.wet = 1; }
     // ловушки
