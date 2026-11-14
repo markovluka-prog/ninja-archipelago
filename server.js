@@ -158,6 +158,10 @@ function handle(pl, msg) {
   else if (msg.t === 'stop') { /* ручного завершения нет: игра заканчивается по условиям режима */ }
   else if (msg.t === 'home') { if (pl.g && pl.g.alive && pl.pos && game.mode === 'capture' && game.phase === 'play') { const mine = game.points.filter(q => q.owner === pl.g.team), c = (mine.length ? mine : [game.bases[pl.g.team]]).sort((a, b) => dxz(a, pl.pos) - dxz(b, pl.pos))[0]; if (c) send(pl, { t: 'spawn', x: c.x + 3, z: c.z, yaw: 0 }); } }
   else if (msg.t === 'inv') { if (pl.g && game.mode === 'dragons') pl.g.invUntil = nowS() + 0.5; }
+  else if (msg.t === 'spell') {                                                          // заклинание на древнем языке: остальные рисуют его у себя, урон считает кастер
+    if (!pl.play || ![msg.x, msg.y, msg.z, msg.vx, msg.vy, msg.vz].every(Number.isFinite) || !Array.isArray(msg.fx)) return;
+    broadcast({ t: 'spell', id, fx: msg.fx.slice(0, 3).map(String), x: msg.x, y: msg.y, z: msg.z, vx: msg.vx, vy: msg.vy, vz: msg.vz, size: Math.min(2.4, +msg.size || 1), count: Math.min(4, +msg.count | 0 || 1), bright: Math.min(3, +msg.bright | 0) }, id);
+  }
   else if (msg.t === 'ult' || msg.t === 'boom') {                                       // огненный шар дракона: запуск и взрыв — остальным (рисуют у себя)
     if (!pl.play || ![msg.x, msg.y, msg.z].every(Number.isFinite)) return;
     broadcast(msg.t === 'ult' ? { t: 'ult', id, x: msg.x, y: msg.y, z: msg.z, vx: +msg.vx || 0, vy: +msg.vy || 0, vz: +msg.vz || 0 } : { t: 'boom', id, x: msg.x, y: msg.y, z: msg.z }, id);
@@ -401,7 +405,7 @@ function returnFlag(f) {
 function onHit(pl, msg) {                                  // удар по другому игроку (атакующий определяет попадание, сервер проверяет)
   if (game.phase !== 'play' || !pl.g || !pl.g.alive) return;
   const tg = players.get(+msg.to); if (!tg || tg === pl || !tg.g || !tg.g.alive || !pl.pos || !tg.pos) return;
-  const dr = game.mode === 'dragons'; const ul = dr && msg.st === 'ult', lim = ul ? 1000 : dr ? 130 : 14; if (dxz(pl.pos, tg.pos) > lim || Math.abs(pl.pos.y - tg.pos.y) > lim) return;
+  const dr = game.mode === 'dragons'; const ul = dr && msg.st === 'ult', sp = typeof msg.st === 'string' && msg.st.startsWith('spell'), lim = ul ? 1000 : sp ? 90 : dr ? 130 : 14; if (dxz(pl.pos, tg.pos) > lim || Math.abs(pl.pos.y - tg.pos.y) > lim) return;
   const t = nowS(); if (tg.g.invUntil > t) return; if ((pl.g.lastHit[tg.id] || 0) > t - 0.25) return; pl.g.lastHit[tg.id] = t;
   if (game.mode === 'relics') {                            // кража: удар отнимает у цели 1 очко (раз в 3 с на цель) и отдаёт ударившему
     if (tg.g.score > 0 && (pl.g.stealAt || 0) < t - 3) { pl.g.stealAt = t; tg.g.score--; pl.g.score++; ev(`🗡 ${pl.name} отобрал реликвию у ${tg.name}`); if (pl.g.score >= MODES.relics.limit) endGame(`${pl.name} собрал ${MODES.relics.limit} реликвий`, [pl]); }
@@ -413,8 +417,8 @@ function onHit(pl, msg) {                                  // удар по др
   }
   if (!MODES[game.mode].pvp) return;
   if (MODES[game.mode].teams && pl.g.team === tg.g.team) return;           // по своим не бьём
-  if ((msg.st === 'bash' || msg.st === 'beat') && game.mode === 'battle') send(tg, { t: 'slow', s: 0.4 });
-  send(tg, { t: 'hurt', from: pl.id, dmg: Math.min(ul ? 90 : dr ? 45 : 35, Math.max(1, +msg.dmg || 15)), x: pl.pos.x, y: pl.pos.y, z: pl.pos.z });
+  if ((msg.st === 'bash' || msg.st === 'beat' || msg.st === 'spell_ice') && game.mode === 'battle') send(tg, { t: 'slow', s: 0.4 });
+  send(tg, { t: 'hurt', from: pl.id, dmg: Math.min(ul ? 90 : sp ? 40 : dr ? 45 : 35, Math.max(1, +msg.dmg || 15)), x: pl.pos.x, y: pl.pos.y, z: pl.pos.z });
 }
 const HS = () => players.hs || (players.hs = { tot: {}, n: 0, next: null });      // серия пряток по комнате
 function onDecoy(pl, msg) {                                // приманка: один раз за раунд звук в другой точке (слышат все)

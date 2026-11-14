@@ -59,6 +59,7 @@ import { startLobby } from './lobby.js';
 import { startChat } from './chat.js';
 import { startGame } from './game.js';
 import { createDragons } from './dragon.js';
+import { createMagic } from './magic.js';
 import { createAudio } from './audio.js';
 import { startMinimap } from './minimap.js';
 import { createSky } from './sky.js';
@@ -153,7 +154,7 @@ function setMode(m, quiet) {
     const p = richard ? richard.P.pos : { x: 0, y: 0, z: 0 };
     controls.target.set(p.x, p.y, p.z); camera.position.set(p.x + 140, p.y + 120, p.z + 170); camera.fov = 50; camera.updateProjectionMatrix(); controls.update();
     $('hint').textContent = 'Облёт: мышь — вращение, колесо — зум, ПКМ — сдвиг · G — к Ричарду';
-  } else $('hint').textContent = 'Клик по сцене — захват мыши · WASD бег · Пробел прыжок · J удар · K блок · C перекат · V скольжение · E взаимодействие и двери домов · G облёт · T телепорт · H справка';
+  } else $('hint').textContent = 'Клик по сцене — захват мыши · WASD бег · Пробел прыжок · J удар · K блок · C перекат · V скольжение · Y заклинание · E взаимодействие и двери домов · G облёт · T телепорт · H справка';
 }
 $('bWalk').onclick = () => setMode('walk'); $('bOrbit').onclick = () => setMode('orbit');
 addEventListener('keydown', e => { if (e.code === 'KeyG') { if (document.pointerLockElement) document.exitPointerLock(); setMode(mode === 'walk' ? 'orbit' : 'walk'); } });
@@ -489,6 +490,7 @@ let audio = null; if (richard) { try { audio = createAudio({ world, richard, net
 const NPC_SWING = { attack: [0.22, 7.5], kick: [0.2, 6.5], bash: [0.25, 6.5], lunge: [0.3, 12], riposte: [0.24, 11.5], beat: [0.2, 9.5] }, npcSw = { s: '', t: 0, f: true };
 addEventListener('mountedswing', () => { if (richard && npcs.hit && !richard.P.dead) npcs.hit(richard.P.pos.x, richard.P.pos.z, richard.P.yawVis ?? richard.P.yaw, 11); });
 let dragons = null; if (richard) { try { dragons = createDragons({ THREE, scene, world, richard, net, camera, renderer }); } catch (e) { console.error('драконы', e); } }
+let magic = null; if (richard) { try { magic = createMagic({ THREE, scene, world, richard, net, camera, renderer, npcs, dragons }); } catch (e) { console.error('магия', e); } }
 if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode, ships: shipsApi, getDbg: () => gameMode && gameMode.dbg });      // миникарта: где второй игрок (N — размер)
 
 /* цикл */
@@ -502,7 +504,7 @@ renderer.setAnimationLoop(now => {
         if (pr !== renderer.getPixelRatio()) { renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight); } } } }
   if (tod.auto) tod.t = (tod.t + dt / tod.len) % 1;
   if ((todF = (todF + 1) % 3) === 0) { if (tod.auto) $('tod').value = tod.t; applyTod(); }      // смена дня медленная: небо и свет пересчитываем 20 раз в секунду, а не каждый кадр
-  net.update(dt); if (dragons) dragons.update(dt); if (audio) audio.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
+  net.update(dt); if (dragons) dragons.update(dt); if (magic) magic.update(dt); if (audio) audio.update(dt); if (gameMode) gameMode.update(dt); sailsTick(dt); world.update(T); animals.update(T, dt, camera.position, camera); npcs.update(dt, camera.position, camera);
   if (mode === 'walk' && richard) {
     const p = richard.P.pos;                                  // животные и жители твёрдые: выталкиваем Ричарда
     rideUpdate(dt); if (!riding && !window.__dragonOn) unstickShips(richard.P);

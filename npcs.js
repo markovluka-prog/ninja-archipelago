@@ -167,6 +167,12 @@ export async function createNPCs({ scene, world, base = './' }) {
     st.visible = true; st.scale.setScalar(st.userData.s0 * Math.max(0.02, c.stK));
   }
 
+  function hurtNpc(c, px, pz, fall) {
+    const now = performance.now() / 1000; c.hits = now - (c.lastHit || -99) > 6 ? 1 : (c.hits || 0) + 1; c.lastHit = now;
+    if (fall || c.hits >= 3) { c.hits = 0; c.hurt = { kind: 'fall', t: 0, dur: 3.1 }; say(c, 'Ай!'); }
+    else { c.hurt = { kind: 'flinch', t: 0, dur: 0.5 }; if (rnd() < 0.5) say(c, 'Ой!'); }
+    c.yaw = Math.atan2(px - c.x, pz - c.z);      // оборачивается к обидчику
+  }
   return {
     count: crowd.length,
     info() { return crowd.map(c => ({ id: c.id, name: DEF[c.id].name, role: DEF[c.id].role, icon: DEF[c.id].icon, work: DEF[c.id].workLabel, route: c.route, acts: c.acts, mode: c.mode, x: c.x, z: c.z, home: c.home ? { x: c.home.dx, z: c.home.dz } : null, inside: !!c.visit, state: c.state, rest: c.rest })); },
@@ -176,12 +182,12 @@ export async function createNPCs({ scene, world, base = './' }) {
       for (const c of crowd) {
         if (!c.npc || c.hurt && c.hurt.kind === 'fall') continue;
         const dx = c.x - px, dz = c.z - pz, d = Math.hypot(dx, dz); if (d > reach + 1.4 || d < 0.05 || (dx * fx + dz * fz) / d < 0.3) continue;
-        const now = performance.now() / 1000; c.hits = now - (c.lastHit || -99) > 6 ? 1 : (c.hits || 0) + 1; c.lastHit = now; n++;
-        if (c.hits >= 3) { c.hits = 0; c.hurt = { kind: 'fall', t: 0, dur: 3.1 }; say(c, 'Ай!'); }
-        else { c.hurt = { kind: 'flinch', t: 0, dur: 0.5 }; if (rnd() < 0.5) say(c, 'Ой!'); }
-        c.yaw = Math.atan2(px - c.x, pz - c.z);      // оборачивается к обидчику
+        n++; hurtNpc(c, px, pz, false);
       }
       return n;
+    },
+    hitAt(x, z, r, fall) {                           // заклинание: всех жителей в радиусе вздрагивает (fall — сбивает с ног сразу); здоровья нет, как и при ударе
+      let n = 0; for (const c of crowd) { if (!c.npc || c.hurt && c.hurt.kind === 'fall') continue; if (Math.hypot(c.x - x, c.z - z) > r) continue; n++; hurtNpc(c, x, z, !!fall); } return n;
     },
     update(dt, cam, camera) {
       if (camera) { fm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); view = view || new THREE.Frustum(); view.setFromProjectionMatrix(fm); }

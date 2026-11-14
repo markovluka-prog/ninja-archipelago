@@ -236,8 +236,13 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
   let bcur = 0, bLive = 0; const _ge = new V();
   let nPlant = 0;      // трава и кусты считаем отдельно: иначе сотня травинок занимает весь лимит и чучела, корабли и дома не загораются
   function snuff(o) { if (burning.delete(o) && o.k === 'plant') nPlant--; o.burn = 0; }
+  const wetZ = [];      // мокрые зоны от заклинаний воды и дождя: пока не высохли, там ничего не загорается
+  const wetAt = (x, z) => { const t = performance.now() / 1000; for (let i = wetZ.length - 1; i >= 0; i--) { const w = wetZ[i]; if (w.t < t) { wetZ.splice(i, 1); continue; } if ((x - w.x) ** 2 + (z - w.z) ** 2 < w.r * w.r) return true; } return false; };
+  function extinguish(x, y, z, r) {              // тушит всё горящее в шаре радиуса r, возвращает число потушенных (для пара)
+    let n = 0; for (const o of [...burning]) if (Math.hypot(o.x - x, o.z - z) < r + o.r && Math.abs(o.y + o.h * 0.5 - y) < r + o.h) { snuff(o); n++; } return n;
+  }
   function igniteAt(x, y, z, r) {
-    if (!world.flamNear) return;
+    if (!world.flamNear || wetAt(x, z)) return;
     world.flamNear(x, z, r, o => {
       if (y < o.y - 3 || y > o.y + o.h + 4) return; lightUp(o);
     });
@@ -648,5 +653,5 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     flameLight.intensity += ((lit ? 7 : 0) - flameLight.intensity) * Math.min(1, dt * 12);
     if (lit) flameLight.position.copy(mine.d.mouth).addScaledVector(mine.d.dir, 14);
   }
-  return { update, get mounted() { return mine.st === 'ride'; } };
+  return { update, get mounted() { return mine.st === 'ride'; }, ignite: igniteAt, extinguish, wet(x, z, r, sec) { wetZ.push({ x, z, r, t: performance.now() / 1000 + sec }); return extinguish(x, 3, z, r + 6); }, burningNear(x, z, r) { for (const o of burning) if (Math.hypot(o.x - x, o.z - z) < r + o.r) return true; return false; } };
 }
