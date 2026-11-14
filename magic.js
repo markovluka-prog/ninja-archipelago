@@ -366,7 +366,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   const refuseFor = (b, act) => NOMOVE[b.kind] || ('«' + b.name + '» так не двигается');
 
   function planClause(cl, p, aim) {
-    const info = npInfo(cl.np), act = cl.verb ? (cl.act || VERB[cl.verb]) : null, M = p.mods, sz = sizeM(p), L = [], n = Math.max(1, info.num || (p.count > 1 && p.count !== info.num ? p.count : 1));
+    const info = npInfo(cl.np.concat(cl.preps.filter(q => q.p === 'with').flatMap(q => q.np))), act = cl.verb ? (cl.act || VERB[cl.verb]) : null, M = p.mods, sz = sizeM(p), L = [], n = Math.max(1, info.num || (p.count > 1 && p.count !== info.num ? p.count : 1));
     const picks = curPicks, A = (label, J, run, vis, inst) => L.push({ label, J, run: () => { wakeAll(picks); run(); }, vis, inst });
     const elem = info.elems[0], objectsNamed = info.kinds.length || info.mats.length || info.pron.length || info.flora.length || info.structs.length || info.creatures.length || info.parts.length;
     const selfT = info.pron.includes('self'), heldItems = items.items.filter(i => i.held);
@@ -378,7 +378,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     if (p.neg && elem === 'fire') { A('запрет огня: земля становится сырой', 350 * sz, () => dragons && dragons.wet(aim.tgt.x, aim.tgt.z, 22 * sz, 40), 'mind', true); return { acts: L }; }
     if (!act) {
       if (elem && (objectsNamed || info.flora.length || info.creatures.length || info.structs.length) && !selfT) return { acts: applyElem(elem, info, aim, p, n, sz) };
-      if (elem) return { acts: manifest(elem, p, aim, sz, n) };
+      if (elem) { const es = info.elems.includes('bolt') ? info.elems.filter(e => e === 'bolt' || e === 'rain') : info.elems; return { acts: es.flatMap(e => manifest(e, p, aim, sz, n, info.elems)) }; }      // несколько стихий: каждая действует; при молнии вода/ветер/лёд лишь усиливают её
       A('осмотреть: ' + cl.np.filter(t => t.e).map(t => t.e.ru.split(/[;,(]/)[0]).join(', '), 20, () => inspect(aim, info), 'mind', true); return { acts: L };
     }
     switch (act) {
@@ -555,8 +555,8 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   function shatter(it) { const frag = it.kind === 'stone' || it.kind === 'boulder' ? 'stone' : it.mat === 'wood' ? 'stick' : null; puff(it.p, [.7, .65, .55], 18, { spd: 9, s0: 1, s1: 3, life: 0.8, grav: 14 }); const n = Math.min(5, Math.max(2, Math.round(it.m ** 0.4 + 1))); if (frag) for (let k = 0; k < n; k++) { const f = items.spawn(frag, it.p.x, it.p.y + 0.5, it.p.z, { mscale: it.m / (KIND[frag].m * n) }); if (f) { f.scale = Math.max(0.4, Math.min(1, (it.m / n / KIND[frag].m) ** 0.33)); f.v.set(rnd(-14, 14), rnd(6, 16), rnd(-14, 14)); } } items.remove(it); }
   function splitItem(it) { puff(it.p, [.9, .92, 1], 8, { spd: 5, s0: 1, s1: 0.3, life: 0.4 }); const h = items.spawn(it.kind, it.p.x, it.p.y + 0.4, it.p.z, { mscale: it.m / KIND[it.kind].m / 2 }); if (h) { h.scale = it.scale * 0.85; h.v.set(rnd(-6, 6), 8, rnd(-6, 6)); items.setMat(h, it.mat); h.T = it.T; } it.m /= 2; it.scale *= 0.85; it.v.set(rnd(-6, 6), 8, rnd(-6, 6)); }
   function freezeIce(aim, sz) { return [{ label: 'заморозить воду: лёд', J: 700 * sz, run: () => { const R = 8 * sz; ring(aim.tgt, COL.ice, R, 0.5); frost(aim.tgt, R, sz); }, vis: 'ice' }]; }
-  function manifest(elem, p, aim, sz, n) {      // стихия «из ничего»: поток энергии — огонь, вода, лёд, ветер льются, пока идёт сила; молния копит заряд и бьёт
-    const spec = { fx: [elem], size: p.mods.size, count: Math.min(4, n), bright: p.mods.bright, pow: p.mods.pow };
+  function manifest(elem, p, aim, sz, n, allElems) {      // стихия «из ничего»: поток энергии — огонь, вода, лёд, ветер льются, пока идёт сила; молния копит заряд и бьёт
+    const spec = { fx: allElems && allElems.length ? allElems.slice() : [elem], size: p.mods.size, count: Math.min(4, n), bright: p.mods.bright, pow: p.mods.pow }; if (!spec.fx.includes(elem)) spec.fx.unshift(elem);
     const names = { fire: 'поток огня', water: 'струя воды', ice: 'ледяной поток', wind: 'ветер', bolt: 'молния', light: 'светлячок', shadow: 'облако тьмы', mist: 'туман', rain: 'ливень' };
     const PW = { fire: 400, water: 250, ice: 300, wind: 150 }[elem];
     if (PW) { const Pw = PW * Math.pow(sz, 1.3) * (elem === 'fire' ? p.mods.heat : 1); return [{ label: `${names[elem]} — ПРОЦЕСС-поток: ${fmtJ(Pw)}/с по живому прицелу, пока хватает сил (до 10 с; losna или U — прекратить)`, J: Pw * 3, man: true, vis: elem, run: () => { addProc({ name: names[elem], J: Pw * 10, P: Pw, tag: 'other', step: streamStep(elem, spec) }); } }]; }
@@ -573,7 +573,8 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       const raw = b.raw;
       if (elem === 'fire') {
         const J = b.kind === 'item' ? Math.max(20, raw.m * (SPEC_HEAT[raw.mat] || 1000) * HS * Math.max(0, (MAT[raw.mat].flam ? MAT[raw.mat].flam + 40 : 700 * M.heat) - raw.T) * M.heat) : (b.kind === 'house' ? 900 : b.kind === 'tree' ? 800 : b.kind === 'plant' ? 120 : b.kind === 'self' ? 300 : 500) * M.heat;
-        A(`${b.alive ? 'обжечь' : 'нагреть'} ${describe(b)} — ПРОЦЕСС ${tc(J)} с${b.kind === 'tree' || b.kind === 'house' || b.kind === 'plant' ? ': займётся, дальше огонь пойдёт сам' : b.kind === 'item' && MAT[raw.mat].flam ? ': займётся' : ''}`, J, () => addProc({ name: 'нагреть ' + b.name, J, tag: b.kind === 'item' ? 'items' : 'other', step(r2) { b.heat(r2); if (Math.random() < 0.5) puff(b.p, COL.fire, 1, { spd: 3, s0: 1.2, s1: 3, life: 0.5, up: 4 }); } }), 'fire');
+        const tgtT = b.kind === 'item' ? (MAT[raw.mat].flam ? MAT[raw.mat].flam + 40 : 700 * M.heat) : 0;
+        A(`${b.alive ? 'обжечь' : 'нагреть'} ${describe(b)} — ПРОЦЕСС ${tc(J)} с${b.kind === 'tree' || b.kind === 'house' || b.kind === 'plant' ? ': займётся, дальше огонь пойдёт сам' : b.kind === 'item' && MAT[raw.mat].flam ? ': займётся' : ''}`, J, () => addProc({ name: 'нагреть ' + b.name, J: b.kind === 'item' ? J * 3 : J, tag: b.kind === 'item' ? 'items' : 'other', step(r2) { b.heat(r2); if (Math.random() < 0.5) puff(b.p, COL.fire, 1, { spd: 3, s0: 1.2, s1: 3, life: 0.5, up: 4 }); return b.kind === 'item' && raw.T >= tgtT; } }), 'fire');
       }
       else if (elem === 'water') A(`окатить ${describe(b)}`, 40, () => { b.douse(); puff(b.p, COL.water, 12, { spd: 5, up: 4, grav: 14 }); if (b.kind === 'item' && b.raw.burn) steam(b.p, 4); }, 'water', true);
       else if (elem === 'ice') A(`заморозить ${describe(b)}`, 150, () => { b.freeze(); puff(b.p, COL.ice, 16, { spd: 4, s0: 1, s1: 2, life: 0.8 }); }, 'ice', true);

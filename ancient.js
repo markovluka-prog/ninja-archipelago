@@ -137,7 +137,11 @@ export function parse(text) {
   const isNP = t => t && ['N', 'A', 'Q', 'R', 'AND'].includes(t.role);
   const used = new Array(toks.length).fill(false);
   const takeNP = (from, dir) => {      // собрать группу существительного, идя от from в сторону dir; вернуть токены
-    const g = []; let i = from; while (i >= 0 && i < toks.length && isNP(toks[i]) && !used[i]) { g.push(i); i += dir; }
+    const isElemTok = t => t && NOUN[t.a] && (NOUN[t.a][0] === 'elem' || NOUN[t.a][0] === 'wea'), g = []; let i = from;
+    while (i >= 0 && i < toks.length && isNP(toks[i]) && !used[i]) {
+      if (dir > 0 && toks[i].role === 'AND' && isElemTok(toks[i + 1]) && g.some(k => toks[k].role === 'N' && !isElemTok(toks[k]))) break;      // «свяжи эльфа И молния…» — стихия после союза начинает новое предложение
+      g.push(i); i += dir;
+    }
     while (g.length && toks[g[g.length - 1]].role === 'AND') g.pop();
     return dir < 0 ? g.reverse() : g;
   };

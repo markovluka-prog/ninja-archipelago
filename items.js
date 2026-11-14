@@ -114,7 +114,7 @@ export function createItems({ THREE, scene, world }) {
       // тепло: огонь рядом греет, вода и дождь остужают; дерево и ткань загораются, металл раскаляется, лёд тает
       const nearFire = env.fireNear(p.x, p.z, 4 + r), wet = env.wetAt(p.x, p.z) || it.wet > 0.3;
       if (nearFire && !wet) it.T += 190 * dt; if (it.burn) it.T = Math.max(it.T, 420);
-      it.T += (15 - it.T) * Math.min(1, dt * (mat.cond ? 0.22 : 0.4) * (wet ? 4 : 1)); it.wet = Math.max(0, it.wet - dt * 0.05);
+      it.T += (15 - it.T) * Math.min(1, dt * (mat.cond ? 0.12 : 0.1) * (wet ? 6 : 1)); it.wet = Math.max(0, it.wet - dt * 0.05);
       if (wet && it.burn) { it.burn = 0; env.puff(p, 'steam', 10); it.T = Math.min(it.T, 120); }
       if (mat.flam && !it.burn && it.T > mat.flam && !wet) { it.burn = 1; it.burnT = mat.burnT * Math.sqrt(Math.max(0.05, it.m) / 2 + 0.5); it.burnMax = it.burnT; }
       if (it.burn) {
