@@ -718,13 +718,13 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     if (v.parts) {
       let b = batches.get(p.id + ':' + p.seedV); if (!b) batches.set(p.id + ':' + p.seedV, b = { v, mats: [] });
       Q.setFromAxisAngle(UP, p.rot); M4.compose(V3.set(p.x, y, p.z), Q, S3.setScalar(p.s)); b.mats.push(M4.clone());
-      placed.push({ id: p.id, x: p.x, y, z: p.z, rot: p.rot, s: p.s, v, bkey: p.id + ':' + p.seedV, idx: b.mats.length - 1, box: rbox, fo: rfo });      // реестр для магии: любой такой объект можно «оторвать» от мира и сделать телом
+      const rec_ = { id: p.id, x: p.x, y, z: p.z, rot: p.rot, s: p.s, v, bkey: p.id + ':' + p.seedV, idx: b.mats.length - 1, box: rbox, fo: rfo }; placed.push(rec_); if (rfo) rfo.rec = rec_;      // реестр для магии: любой такой объект можно «оторвать» от мира и сделать телом
     } else {
       const g = catalog.get(p.id).make(THREE, p.seedV, { doorOpen: false });
       g.position.set(p.x, y, p.z); g.rotation.y = p.rot; g.scale.setScalar(p.s);
       if (v.door && BUILD_RE.test(p.id)) findDoors(g).forEach(d => { d.visible = false; });      // анимированные здания (мельница, маяк): створку рисует отдельная дверь, открывающаяся по E
       g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-      scene.add(g);
+      scene.add(g); if (rfo) rfo.g = g;      // у построек и кораблей flam-запись знает свою группу (магия: невидимость)
       if (g.userData.animate) animated.push(g);
       if (p.vessel) {
         const V_ = { id: p.id, g, y0: y, ph: rnd() * 6, box: p.shipBox || null, L: p.hullL || 0, W: p.hullW || 0, yaw: p.rot, rv: 0, s: p.s };
@@ -861,6 +861,10 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   const PCS = 24, PG = new Map(); for (const r of placed) { const k = Math.floor(r.x / PCS) + ',' + Math.floor(r.z / PCS); (PG.get(k) || PG.set(k, []).get(k)).push(r); }
   const placedNear = (x, z, r, cb) => { for (let i = Math.floor((x - r) / PCS); i <= Math.floor((x + r) / PCS); i++) for (let j = Math.floor((z - r) / PCS); j <= Math.floor((z + r) / PCS); j++) { const a_ = PG.get(i + ',' + j); if (a_) for (const o of a_) if (!o.gone && (o.x - x) ** 2 + (o.z - z) ** 2 < r * r) cb(o); } };
   const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+  const setHiddenPlaced = (rec, on) => {      // скрыть/показать экземпляр (без смены коллизий): невидимость
+    if (!!rec.hidden === !!on) return; rec.hidden = !!on; const b = batches.get(rec.bkey); if (!b || !b.ims) return;
+    const parts = mergedParts(b.v); b.ims.forEach((im, k) => { im.setMatrixAt(rec.idx, on || rec.gone ? ZERO_M : b.mats[rec.idx].clone().multiply(parts[k].mat)); im.instanceMatrix.needsUpdate = true; });
+  };
   const detachPlaced = rec => {      // убрать экземпляр из мира (скрыть, снять коллизию и горение): дальше он живёт как предмет магии
     if (rec.gone) return false; rec.gone = true; const b = batches.get(rec.bkey);
     if (b && b.ims) for (const im of b.ims) { im.setMatrixAt(rec.idx, ZERO_M); im.instanceMatrix.needsUpdate = true; }
@@ -877,7 +881,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   const blockedAt = (x, z, pad = 0) => { const cx = Math.floor(x / BCS), cz = Math.floor(z / BCS); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a_ = BG.get((cx + i) + ',' + (cz + j)); if (a_) for (const b of a_) if (x > b.x0 - pad && x < b.x1 + pad && z > b.z0 - pad && z < b.z1 + pad) return true; } return false; };
   say('Готово', 1);
   return {
-    heightAt, blockedAt, treeTopAt, flamNear, addFlam, placedNear, detachPlaced, partsOf: rec => mergedParts(rec.v), vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
+    heightAt, blockedAt, treeTopAt, flamNear, addFlam, placedNear, detachPlaced, setHiddenPlaced, partsOf: rec => mergedParts(rec.v), vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
     ops: { lines: ops.line, labels: ops.label }, findSpot, lakeAt: (wx, wz) => !!lakeM[Math.round((wz / S + H / 2) / CELL) * GW + Math.round((wx / S + W / 2) / CELL)], bounds: { x0: -W * S / 2 + 6, x1: W * S / 2 - 6, z0: -H * S / 2 + 6, z1: H * S / 2 - 6 }, size: { W: W * S, H: H * S },
     stats: { scale: S, collisions: colInfo, placements: placements.length, drawMeshes: meshCount, animated: animated.length, models: variantCache.size },
     update(t) {

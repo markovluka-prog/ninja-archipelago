@@ -36,7 +36,9 @@ export const VERB = {
   gath: 'gather', taka: 'pull', kausta: 'pull', aurboda: 'banish', vaetna: 'scatter', jierda: 'break', kverst: 'cut', kremja: 'crush', 'eldrvarí': 'ignite', thurra: 'dry', herdtha: 'harden', tuatha: 'harden',
   heill: 'heal', 'lífa': 'heal', vardi: 'ward', varda: 'ward', naina: 'light', ignasia: 'light', slytha: 'sleep', vakna: 'wake', malthinae: 'bind', taelda: 'bind', dvelja: 'slow',
   'vergarí': 'kill', deyja: 'kill', andask: 'kill', 'aldanarí': 'create', fortha: 'manifest', moi: 'change', sjon: 'inspect', sja: 'inspect', kenna: 'inspect', hlaupa: 'sprint', eitha: 'sprint', 'gánga': 'sprint',
-  frethya: 'conceal', 'ládrin': 'open', laesa: 'lock', blanda: 'mix', brakka: 'shrink', 'gëuloth': 'dull', thverr: 'cross',
+  frethya: 'conceal', 'ládrin': 'open', laesa: 'lock', blanda: 'gather', brakka: 'shrink', 'gëuloth': 'warp', thverr: 'sprint',
+  eldhrimner: 'grow', orpin: 'warp', 'kvetha': 'greet', 'astorí': 'greet', elrun: 'greet', gala: 'greet', 'hórna': 'listen', finna: 'find', blunda: 'sleep', drukna: 'drown', stydja: 'heal', sitja: 'stop', skaga: 'push', tauthr: 'pull', threyja: 'pull',
+  thelduin: 'bind', theyna: 'bind', verda: 'change', verrunsmal: 'ward', 'äftaka': 'pull', 'hávr': 'hold', ach: 'manifest', 'ethgrí': 'pull', thaefathan: 'harden', blinkna: 'conceal',
 };
 // существительные → вид: elem (стихия), mat (материал), item (вещь), flora, struct (постройка), wea (погода), part (часть тела), creature, abs
 export const NOUN = {

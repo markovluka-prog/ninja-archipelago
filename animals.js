@@ -228,6 +228,8 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
       c.pitch = c.jy > 0 ? -c.jv * 0.02 : 0;
       c.y = Math.max(0, hAt(c.x, c.z)) - 0.05 + (c.jy || 0); c.state = Math.abs(c.rv) > 0.8 || c.jy > 0 ? 'walk' : 'rest'; c.restClip = 'idle';
     },
+    near(x, z, r) { const o = []; for (const c of ctrls) if (c.inst && Math.hypot(c.x - x, c.z - z) < r) o.push(c); return o; },      // загруженные животные рядом: «ручки» для магии (bodies.js)
+    nameOf(c) { return ({ horse: 'лошадь', cat: 'кошка', raven: 'ворон', dog: 'собака', cow: 'корова', sheep: 'овца', goat: 'коза', deer: 'олень', fish: 'рыба', boat: 'лодка' })[c.sp] || c.sp; },
     bodies() { const o = []; for (const c of ctrls) if (c.inst && c.mode !== 'orbit' && c.mode !== 'route') o.push({ x: c.x, z: c.z, y: c.y, r: Math.max(0.8, SP[c.sp].len * 0.32) }); return o; },
     update(t, dt, cam, camera) {
       const inView = c => view && view.intersectsSphere(sph.set(pt.set(c.x, (c.y || 0) + 3, c.z), 9));      // животные появляются и исчезают только вне поля зрения камеры
@@ -238,14 +240,14 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
       for (const c of ctrls) {
         c.t += dt; c.px = c.x; c.pz = c.z;
         if ((c.mode === 'orbit' || c.mode === 'route') && night) { if (c.inst) release(c); continue; }      // птицы ночью спят: не летают и не показываются
-        if (c.mode === 'orbit' || c.mode === 'route') stepFlier(c, dt); else if (!c.ridden || !CTRL.has(c.sp)) stepWalker(c, dt, c.mode === 'swim');      // без седла лошадь идёт сама, всадник просто сидит
+        if (c.mode === 'orbit' || c.mode === 'route') stepFlier(c, dt); else if (c.mag && c.mag.active) c.state = 'rest'; else if (!c.ridden || !CTRL.has(c.sp)) stepWalker(c, dt, c.mode === 'swim');      // без седла лошадь идёт сама, всадник просто сидит
         const dx = c.x - cam.x, dz = c.z - cam.z, d = Math.hypot(dx, dz), big = SP[c.sp].len > 6 || SP[c.sp].fly;
         const loadR = (big ? 300 : 190) + (c.mode === 'orbit' ? 80 : 0), unloadR = loadR + 60;
         if (!c.inst) { if (!c.failed && d < loadR && d < wd && !inView(c)) { want = c; wd = d; } continue; }
         if (d > unloadR && !c.ridden && !inView(c)) { release(c); continue; }
         const it = c.inst, flying = c.mode === 'orbit' || c.mode === 'route';
         applyClip(c, flying ? 'fly' : c.mode === 'swim' && c.state === 'walk' ? 'idle' : c.state === 'walk' ? 'walk' : (c.restClip === 'graze' ? 'graze' : 'idle'));
-        it.root.position.set(c.x, c.y, c.z); it.root.rotation.set(flying ? 0 : (c.pitch || 0), c.yaw, flying ? (c.roll || 0) : 0, 'YXZ');
+        it.root.position.set(c.x, c.y + (c.my || 0), c.z); it.root.visible = !c.hidden; it.root.rotation.set(flying ? 0 : (c.pitch || 0), c.yaw, flying ? (c.roll || 0) : 0, 'YXZ');
         if (d < 110 || (frame & 1) === 0 || inView(c)) it.tick(t * 1000);      // далёкие и невидимые — анимация через кадр (время абсолютное, скачков нет)
         if (!flying) loaded.push(c);
       }

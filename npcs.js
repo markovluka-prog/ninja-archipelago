@@ -186,6 +186,10 @@ export async function createNPCs({ scene, world, base = './' }) {
       }
       return n;
     },
+    near(x, z, r) { const o = []; for (const c of crowd) if (c.npc && Math.hypot(c.x - x, c.z - z) < r) o.push(c); return o; },      // живые жители рядом: «ручки» для магии (bodies.js)
+    nameOf(c) { return DEF[c.id].name; },
+    afflictC(c, kind, sec) { if (!c.npc) return; if (kind === 'wake') { c.hurt = null; return; } c.hurt = kind === 'sleep' ? { kind: 'fall', t: 0, dur: 1.8 + sec, lie: sec } : kind === 'fall' ? { kind: 'fall', t: 0, dur: 3.1 } : { kind: 'bind', t: 0, dur: sec }; },
+    sayC(c, text) { say(c, text); },
     afflict(x, z, r, kind, sec) {                    // магия: 'sleep' — лежит спит sec секунд, 'bind' — стоит связанный sec секунд, 'wake' — будит
       let n = 0; for (const c of crowd) { if (!c.npc || Math.hypot(c.x - x, c.z - z) > r) continue; n++;
         if (kind === 'wake') { c.hurt = null; continue; }
@@ -207,6 +211,7 @@ export async function createNPCs({ scene, world, base = './' }) {
         if (homeTime && c.home && !c.visit) c.visit = { h: c.home, stage: 'toOut', t: Infinity, sleep: true };
         else if (homeTime && c.visit && !c.visit.sleep) { c.visit.sleep = true; c.visit.t = Infinity; }
         else if (!homeTime && c.visit && c.visit.sleep) { c.visit.sleep = false; c.visit.t = 0; }          // утро: просыпаются, выходят и идут на работу
+        if (c.mag && c.mag.active) { c.state = 'rest'; c.rest = 'idle'; }      // под действием магии (парит, летит, удержан) — на месте, AI не ходит
         if (c.hurt && Math.hypot(c.x - cam.x, c.z - cam.z) > 230) { c.hurt = null; c.hits = 0; }      // игрок далеко — ушиб забыт
         if (c.hurt) {                                    // по жителю ударили: стоит на месте, пока длится вздрагивание/падение/вставание (здоровья у него нет)
           c.hurt.t += dt; c.state = 'rest'; c.rest = 'idle';
@@ -250,7 +255,7 @@ export async function createNPCs({ scene, world, base = './' }) {
         if (dd > 230 && !inView(c)) { release(c); continue; }
         const root = c.npc.n.root;
         const vh = c.visit && c.x > c.visit.h.bx0 && c.x < c.visit.h.bx1 && c.z > c.visit.h.bz0 && c.z < c.visit.h.bz1 ? c.visit.h.gy : Math.max(0, hAt(c.x, c.z));
-        root.position.set(c.x, vh, c.z); root.rotation.set(0, c.yaw, 0, 'YXZ');
+        root.position.set(c.x, vh + (c.my || 0), c.z); root.rotation.set(0, c.yaw, 0, 'YXZ'); root.visible = !c.hidden;      // c.my — подъём магией, c.hidden — невидимость (bodies.js)
         if (c.hurt) {                                    // вздрагивание: короткий наклон назад и дрожь; падение: на спину, лежит, поднимается
           const h = c.hurt, k = Math.min(1, h.t / h.dur); let tilt = 0, roll = 0;
           if (h.kind === 'bind') { roll = Math.sin(h.t * 22) * 0.025; }

@@ -578,7 +578,7 @@ function stBlock(h){`);
   const api = {
     get armed() { return armed && !NOWEAPON.includes(P.state); }, applyWeapon,
     P, figure: g.figure, key: g.key, rim: g.rim, clearKeys: () => g.kd.clear(), solids: g.solids, ladders: g.ladders, ladderNear: () => g.ladderNear(),
-    get character() { return char; }, setCharacter, setVisible(v) { hidden = !v; applyVis(); }, makeRemoteAvatar, animName: () => g.animName(), animOnce: () => { const a = g.animAct(); return !!a && a.loop === THREE.LoopOnce; },
+    get character() { return char; }, get visibleFigure() { return curFig(); }, get doors() { return doors; }, setCharacter, setVisible(v) { hidden = !v; applyVis(); }, makeRemoteAvatar, animName: () => g.animName(), animOnce: () => { const a = g.animAct(); return !!a && a.loop === THREE.LoopOnce; },
     play(name, o) { window.__forceAnim = { name, o }; }, release() { window.__forceAnim = null; }, loop: now => { const B = world.bounds, p = P.pos; if (p.x < B.x0 || p.x > B.x1 || p.z < B.z0 || p.z > B.z1) { p.x = Math.min(B.x1, Math.max(B.x0, p.x)); p.z = Math.min(B.z1, Math.max(B.z0, p.z)); P.vel.x = P.vel.z = 0; } { const t = world.heightAt(p.x, p.z); if (p.y < t - 2.5 && !['swim', 'hang', 'climb'].includes(P.state)) { p.y = Math.max(t, 0) + 0.3; P.vel.y = 0; } if (p.y < -30) { p.y = Math.max(t, 0) + 0.3; P.vel.y = 0; } } loopRef.fn && loopRef.fn(now); syncLocal(); },
     hurt(dmg, x, y, z) { g.playerHit({ remote: true, g: { position: new THREE.Vector3(x, y, z) }, vel: new THREE.Vector3(), state: 'x' }, dmg); },      // удар от другого игрока
     respawnAt(x, z, yaw = 0) { api.teleport(x, z, yaw); g.respawn(); },
