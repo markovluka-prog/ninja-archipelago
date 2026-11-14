@@ -187,8 +187,8 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     npcs && npcs.hitAt && npcs.hitAt(x, z, 9, false);
   }
   /* ───── состояния мага: щит-оберег, полёт, свет, хватка, ловушки ───── */
-  let wardJ = 0, flyOn = false, flyT = 0, rooted = null, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
-  const selfUp = () => PMASS * G0 * 0.12 * U * 6;      // Дж/с, чтобы держать себя в воздухе
+  let wardJ = 0, flyOn = false, flyT = 0, flyY = 0, rooted = null, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
+  const selfUp = () => PMASS * G0 * 0.05 * U * 6;      // Дж/с, чтобы держать себя в воздухе
   const itemUp = it => it.m * G0 * 0.35 * U * 6;      // Дж/с, чтобы держать предмет против тяжести
   function procCount(scope) { let n = 0; if (scope !== 'items') { if (rooted) n++; if (flyOn) n++; } if (scope === 'all') { if (wardJ > 0) n++; if (orbT > 0) n++; if (rainT > 0) n++; } if (scope !== 'self') for (const it of items.items) if (it.held || it.hover || it.pin > 0) n++; return n; }
   function stopProcs(scope) { const n = procCount(scope); if (scope !== 'items') { rooted = null; flyOn = false; } if (scope === 'all') { wardJ = 0; orbT = 0; rainT = 0; } if (scope !== 'self') for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } return n; }
@@ -263,7 +263,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       }
       case 'lift': case 'fly': {
         if (selfT || (!objectsNamed && !heldItems.length && !elem && !info.flora.length)) {
-          const hu = 6 * sz, J = Jlift(PMASS, hu) + 45 * 5 * (act === 'fly' ? 2 : 1); A(`взлететь на ${(hu * U).toFixed(1)} м и парить — ПРОЦЕСС: держать в воздухе ${fmtJ(selfUp())}/с, пока хватает сил (losna eka или U — прекратить)`, J, () => { flyOn = true; flyT = 0; rooted = null; boost(24 + 4 * sz); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
+          const hu = 6 * sz, J = Jlift(PMASS, hu); A(`взлететь на ${(hu * U).toFixed(1)} м и парить — ПРОЦЕСС: держать в воздухе ${fmtJ(selfUp())}/с, пока хватает сил (losna eka или U — прекратить)`, J, () => { flyOn = true; flyT = 0; rooted = null; flyY = P.pos.y + hu + (P.state === 'ground' ? 3 : 0); if (P.state === 'ground') boost(24); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
         }
         if (elem === 'water') return { acts: manifest('water', p, { ...aim, d: new V(0, 1, 0).add(aim.d).normalize() }, sz, n) };
         const its = targetItems(); if (!its.length) return { err: 'Нечего поднимать: ' + (info.kinds[0] ? 'такой вещи рядом нет' : 'вещей рядом нет') };
@@ -531,7 +531,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     if (boostW > 0) { boostW -= dt; if (boostW <= 0 || P.state !== 'ground') { window.__g && window.__g.release('Space'); if (boostV) { P.vel.y = boostV; boostV = 0; } boostW = 0; } }
     if (flyOn && !P.dead) {      // процесс: полёт держится, пока хватает сил
       flyT += dt; E -= selfUp() / eta() * dt; if (E <= 0) { E = 0; flyOn = false; show('…', 'Сил не хватило держаться в воздухе'); }
-      else if (P.state !== 'ground' && P.state !== 'dead') { if (flyT > 0.9) P.vel.y += (Math.sin(performance.now() / 350) * 1.5 - P.vel.y) * Math.min(1, dt * 5); if (Math.random() < 0.5) spawn(P.pos.x + rnd(-1.5, 1.5), P.pos.y + 0.3, P.pos.z + rnd(-1.5, 1.5), 0, -6, 0, COL.lev, 1.2, 0.3, 0.6, 0.6, 0, 0.5); }
+      else if (P.state !== 'ground' && P.state !== 'dead') { { P.vel.y = 0; const dy = flyY + Math.sin(performance.now() / 400) * 0.5 - P.pos.y, mv = Math.max(-26 * dt, Math.min(26 * dt, dy * 5 * dt)); P.pos.y += mv; } if (Math.random() < 0.5) spawn(P.pos.x + rnd(-1.5, 1.5), P.pos.y + 0.3, P.pos.z + rnd(-1.5, 1.5), 0, -6, 0, COL.lev, 1.2, 0.3, 0.6, 0.6, 0, 0.5); }
     }
     if (rooted && !P.dead) {      // процесс: «остановлен» — ни шагу, ни падения, пока держится заклинание
       const air = P.state !== 'ground'; E -= (air ? selfUp() : 25) / eta() * dt; if (E <= 0) { E = 0; rooted = null; show('…', 'Сил не хватило удерживать себя'); }
