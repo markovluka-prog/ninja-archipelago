@@ -6,6 +6,8 @@
 //   • Щит (vardi) копит энергию и гасит удары, пока она не кончится. Будущее время (weohnata) — ловушка: срабатывает, когда рядом кто-то окажется. Néiat — запрет.
 //   • Мир живёт сам: огонь ползёт по ветру, вода тушит и мочит землю, дерево горит, металл раскаляется, лёд тает, дождь гасит пожары.
 import { parse, render, WORDBOOK, MARK, VERB, NOUN, PRON } from './ancient.js';
+// виды животных по слову (чтобы «hestr» — только лошадь)
+const SPECIES = { hestr: ['horse'], kattr: ['cat'], hrafn: ['raven'], fugl: ['raven'], 'örn': ['raven'], fiskr: ['fish'], naut: ['cow'], sauhdr: ['sheep'], geit: ['goat'], 'hjörtr': ['deer'], garm: ['dog'], nattgarm: ['dog'], blodhgarm: ['dog'] };
 import { createItems, KIND, MAT, U, matchesMat } from './items.js';
 import { createBodies } from './bodies.js';
 
@@ -225,12 +227,12 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   const kg = it => it.m; const Jlift = (m, hu) => m * G0 * hu * U;
   const fmtJ = j => j >= 1000 ? (j / 1000).toFixed(1) + ' кДж' : Math.round(j) + ' Дж';
   function npInfo(np) {      // что названо: стихии, материалы, вещи, растения, постройки, части тела, существа, местоимения
-    const r = { elems: [], mats: [], kinds: [], flora: [], structs: [], parts: [], creatures: [], pron: [], num: 0, abs: [] };
+    const r = { elems: [], mats: [], kinds: [], flora: [], structs: [], parts: [], creatures: [], cre: [], pron: [], num: 0, abs: [] };
     for (const t of np) {
       if (t.role === 'Q') { r.num = Math.max(r.num, t.num); continue; }
       if (t.role === 'R') { r.pron.push(PRON[t.a] || t.a); continue; }
       if (t.role !== 'N' && t.role !== 'A') continue;
-      const s = NOUN[t.a]; if (!s) { if (t.e.theme === 'ppl') r.creatures.push(t.a); else if (t.e.theme === 'ani') r.creatures.push(t.a); else if (t.e.theme === 'bod') r.parts.push(t.a); else r.abs.push(t.a); continue; }
+      const s = NOUN[t.a]; if (!s) { if (t.e.theme === 'ppl') { r.creatures.push(t.a); r.cre.push({ a: t.a, th: 'ppl' }); } else if (t.e.theme === 'ani') { r.creatures.push(t.a); r.cre.push({ a: t.a, th: 'ani' }); } else if (t.e.theme === 'bod') r.parts.push(t.a); else r.abs.push(t.a); continue; }
       const [k, id] = s; if (k === 'elem' || k === 'wea') r.elems.push(id); else if (k === 'mat') r.mats.push(id); else if (k === 'item') r.kinds.push(id); else if (k === 'flora') r.flora.push(id); else if (k === 'struct') r.structs.push(id); else if (k === 'part') r.parts.push(id);
     }
     return r;
@@ -345,7 +347,11 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     if (!selfT || anyPron) {
       const cand = [];
       if (named || anyPron || bare || info.flora.length) for (const it of pickItems(info, aim, 6, true)) cand.push(B.ofItem(it));
-      if (info.creatures.length || info.parts.length || anyPron || bare) for (const b of B.creaturesNear(aim.tgt.x, aim.tgt.z, 12)) cand.push(b);
+      if (info.creatures.length || info.parts.length || anyPron || bare) {
+        let cs = B.creaturesNear(aim.tgt.x, aim.tgt.z, 12); const wantAni = info.cre.some(c => c.th === 'ani'), wantPpl = info.cre.some(c => c.th === 'ppl');      // «hestr» — животное, «dvergr» — человек; вид животного по слову
+        if (wantAni && !wantPpl) { cs = cs.filter(b => b.kind === 'animal'); const sp = info.cre.filter(c => c.th === 'ani' && SPECIES[c.a]).flatMap(c => SPECIES[c.a]); if (sp.length) cs = cs.filter(b => sp.includes(b.raw.sp)); } else if (wantPpl && !wantAni) cs = cs.filter(b => b.kind !== 'animal');
+        for (const b of cs) cand.push(b);
+      }
       if (info.flora.length || info.structs.length || anyPron || bare) for (const b of B.floraNear(aim.tgt.x, aim.tgt.z, 10, info.structs.length ? ['house'] : info.flora.length ? ['tree', 'plant'] : null)) cand.push(b);
       const recsF = new Set(cand.filter(b => b.kind !== 'item' && b.raw && b.raw.rec).map(b => b.raw.rec)), recsI = new Set(cand.filter(b => b.kind === 'item' && b.raw.dormant).map(b => b.raw.rec));
       const list = cand.filter(b => mode === 'move' ? !(b.kind !== 'item' && b.raw && b.raw.rec && recsI.has(b.raw.rec)) : !(b.kind === 'item' && b.raw.dormant && recsF.has(b.raw.rec)));      // «двигать/ломать» — через предмет-двойник дерева; «жечь/скрыть» — само дерево на месте
@@ -360,7 +366,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   const refuseFor = (b, act) => NOMOVE[b.kind] || ('«' + b.name + '» так не двигается');
 
   function planClause(cl, p, aim) {
-    const info = npInfo(cl.np), act = cl.verb ? VERB[cl.verb] : null, M = p.mods, sz = sizeM(p), L = [], n = Math.max(1, info.num || (p.count > 1 && p.count !== info.num ? p.count : 1));
+    const info = npInfo(cl.np), act = cl.verb ? (cl.act || VERB[cl.verb]) : null, M = p.mods, sz = sizeM(p), L = [], n = Math.max(1, info.num || (p.count > 1 && p.count !== info.num ? p.count : 1));
     const picks = curPicks, A = (label, J, run, vis, inst) => L.push({ label, J, run: () => { wakeAll(picks); run(); }, vis, inst });
     const elem = info.elems[0], objectsNamed = info.kinds.length || info.mats.length || info.pron.length || info.flora.length || info.structs.length || info.creatures.length || info.parts.length;
     const selfT = info.pron.includes('self'), heldItems = items.items.filter(i => i.held);
@@ -531,6 +537,13 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
         const ds = (richard.doors || []).filter(d => d.h && Math.hypot(d.h.dx - aim.tgt.x, d.h.dz - aim.tgt.z) < 16).sort((a, b) => Math.hypot(a.h.dx - aim.tgt.x, a.h.dz - aim.tgt.z) - Math.hypot(b.h.dx - aim.tgt.x, b.h.dz - aim.tgt.z));
         if (!ds.length) return { err: 'Рядом с прицелом нет двери (смотри на дверь)' };
         A(`${act === 'open' ? 'открыть' : 'закрыть'} дверь`, 80, () => { for (const d of ds.slice(0, 2)) d.want = act === 'open' ? 1 : 0; ring(new V(ds[0].h.dx, hAt(ds[0].h.dx, ds[0].h.dz) + 4, ds[0].h.dz), COL.mind, 6, 0.5); }, 'mind', true); return { acts: L };
+      }
+      case 'bane': {
+        const bs = resolveBodies(info, aim, n, 'any').filter(b => b.alive && b.kind !== 'self' && b.hurt); if (!bs.length) return { err: 'Некому причинить боль: цели не видно' };
+        A(`причинить боль: ${describe(bs[0])} — ПРОЦЕСС`, 300, () => addProc({ name: 'боль', J: 300, step(raw, dt, d) { d.k4 = (d.k4 || 0) + dt; if (d.k4 > 0.5) { d.k4 = 0; bs[0].hurt(4 * M.pow, 60, 'spell'); puff(bs[0].p, COL.shadow, 4, { spd: 3, s0: 1.4, s1: 2.5, life: 0.6, a: 0.5 }); } } }), 'mind'); return { acts: L };
+      }
+      case 'build': {
+        const J = 2200 * Math.pow(sz, 1.3); A(`воздвигнуть каменную стену — ПРОЦЕСС: поднимается ${T(J)} (камень растёт из земли)`, J, () => { const a = aimRay(); addProc({ name: 'воздвигнуть стену', J, step() { puff(new V(a.tgt.x, a.tgt.y + 1, a.tgt.z), COL.stone, 2, { spd: 5, s0: 2, s1: 5, life: 0.8, up: 3, a: 0.5 }); }, end(why) { if (why === 'done') wall({ fx: ['stone'], size: M.size, count: 1, bright: 0, pow: M.pow }, a.o, a.d, true); } }); }, 'stone'); return { acts: L };
       }
       case 'inspect': A('осмотреть', 20, () => inspect(aim, info), 'mind', true); return { acts: L };
       case 'sprint': { const v = 7 * sz; A(`рывок вперёд (${(v * U * 5).toFixed(1)} м/с, масса мага ${PMASS} кг)`, 0.5 * PMASS * (v * U * 5) ** 2 * 0.2, () => { const yaw = P.yawVis ?? P.yaw; boost(14); P.vel.x += Math.sin(yaw) * v * 5; P.vel.z += Math.cos(yaw) * v * 5; puff(P.pos, COL.wind, 20, { spd: 8, s0: 1.5, s1: 3, life: 0.5, a: 0.5 }); }, 'mind', true); return { acts: L }; }

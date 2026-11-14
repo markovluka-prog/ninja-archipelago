@@ -38,6 +38,11 @@ export const VERB = {
   'vergarí': 'kill', deyja: 'kill', andask: 'kill', 'aldanarí': 'create', fortha: 'manifest', moi: 'change', sjon: 'inspect', sja: 'inspect', kenna: 'inspect', hlaupa: 'sprint', eitha: 'sprint', 'gánga': 'sprint',
   frethya: 'conceal', 'ládrin': 'open', laesa: 'lock', blanda: 'gather', brakka: 'shrink', 'gëuloth': 'warp', thverr: 'sprint',
   eldhrimner: 'grow', orpin: 'warp', 'kvetha': 'greet', 'astorí': 'greet', elrun: 'greet', gala: 'greet', 'hórna': 'listen', finna: 'find', blunda: 'sleep', drukna: 'drown', stydja: 'heal', sitja: 'stop', skaga: 'push', tauthr: 'pull', threyja: 'pull',
+  standa: 'stop', falla: 'release', 'stíga': 'lift', 'snúa': 'warp', fara: 'sprint', sigla: 'sprint', svimma: 'sprint', 'klífa': 'sprint', hoppa: 'sprint', draga: 'pull', 'ýta': 'push', bera: 'hold', fylgja: 'pull', 'flýja': 'banish', kasta: 'throw', skera: 'cut', bindra: 'bind',
+  spurja: 'greet', svara: 'greet', huga: 'inspect', skilja: 'inspect', laera: 'inspect', lesa: 'inspect', liduena: 'inspect', kalla: 'pull', hvísla: 'greet', 'hrópa': 'greet', hlaeja: 'greet', 'gráta': 'greet', brosa: 'greet', muna: 'inspect', gleyma: 'sleep', 'trúa': 'greet', efa: 'inspect',
+  skynja: 'listen', thefa: 'find', smakka: 'inspect', snerta: 'inspect', 'förna': 'greet', 'ásta': 'greet', eta: 'heal', drekka: 'heal', hjalpa: 'heal', vinna: 'inspect', leika: 'greet', byggja: 'build', kaupa: 'greet', selja: 'greet', 'bída': 'stop', skapa: 'create', gera: 'manifest', grafa: 'push', saa: 'grow', uppskera: 'cut', elda: 'ignite',
+  'thvá': 'drown', klaedha: 'conceal', laekna: 'heal', berjast: 'ward', verja: 'ward', sigra: 'greet', tapa: 'banish', byrja: 'manifest', enda: 'stop', reyna: 'inspect', velja: 'inspect', bidhja: 'greet', thakka: 'greet', firgefa: 'greet', lofa: 'greet', banna: 'stop', 'óttast': 'banish', vona: 'greet', thurfa: 'inspect', vilja: 'pull', muga: 'inspect', algara: 'inspect', bidja: 'greet', bita: 'cut', silbena: 'greet', skuta: 'greet', vanta: 'inspect', 'elthrimórno': 'greet', flutningr: 'hold',
+  thorta: 'greet', bregdha: 'push', 'otherúm': 'greet',
   thelduin: 'bind', theyna: 'bind', verda: 'change', verrunsmal: 'ward', 'äftaka': 'pull', 'hávr': 'hold', ach: 'manifest', 'ethgrí': 'pull', thaefathan: 'harden', blinkna: 'conceal',
 };
 // существительные → вид: elem (стихия), mat (материал), item (вещь), flora, struct (постройка), wea (погода), part (часть тела), creature, abs
@@ -58,6 +63,8 @@ export const ADJ = {
   galba: { size: 1.5 }, litil: { size: 0.6 }, boetk: { size: 1.25 }, 'äenora': { size: 1.25 }, ramr: { pow: 1.4 }, hvass: { pow: 1.2, sharp: 1 }, 'drjugr': { dur: 2 }, 'vëoht': { slow: 1 }, maela: { quiet: 1 },
   bjartr: { bright: 1 }, bleikr: { bright: 1 }, hvitr: { bright: 1 }, raudhr: { heat: 1.3 }, svartr: { dark: 1 }, akr: { wet: 1 }, rakr: { wet: 1 }, vrangr: { homing: 1 }, 'edoc\'sil': { pow: 1.6 }, 'sköliro': { pow: 1.3 }, lunaea: {}, 'dauthleikr': { lethal: 1 },
 };
+// слова-намерения: когда в фразе нет глагола, существительное само задаёт действие («Líf!» — жизнь = исцели)
+export const INTENT = { 'líf': 'heal', hjarta: 'heal', verkr: 'bane', harmr: 'bane', 'baní': 'bane', grathr: 'bane', 'mïnen': 'bane', 'dauthí': 'kill', 'andlát': 'kill', freohr: 'kill', ilian: 'greet', 'ástar': 'greet', "mor'ranr": 'bind', fyrn: 'ward', 'hügin': 'inspect', manin: 'inspect', nam: 'inspect', 'kópa': 'inspect', draumr: 'sleep', dreyma: 'conceal', galdr: 'manifest', 'ilumëo': 'inspect', wyrda: 'inspect' };
 export const PREP = { audr: 'up', undir: 'down', fram: 'fwd', aptr: 'back', 'arúnd': 'over', eom: 'to', fra: 'from', medh: 'with', oth: 'with', laust: 'without', vel: 'upon', unin: 'in', 'äthr': 'on', abr: 'of', 'framvír': 'before' };
 export const PRON = { edtha: 'self', thornessa: 'this', 'thäet': 'it', thorna: 'those', eka: 'self', ietdar: 'self', ono: 'you', therr: 'they', vae: 'we', thar: 'there', allr: 'all' };
 // числа (○ — придуманы курсом: в каноне чисел нет)
@@ -134,9 +141,10 @@ export function parse(text) {
     while (g.length && toks[g[g.length - 1]].role === 'AND') g.pop();
     return dir < 0 ? g.reverse() : g;
   };
+  if (!toks.some(t => t.role === 'V')) { const it = toks.find(t => INTENT[t.a] && t.role !== 'NEG' && t.role !== 'FUT'); if (it) { it.role = 'V'; it.intent = INTENT[it.a]; } }      // «Líf» без глагола — само слово действует
   const vs = toks.map((t, i) => t.role === 'V' ? i : -1).filter(i => i >= 0);
   for (const vi of vs) {
-    const cl = { verb: toks[vi].a, vtok: toks[vi], np: [], preps: [] };
+    const cl = { verb: toks[vi].a, act: toks[vi].intent || VERB[toks[vi].a], vtok: toks[vi], np: [], preps: [] };
     used[vi] = true;
     let g = takeNP(vi + 1, 1); if (!g.length) g = takeNP(vi - 1, -1);
     for (const i of g) used[i] = true; cl.np = g.map(i => toks[i]);
