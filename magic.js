@@ -5,7 +5,7 @@
 //   • Материя не берётся из ничего (aldanarí — «творить» — стоит ~250 Дж на килограмм); магия двигает, греет, ломает и меняет то, что уже есть. Предметы (items.js) — настоящие тела.
 //   • Щит (vardi) копит энергию и гасит удары, пока она не кончится. Будущее время (weohnata) — ловушка: срабатывает, когда рядом кто-то окажется. Néiat — запрет.
 //   • Мир живёт сам: огонь ползёт по ветру, вода тушит и мочит землю, дерево горит, металл раскаляется, лёд тает, дождь гасит пожары.
-import { parse, render, WORDBOOK, MARK, VERB, NOUN } from './ancient.js';
+import { parse, render, WORDBOOK, MARK, VERB, NOUN, PRON } from './ancient.js';
 import { createItems, KIND, MAT, U, matchesMat } from './items.js';
 
 const COL = { fire: [1, .5, .15], water: [.3, .65, 1], wind: [.85, 1, .95], ice: [.7, .92, 1], bolt: [.82, .86, 1], light: [1, .93, .6], stone: [.72, .64, .5], heal: [.5, 1, .6], shield: [.4, .8, 1], lev: [.8, .7, 1], steam: [.9, .92, .95], mind: [.75, .55, 1], ash: [.35, .33, .32], shadow: [.45, .3, .65], mist: [.8, .85, .9] };
@@ -214,7 +214,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     const r = { elems: [], mats: [], kinds: [], flora: [], structs: [], parts: [], creatures: [], pron: [], num: 0, abs: [] };
     for (const t of np) {
       if (t.role === 'Q') { r.num = Math.max(r.num, t.num); continue; }
-      if (t.role === 'R') { r.pron.push(t.a); continue; }
+      if (t.role === 'R') { r.pron.push(PRON[t.a] || t.a); continue; }
       if (t.role !== 'N' && t.role !== 'A') continue;
       const s = NOUN[t.a]; if (!s) { if (t.e.theme === 'ppl') r.creatures.push(t.a); else if (t.e.theme === 'ani') r.creatures.push(t.a); else if (t.e.theme === 'bod') r.parts.push(t.a); else r.abs.push(t.a); continue; }
       const [k, id] = s; if (k === 'elem' || k === 'wea') r.elems.push(id); else if (k === 'mat') r.mats.push(id); else if (k === 'item') r.kinds.push(id); else if (k === 'flora') r.flora.push(id); else if (k === 'struct') r.structs.push(id); else if (k === 'part') r.parts.push(id);
@@ -281,6 +281,10 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       }
       case 'release': { const hs = heldItems; if (!hs.length && !wardJ) return { err: 'Нечего отпускать' }; A('отпустить', 0, () => { for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } }, 'mind'); return { acts: L }; }
       case 'stop': {
+        if (selfT) {      // Letta eka — остановить себя: гасит скорость (в падении — зависнуть в воздухе)
+          const vm = Math.hypot(P.vel.x, P.vel.y, P.vel.z) * U, J = 0.5 * PMASS * vm * vm + 30;
+          A(`остановить себя: погасить ${vm.toFixed(1)} м/с (масса мага ${PMASS} кг)`, J, () => { P.vel.set(0, 0, 0); if (P.state !== 'ground') levT = Math.max(levT, 1.6); puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 20, { spd: 5, s0: 1.4, s1: 3, life: 0.7, a: 0.6 }); ring(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 7, 0.4); }, 'mind'); return { acts: L };
+        }
         if (elem === 'fire') { A('остановить огонь: потушить', 150 * sz, () => { const n2 = dragons ? dragons.extinguish(aim.tgt.x, aim.tgt.y, aim.tgt.z, 16 * sz) : 0; if (n2) steam(aim.tgt, 8); ring(aim.tgt, COL.steam, 14 * sz, 0.5); }, 'mind'); return { acts: L }; }
         if (elem === 'water') return { acts: freeze(aim, sz) };
         const its = (objectsNamed || heldItems.length) ? targetItems() : items.items.filter(i => i.v.length() > 3 && i.p.distanceTo(aim.tgt) < 30);
