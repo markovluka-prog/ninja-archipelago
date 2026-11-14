@@ -486,7 +486,7 @@ const shipsApi = {                    // для режима «Морской б
 };
 if (richard) gameMode = startGame({ net, richard, world, scene, THREE, ships: shipsApi });
 let audio = null; if (richard) { try { audio = createAudio({ world, richard, net }); } catch (e) { console.error('звук', e); } }
-const NPC_SWING = { attack: [0.22, 7.5], kick: [0.2, 6.5], bash: [0.25, 6.5] }, npcSw = { s: '', t: 0, f: true };
+const NPC_SWING = { attack: [0.22, 7.5], kick: [0.2, 6.5], bash: [0.25, 6.5], lunge: [0.3, 12], riposte: [0.24, 11.5], beat: [0.2, 9.5] }, npcSw = { s: '', t: 0, f: true };
 addEventListener('mountedswing', () => { if (richard && npcs.hit && !richard.P.dead) npcs.hit(richard.P.pos.x, richard.P.pos.z, richard.P.yawVis ?? richard.P.yaw, 11); });
 let dragons = null; if (richard) { try { dragons = createDragons({ THREE, scene, world, richard, net, camera, renderer }); } catch (e) { console.error('драконы', e); } }
 if (richard) startMinimap({ world, net, richard, getGame: () => gameMode && gameMode.state, getMode: () => mode, ships: shipsApi, getDbg: () => gameMode && gameMode.dbg });      // миникарта: где второй игрок (N — размер)

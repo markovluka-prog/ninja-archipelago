@@ -413,7 +413,7 @@ function onHit(pl, msg) {                                  // удар по др
   }
   if (!MODES[game.mode].pvp) return;
   if (MODES[game.mode].teams && pl.g.team === tg.g.team) return;           // по своим не бьём
-  if (msg.st === 'bash' && game.mode === 'battle') send(tg, { t: 'slow', s: 0.4 });
+  if ((msg.st === 'bash' || msg.st === 'beat') && game.mode === 'battle') send(tg, { t: 'slow', s: 0.4 });
   send(tg, { t: 'hurt', from: pl.id, dmg: Math.min(ul ? 90 : dr ? 45 : 35, Math.max(1, +msg.dmg || 15)), x: pl.pos.x, y: pl.pos.y, z: pl.pos.z });
 }
 const HS = () => players.hs || (players.hs = { tot: {}, n: 0, next: null });      // серия пряток по комнате

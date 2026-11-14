@@ -150,6 +150,37 @@ const GCLIP = {
   rep("function stGlide(h){\n  const mv = moveInput(); P.air += h; curMeta = {wind:2.8};",
       "function stGlide(h){\n  airAtkTick(h); if (pressed.has('KeyJ') && !(P.aa > 0)) airAttack();\n  if (pressed.has('Space') && !P.dj){ P.dj = true; P.gliding = false; curMeta = {}; setState('air'); P.vel.y = 21; P.jumpHeld = true; setAnim('Взлёт', {loop:false, fade:0.04, restart:true}); burst(P.pos.clone().setY(P.pos.y + 0.3), 6, 'dust', 8, 3); logEv('doublejump'); return; }\n  const mv = moveInput(); P.air += h; curMeta = {wind:2.8};");
   rep("  setAnim('Планирование', {fade:0.15});", "  if (!(P.aa > 0)) setAnim('Планирование', {fade:0.15});");
+  /* ───── фехтование: выпад (ЛКМ на бегу), парад (ПКМ в момент удара — окно 0.38 с), ответ после парада (ЛКМ в течение 1.4 с), батман (ЛКМ из защиты — сбивает клинок) ───── */
+  rep("function stBlock(h){", `const LUNGE = {
+  lunge:   {anim:'Атака 3', sp:1.5, name:'Выпад',  w:[0.26, 0.40], dur:0.78, v:17, reach:12,   arc:0.75, dmg:22, push:16, stun:0},
+  riposte: {anim:'Атака 1', sp:1.8, name:'Ответ!', w:[0.20, 0.33], dur:0.50, v:14, reach:11.5, arc:0.5,  dmg:32, push:18, stun:1.3},
+  beat:    {anim:'Атака 2', sp:1.7, name:'Батман', w:[0.17, 0.30], dur:0.55, v:5,  reach:9.5,  arc:0.35, dmg:4,  push:6,  stun:1.7}
+};
+function startLunge(k){
+  if (window.__bow){ window.__bowShoot && window.__bowShoot(); return; }
+  setState('lunge'); P.lg = k; P.atkHit = new Set(); const c = LUNGE[k], e = nearestEnemy(16), mv = moveInput();
+  if (e) snapFaceTo(e.g.position.clone().sub(P.pos)); else if (mv.mag) P.yaw = Math.atan2(mv.x, mv.z);
+  if (k === 'riposte') P.riposteT = 0;
+  setAnim(c.anim, {fade:0.05, loop:false, restart:true, speed:c.sp}); say(c.name, 0.9); logEv(k);
+}
+function stLunge(h){
+  const c = LUNGE[P.lg], f = dirFrom(P.yaw), mv = P.t > c.w[0] - 0.08 && P.t < c.w[1] ? c.v : 0;
+  P.vel.x += (f.x*mv - P.vel.x)*dampK(16, h); P.vel.z += (f.z*mv - P.vel.z)*dampK(16, h);
+  moveBody(h, P.hh, 0.4); const gy = groundAt(P.pos.x, P.pos.z, P.pos.y, STEP); if (gy > -Infinity) P.pos.y = gy;
+  if (P.t > c.w[0] && P.t < c.w[1] && meleeHits(c.reach, c.arc, c.dmg, c.push, c.stun)){ if (P.lg === 'riposte') shake = Math.max(shake, 0.4); }
+  if (P.t > c.dur - 0.12 && pressed.has('KeyJ')) return startAttack(0);
+  if (P.t >= c.dur){ setState('ground'); P.landT = 0; }
+}
+const fenceAtk = sp => P.riposteT > 0 ? startLunge('riposte') : sp > 8.5 ? startLunge('lunge') : startAttack(0);
+function stBlock(h){`);
+  rep("stBash, block:stBlock,", "stBash, lunge:stLunge, block:stBlock,");
+  rep("if (pressed.has('KeyJ') || buf.atk > 0){ buf.atk = 0; return startAttack(0); }", "if (pressed.has('KeyJ') || buf.atk > 0){ buf.atk = 0; return fenceAtk(sp); }");
+  rep("  if (pressed.has('KeyJ')) return startAttack(0); if (buf.roll > 0){ buf.roll = 0; return startRoll(); } if (pressed.has('KeyL')) return startBash();", "  if (pressed.has('KeyJ')) return P.riposteT > 0 ? startLunge('riposte') : startLunge('beat'); if (buf.roll > 0){ buf.roll = 0; return startRoll(); } if (pressed.has('KeyL')) return startBash();");
+  rep("if (P.t > 0.12 && pressed.has('KeyJ')) return startAttack(0);   // ответный удар", "if (P.t > 0.12 && pressed.has('KeyJ')) return startLunge('riposte');   // ответ после парада");
+  rep("P.blockT <= 0.26", "P.blockT <= 0.38");
+  rep("P.parryOk = true; logEv('PARRY');", "P.parryOk = true; P.riposteT = 1.4; logEv('PARRY');");
+  rep("say('Парирование!', 1.2);", "say('Парад! Ответ — ЛКМ', 1.3);");
+  rep("function enemiesUpdate(h){", "function enemiesUpdate(h){ if (P.riposteT > 0) P.riposteT -= h;");
   rep("function startJump(){", "function airAtkTick(h){ if (P.aa > 0){ P.aaT += h; P.aa -= h; if (P.aaT > 0.12 && P.aaT < 0.34) meleeHits(9.5, 0.2, 11, 8, 0); } }\nfunction airAttack(){\n  if (window.__bow){ window.__bowShoot && window.__bowShoot(); return; }\n  P.aa = 0.5; P.aaT = 0; P.atkHit = new Set(); const e = nearestEnemy(16); if (e) snapFaceTo(e.g.position.clone().sub(P.pos));\n  P.aaN = ((P.aaN || 0) + 1) % 3; setAnim(['Атака 1', 'Атака 2', 'Атака 3'][P.aaN], {fade:0.05, loop:false, restart:true}); logEv('airattack');\n}\nfunction startJump(){ P.dj = false;");
   rep("function onLand(){\n  const imp = P.fallV;", "function onLand(){\n  P.dj = false; P.aa = 0;\n  const imp = P.fallV;");
   rep("function setState(s){ if (s !== P.state)", "function setState(s){ if (s === 'ground' || s === 'hang' || s === 'ladder' || s === 'swim' || s === 'wallslide' || s === 'climb') P.dj = false; if (s !== P.state)");
@@ -287,7 +318,7 @@ const GCLIP = {
   function weaponTick(dt){
     const st = P.state;
     if ((window.__dragonOn || P.dead || NOWEAPON.includes(st) || window.__ridingKind === 'ship') && (armed || bowOn)){ if (window.__dragonOn || window.__ridingKind === 'ship'){ armed = false; bowOn = false; } }
-    if (!armed && !window.__dragonOn && window.__ridingKind !== 'ship' && ['attack', 'bash', 'block', 'parry'].includes(st)){ armed = true; { const F = curFig(); F.userData.wk = Math.max(F.userData.wk || 0, 0.85); } say('Оружие достано'); }
+    if (!armed && !window.__dragonOn && window.__ridingKind !== 'ship' && ['attack', 'bash', 'block', 'parry', 'lunge'].includes(st)){ armed = true; { const F = curFig(); F.userData.wk = Math.max(F.userData.wk || 0, 0.85); } say('Оружие достано'); }
     if (toastT > 0){ toastT -= dt; if (toastT <= 0) weaponToast.style.display = 'none'; }
     window.__unarmedCh = armed && !NOWEAPON.includes(st) ? null : char;
     applyWeapon(curFig(), armed && !NOWEAPON.includes(st), dt);
