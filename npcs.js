@@ -186,6 +186,13 @@ export async function createNPCs({ scene, world, base = './' }) {
       }
       return n;
     },
+    afflict(x, z, r, kind, sec) {                    // магия: 'sleep' — лежит спит sec секунд, 'bind' — стоит связанный sec секунд, 'wake' — будит
+      let n = 0; for (const c of crowd) { if (!c.npc || Math.hypot(c.x - x, c.z - z) > r) continue; n++;
+        if (kind === 'wake') { c.hurt = null; continue; }
+        c.hurt = kind === 'sleep' ? { kind: 'fall', t: 0, dur: 1.8 + sec, lie: sec } : { kind: 'bind', t: 0, dur: sec }; if (kind === 'sleep') say(c, 'Зевает…'); else say(c, 'Не могу пошевелиться!'); }
+      return n;
+    },
+    shout(x, z, r, text) { let n = 0; for (const c of crowd) if (c.npc && Math.hypot(c.x - x, c.z - z) < r && n < 2 && rnd() < 0.5) { say(c, text); n++; } return n; },
     hitAt(x, z, r, fall) {                           // заклинание: всех жителей в радиусе вздрагивает (fall — сбивает с ног сразу); здоровья нет, как и при ударе
       let n = 0; for (const c of crowd) { if (!c.npc || c.hurt && c.hurt.kind === 'fall') continue; if (Math.hypot(c.x - x, c.z - z) > r) continue; n++; hurtNpc(c, x, z, !!fall); } return n;
     },
@@ -246,8 +253,9 @@ export async function createNPCs({ scene, world, base = './' }) {
         root.position.set(c.x, vh, c.z); root.rotation.set(0, c.yaw, 0, 'YXZ');
         if (c.hurt) {                                    // вздрагивание: короткий наклон назад и дрожь; падение: на спину, лежит, поднимается
           const h = c.hurt, k = Math.min(1, h.t / h.dur); let tilt = 0, roll = 0;
-          if (h.kind === 'flinch') { tilt = -0.32 * Math.sin(Math.PI * Math.min(1, k * 1.3)); roll = Math.sin(h.t * 45) * 0.09 * (1 - k); }
-          else { const d1 = 0.3, d2 = 1.5, u = h.t < d1 ? h.t / d1 : h.t < d1 + d2 ? 1 : 1 - (h.t - d1 - d2) / (h.dur - d1 - d2); const e = u * u * (3 - 2 * u); tilt = -1.52 * e; roll = h.t < d1 ? Math.sin(h.t * 30) * 0.1 : 0; root.position.y += Math.sin(-tilt) * 0.7; }
+          if (h.kind === 'bind') { roll = Math.sin(h.t * 22) * 0.025; }
+          else if (h.kind === 'flinch') { tilt = -0.32 * Math.sin(Math.PI * Math.min(1, k * 1.3)); roll = Math.sin(h.t * 45) * 0.09 * (1 - k); }
+          else { const d1 = 0.3, d2 = h.lie || 1.5, u = h.t < d1 ? h.t / d1 : h.t < d1 + d2 ? 1 : 1 - (h.t - d1 - d2) / (h.dur - d1 - d2); const e = u * u * (3 - 2 * u); tilt = -1.52 * e; roll = h.t < d1 ? Math.sin(h.t * 30) * 0.1 : 0; root.position.y += Math.sin(-tilt) * 0.7; }
           root.rotation.x = tilt; root.rotation.z = roll;
         }
         setClip(c, c.state === 'walk' ? 'walk' : (c.rest || 'idle'));

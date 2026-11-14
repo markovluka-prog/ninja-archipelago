@@ -247,8 +247,20 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
       if (y < o.y - 3 || y > o.y + o.h + 4) return; lightUp(o);
     });
   }
+  const windSp = { x: 0, z: 0, t: 0 };      // ветер от заклинаний (гаснет сам) + слабый природный, который медленно меняет направление
+  const windNow = () => { const tt = performance.now() / 1000, k = Math.max(0, windSp.t - tt) > 0 ? 1 : 0; return { x: (k ? windSp.x : 0) + Math.sin(tt / 37) * 5, z: (k ? windSp.z : 0) + Math.cos(tt / 53) * 5 }; };
+  function spreadFrom(o) {                       // пожар ползёт: огонь переходит на соседние горючие, по ветру — дальше и охотнее
+    const w = windNow(), wl = Math.hypot(w.x, w.z) || 1, R = 7 + Math.min(14, wl * 0.22), now = performance.now() / 1000;
+    if (!world.flamNear) return;
+    world.flamNear(o.x, o.z, R, n => {
+      if (n === o || n.burn > 0 || (n.ash && n.ash > now)) return;
+      const dx = n.x - o.x, dz = n.z - o.z, d = Math.hypot(dx, dz) - n.r - o.r * 0.5; if (d > R || wetAt(n.x, n.z)) return;
+      const dl = Math.hypot(dx, dz) || 1, along = (dx * w.x + dz * w.z) / (dl * wl), p = (n.k === 'plant' ? 0.5 : 0.3) * (1 - Math.max(0, d) / R) * (1 + 1.1 * along * Math.min(1, wl / 14));
+      if (Math.random() < p) lightUp(n);
+    });
+  }
   function lightUp(o) {
-    if (o.burn > 0 || (o.k === 'plant' ? nPlant >= 18 : burning.size - nPlant >= MAXB)) return;
+    if (o.burn > 0 || (o.ash && o.ash > performance.now() / 1000) || (o.k === 'plant' ? nPlant >= 18 : burning.size - nPlant >= MAXB)) return;
     o.burn = BURN_T; o.acc = 0; burning.add(o); if (o.k === 'plant') nPlant++;
   }
   function igniteBeam(mouth, dir) {                // вдоль струи пламени (как в burn): рельеф гасит её, всё горючее по пути загорается
@@ -263,7 +275,8 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     if (burning.size) bLive = 2; else bLive -= dt;
     const cx = camera ? camera.position.x : 0, cy = camera ? camera.position.y : 0, cz = camera ? camera.position.z : 0; let near = null, nd = 1e9;
     for (const o of burning) {
-      o.burn -= dt; if (o.burn <= 0) { snuff(o); continue; }
+      o.burn -= dt; if (o.burn <= 0) { o.ash = performance.now() / 1000 + 90; snuff(o); continue; }      // выгорело: 90 с снова не загорится
+      o.sp = (o.sp || 0) + dt; if (o.sp > 0.55) { o.sp = 0; spreadFrom(o); }
       const inten = Math.min(1, o.burn / 1.8) * Math.min(1, (BURN_T - o.burn) / 0.6 + 0.3), d = Math.hypot(o.x - cx, o.z - cz); if (d < nd) { nd = d; near = o; }
       if (d > 350) { snuff(o); continue; }      // игрок далеко — огонь гаснет (не видно и не считаем)
       const sz = o.k === 'house' ? 1 : o.k === 'tree' ? 0.8 : 0.35, rate = (o.k === 'plant' ? 9 : 28 + Math.min(40, o.r * o.h * 0.15)) * inten;
@@ -653,5 +666,5 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     flameLight.intensity += ((lit ? 7 : 0) - flameLight.intensity) * Math.min(1, dt * 12);
     if (lit) flameLight.position.copy(mine.d.mouth).addScaledVector(mine.d.dir, 14);
   }
-  return { update, get mounted() { return mine.st === 'ride'; }, ignite: igniteAt, extinguish, wet(x, z, r, sec) { wetZ.push({ x, z, r, t: performance.now() / 1000 + sec }); return extinguish(x, 3, z, r + 6); }, burningNear(x, z, r) { for (const o of burning) if (Math.hypot(o.x - x, o.z - z) < r + o.r) return true; return false; } };
+  return { update, get mounted() { return mine.st === 'ride'; }, ignite: igniteAt, extinguish, wet(x, z, r, sec) { wetZ.push({ x, z, r, t: performance.now() / 1000 + sec }); return extinguish(x, 3, z, r + 6); }, setWind(x, z, sec) { windSp.x = x; windSp.z = z; windSp.t = performance.now() / 1000 + sec; }, wind: windNow, wetAt, burningNear(x, z, r) { for (const o of burning) if (Math.hypot(o.x - x, o.z - z) < r + o.r) return true; return false; } };
 }
