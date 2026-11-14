@@ -62,7 +62,17 @@ export function createItems({ THREE, scene, world }) {
     const { g, M } = build(kind), it = { kind, mat: K.mat, m: K.m * (opts.mscale || 1), r: K.r, name: K.name, p: new V(x, y, z), v: new V(), T: 15, burn: 0, burnT: 0, wet: 0, held: 0, g, M, yaw: Math.random() * 6.283, spin: 0, tumble: new V(), hitCd: 0, rest: 0, scale: 1, age: 0, long: !!K.long, ice: K.mat === 'ice', owner: opts.owner || null };
     g.position.set(x, y, z); scene.add(g); items.push(it); return it;
   }
-  function remove(it) { const i = items.indexOf(it); if (i < 0) return; items.splice(i, 1); scene.remove(it.g); it.g.traverse(o => { if (o.isMesh && o.material) o.material.dispose(); }); }
+  function remove(it) { const i = items.indexOf(it); if (i < 0) return; items.splice(i, 1); scene.remove(it.g); if (!it.shared) it.g.traverse(o => { if (o.isMesh && o.material) o.material.dispose(); }); }
+  // предмет из объекта, уже стоящего в мире (камень, бочка, бревно, дерево…): модель — те же геометрия и материалы, что у экземпляра; пока «спит», в мире и сцене его нет
+  const stubM = () => ({ color: { setHex() {}, lerp() {} }, emissive: { setRGB() {} }, metalness: 0, roughness: 1 });
+  function makeWorld(rec, parts, o) {
+    const g = new THREE.Group(), inner = new THREE.Group(), s = rec.s, bb = rec.v.bb;
+    for (const part of parts) { const m = new THREE.Mesh(part.g, part.m); m.matrixAutoUpdate = false; m.matrix.copy(part.mat); m.castShadow = true; m.receiveShadow = true; inner.add(m); }
+    inner.scale.setScalar(s); inner.rotation.y = rec.rot; inner.position.y = -((bb.min.y + bb.max.y) / 2) * s; g.add(inner);
+    const hh = o.size.y / 2, it = { kind: 'obj:' + rec.id, mat: o.mat, m: o.m, r: Math.max(0.5, Math.min(Math.max(o.size.x, o.size.z) / 2, 6)), hh, name: o.name, p: new V(rec.x, rec.y + ((bb.min.y + bb.max.y) / 2) * s, rec.z), v: new V(), T: 15, burn: 0, burnT: 0, wet: 0, held: 0, g, M: stubM(), yaw: 0, spin: 0, tumble: new V(), hitCd: 0, rest: 0, scale: 1, age: 0, long: false, ice: false, owner: null, shared: true, dormant: true, rec };
+    g.position.copy(it.p); return it;
+  }
+  function activate(it) { if (!it.dormant) return; it.dormant = false; scene.add(it.g); items.push(it); }
   function setMat(it, matId) { it.mat = matId; const m = MAT[matId]; it.M.color.setHex(m.col); it.M.metalness = ['metal', 'silver', 'gold'].includes(matId) ? 0.7 : 0.05; it.M.roughness = it.M.metalness > 0.5 ? 0.35 : 0.85; it.ice = matId === 'ice'; }
   const speedMS = it => it.v.length() * U;
   const energyJ = it => 0.5 * it.m * speedMS(it) ** 2;
@@ -81,7 +91,7 @@ export function createItems({ THREE, scene, world }) {
         p.addScaledVector(v, dt);
       } else p.addScaledVector(v, dt);      // удерживаемый магией предмет: скорость задаёт хватка (magic.js), физика ног не касается
       // земля (холм/дно)
-      const gy = hAt(p.x, p.z), floor = gy + r * 0.55;
+      const gy = hAt(p.x, p.z), floor = gy + (it.hh !== undefined ? it.hh * it.scale : r * 0.55);
       if (p.y < floor) {
         p.y = floor; const hx = hAt(p.x + 1, p.z) - hAt(p.x - 1, p.z), hz = hAt(p.x, p.z + 1) - hAt(p.x, p.z - 1), nrm = new V(-hx * 0.5, 1, -hz * 0.5).normalize(), vn = v.dot(nrm);
         if (vn < 0) { v.addScaledVector(nrm, -(1 + mat.bounce) * vn); if (-vn > 4) it.tumble.set(rnd(-3, 3), 0, rnd(-3, 3)); if (-vn > 9 && env.thud) env.thud(p, it, -vn); const f = Math.max(0, 1 - mat.fric * 2.2 * dt * (inWaterGround(p) ? 0.3 : 1)); v.x *= f; v.z *= f; if (-vn * (1 + mat.bounce) < 3) { v.y = Math.max(v.y, 0); } }
@@ -123,5 +133,5 @@ export function createItems({ THREE, scene, world }) {
   }
   const _q = new THREE.Quaternion(), _x = new V(1, 0, 0), _t = new V();
   const inWaterGround = p => hAt(p.x, p.z) < 0.3;
-  return { items, spawn, remove, setMat, step, energyJ, speedMS };
+  return { items, spawn, remove, setMat, step, energyJ, speedMS, makeWorld, activate };
 }

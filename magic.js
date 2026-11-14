@@ -225,12 +225,42 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     }
     return r;
   }
+  /* ───── объекты, которые уже стоят в мире (камни, бочки, брёвна, деревья…): магия берёт их, как свои предметы ───── */
+  const WCLS = [      // [id объекта, название, материал, виды (что в заклинании их называет), доля заполнения объёма]
+    [/^(rock_small|rock_flat|rock_sharp|pebbles_pile|stone_cairn)/, 'камень', 'stone', ['stone'], 0.5], [/^(rock_medium|rock_mossy)/, 'валун', 'stone', ['stone', 'boulder'], 0.5], [/^rock_large/, 'огромный валун', 'stone', ['boulder', 'stone'], 0.5],
+    [/^statue/, 'статуя', 'stone', [], 0.45], [/^grave/, 'надгробие', 'stone', [], 0.5], [/^(lantern_stone|fence_stone|hearth)/, 'каменная вещь', 'stone', [], 0.4],
+    [/^(stump|log_fallen)/, 'бревно', 'wood', ['stick'], 0.5], [/^chest/, 'сундук', 'wood', ['chest'], 0.35], [/^crate/, 'ящик', 'wood', [], 0.25], [/^barrel/, 'бочка', 'wood', [], 0.3], [/^planks/, 'доски', 'wood', ['stick'], 0.5],
+    [/^sack/, 'мешок', 'cloth', [], 0.6], [/^rope_coil/, 'бухта каната', 'cloth', [], 0.4], [/^(bucket|watering)/, 'ведро', 'wood', [], 0.1],
+    [/^(table|bench|chair|bed|wardrobe|shelf|ladder_wood|cart|wheelbarrow|fence_(picket|wattle|bamboo)|sign_|lamp_post|campfire_logs)/, '', 'wood', [], 0.25],
+    [/^(anchor|cannon_ship|harpoon)/, '', 'metal', [], 0.2], [/^(fir|palm|oak|birch|willow)/, 'дерево', 'wood', ['tree'], 0.04], [/^(bush|fern)/, 'куст', 'leaf', [], 0.06],
+  ];
+  const RUID = { table: 'стол', bench: 'скамья', chair: 'стул', bed: 'кровать', wardrobe: 'шкаф', shelf: 'полка', ladder: 'лестница', cart: 'тележка', wheelbarrow: 'тачка', fence: 'забор', sign: 'указатель', lamp: 'фонарь', campfire: 'костёр', anchor: 'якорь', cannon: 'пушка', harpoon: 'гарпунная пушка' };
+  const clsCache = new Map();
+  function classifyWorld(id) { if (clsCache.has(id)) return clsCache.get(id); let r = null; for (const [re, name, mat, kinds, fill] of WCLS) if (re.test(id)) { r = { name: name || RUID[id.split('_')[0]] || 'вещь', mat, kinds, fill }; break; } clsCache.set(id, r); return r; }
+  function matchWorld(cls, info) {
+    if (!info.kinds.length && !info.mats.length && !info.flora.length) return true;
+    return info.kinds.some(k => cls.kinds.includes(k)) || info.mats.some(m => m === cls.mat || (m === 'metal' && (cls.mat === 'silver' || cls.mat === 'gold'))) || (info.flora.includes('tree') && cls.kinds.includes('tree')) || (info.flora.includes('plant') && cls.mat === 'leaf');
+  }
+  function proxyFor(rec, cls) {      // «спящий» предмет по объекту мира: масса — объём × доля заполнения × плотность материала
+    if (rec.proxy) return rec.proxy; const v = rec.v, s2 = rec.s, sz = { x: v.size.x * s2, y: (v.bb.max.y - v.bb.min.y) * s2, z: v.size.z * s2 };
+    const m = Math.max(0.3, Math.min(20000, sz.x * sz.y * sz.z * U * U * U * cls.fill * MAT[cls.mat].rho));
+    return (rec.proxy = items.makeWorld(rec, world.partsOf(rec), { name: cls.name, mat: cls.mat, m, size: sz }));
+  }
+  function wake(it) {      // заклинание коснулось объекта мира: он отрывается от мира и становится телом
+    if (!it.dormant) return; const rec = it.rec; world.detachPlaced(rec);
+    if (rec.box) { const i = richard.solids.indexOf(rec.box.solidRef); if (i >= 0) richard.solids.splice(i, 1); const j = world.solidBoxes.indexOf(rec.box); if (j >= 0) world.solidBoxes.splice(j, 1); }
+    items.activate(it); puff(it.p, [.6, .55, .45], 8, { spd: 4, s0: 1.5, s1: 4, life: 0.7, a: 0.4 });
+  }
+  const wakeAll = set => { if (set) for (const it of set) if (it.dormant) wake(it); };
+  let curPicks = null;
   function pickItems(info, aim, n, preferHeld) {
-    const filt = it => (!info.kinds.length && !info.mats.length) || info.kinds.includes(it.kind) || (info.kinds.includes('sword') && false) || info.mats.some(m => matchesMat(it, m)) || (info.kinds.includes('stone') && it.kind === 'boulder' && false);
-    let c = items.items.filter(it => filt(it) && it.p.distanceTo(P.pos) < 140);
+    const named = info.kinds.length || info.mats.length || info.flora.length, filt = it => !named || info.kinds.includes(it.kind) || info.mats.some(m => matchesMat(it, m)) || (info.flora.includes('plant') && (it.kind === 'leaf' || it.kind === 'feather'));
+    const c = items.items.filter(it => filt(it) && it.p.distanceTo(P.pos) < 140);
+    if (world.placedNear) world.placedNear(aim.tgt.x, aim.tgt.z, 30, rec => { if (Math.hypot(rec.x - P.pos.x, rec.z - P.pos.z) > 140) return; const cls = classifyWorld(rec.id); if (!cls || !matchWorld(cls, info)) return; const pr = proxyFor(rec, cls); if (pr) c.push(pr); });
     const scored = c.map(it => { const dd = distRay(it.p, aim.o, aim.d), dp = it.p.distanceTo(aim.tgt); return { it, s: Math.min(dd.perp + dd.along * 0.02, dp * 0.6 + 8), ok: (dd.along > 0 && dd.perp < 10 + dd.along * 0.3) || dp < 22, held: it.held }; }).filter(x => x.ok);
     scored.sort((a, b) => (preferHeld ? (b.held - a.held) : 0) || a.s - b.s);
-    return scored.slice(0, n).map(x => x.it);
+    const out = scored.slice(0, n).map(x => x.it); if (curPicks) for (const it of out) if (it.dormant) curPicks.add(it);
+    return out;
   }
   function pickBodies(aim, R) { const near = bodies().filter(b => Math.hypot(b.x - aim.tgt.x, b.z - aim.tgt.z) < R || (() => { const dd = distRay(_b.set(b.x, b.y + 4, b.z), aim.o, aim.d); return dd.along < 90 && dd.perp < 6; })()); near.sort((a, b) => Math.hypot(a.x - aim.tgt.x, a.z - aim.tgt.z) - Math.hypot(b.x - aim.tgt.x, b.z - aim.tgt.z)); return near; }
   function pickFlora(aim, R, kinds) { const out = []; if (world.flamNear) world.flamNear(aim.tgt.x, aim.tgt.z, R, o => { if (Math.hypot(o.x - aim.tgt.x, o.z - aim.tgt.z) < R + o.r && (!kinds || kinds.includes(o.k) || (kinds.includes('structs') && o.k === 'house'))) out.push(o); }); out.sort((a, b) => Math.hypot(a.x - aim.tgt.x, a.z - aim.tgt.z) - Math.hypot(b.x - aim.tgt.x, b.z - aim.tgt.z)); return out; }
@@ -285,7 +315,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
 
   function planClause(cl, p, aim) {
     const info = npInfo(cl.np), act = cl.verb ? VERB[cl.verb] : null, M = p.mods, sz = sizeM(p), L = [], n = Math.max(1, info.num || (p.count > 1 && p.count !== info.num ? p.count : 1));
-    const A = (label, J, run, vis, inst) => L.push({ label, J, run, vis, inst });
+    const picks = curPicks, A = (label, J, run, vis, inst) => L.push({ label, J, run: () => { wakeAll(picks); run(); }, vis, inst });
     const elem = info.elems[0], objectsNamed = info.kinds.length || info.mats.length || info.pron.length;
     const selfT = info.pron.includes('self'), heldItems = items.items.filter(i => i.held);
     const bareHeld = !objectsNamed && !elem && !info.flora.length && !info.structs.length && !info.creatures.length && !info.parts.length;
@@ -316,7 +346,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
         }
         if (elem === 'water') return { acts: manifest('water', p, { ...aim, d: new V(0, 1, 0).add(aim.d).normalize() }, sz, n) };
         const its = targetItems(); if (!its.length) return { err: 'Нечего поднимать: ' + (info.kinds[0] ? 'такой вещи рядом нет' : 'вещей рядом нет') };
-        for (const it of its) { const hu = (act === 'fly' ? 9 : 7) * sz, J = Jlift(it.m, hu); A(`поднять ${it.name} (${kg(it).toFixed(1)} кг) на ${(hu * U).toFixed(1)} м — ПРОЦЕСС ${T(J)} (тяжёлое поднимается медленнее), дальше держать ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, J, () => { it.held = 0; it.hover = it.hover || { y: it.p.y, t: Infinity }; addProc({ name: 'поднять ' + it.name, J, tag: 'items', step(raw) { it.hover.y += raw / (it.m * G0) / U; it.pin = 0; } }); }, 'mind'); }
+        for (const it of its) { const hu = (act === 'fly' ? 9 : 7) * sz, J = Jlift(it.m, hu); A(`поднять ${it.name} (${kg(it).toFixed(1)} кг) на ${(hu * U).toFixed(1)} м — ПРОЦЕСС ${T(J)} (тяжёлое поднимается медленнее), дальше держать ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, J, () => { it.held = 0; it.hover = it.hover || { y: it.p.y, t: Infinity }; addProc({ name: 'поднять ' + it.name, J, tag: 'items', step(raw) { if (!it.hover) return true; it.hover.y += raw / (it.m * G0) / U; it.pin = 0; } }); }, 'mind'); }
         return { acts: L };
       }
       case 'push': case 'throw': {
@@ -425,7 +455,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   const HS = 0.002;      // игровой масштаб теплоёмкости (без него разогреть меч стоило бы сотни кДж)
   function applyElem(elem, info, aim, p, n, sz) {      // стихия действует на названную вещь (brisingr traevam, brisingr hald, kveykva sverd …)
     const L = [], M = p.mods, its = (info.kinds.length || info.mats.length || info.pron.length) ? pickItems(info, aim, n, true) : [];
-    const A = (label, J, run, vis, inst) => L.push({ label, J, run, vis, inst });
+    const picks = curPicks, A = (label, J, run, vis, inst) => L.push({ label, J, run: () => { wakeAll(picks); run(); }, vis, inst });
     for (const it of its) {
       if (elem === 'fire') {
         const mat = MAT[it.mat], c = SPEC_HEAT[it.mat] || 1000, target = mat.flam ? mat.flam + 40 : 700 * M.heat, J = Math.max(20, it.m * c * HS * Math.max(0, target - it.T) * M.heat);
@@ -458,7 +488,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     if (p.tense === 'past') return { err: 'Прошедшее время: событие уже случилось — ничего не произойдёт' };
     if (p.unknown.length) return { err: 'Нет слова: ' + p.unknown.join(', ') + ' (мир не поймёт слово, которого нет в языке)' };
     if (!p.clauses.length) return { err: 'В фразе нет ни действия, ни вещи' };
-    const acts = [], notes = []; for (const cl of p.clauses) { const r = planClause(cl, p, aim); if (r.err) notes.push(r.err); else acts.push(...r.acts); }
+    const acts = [], notes = []; curPicks = new Set(); for (const cl of p.clauses) { const r = planClause(cl, p, aim); if (r.err) notes.push(r.err); else acts.push(...r.acts); } curPicks = null;
     if (!acts.length) return { err: notes[0] || 'Ничего не произойдёт' };
     let raw = acts.reduce((s, a) => s + a.J, 0); const noncanon = p.marks.some(m => m === 3); if (noncanon) { raw *= 1.3; notes.push('есть слова не из канона (○): магия идёт с трудом, цена ×1.3'); }
     const e = eta(); return { acts, notes, raw, total: raw / e, eta: e };

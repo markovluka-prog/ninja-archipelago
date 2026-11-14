@@ -573,6 +573,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
 
   /* 8. строим объекты (инстансинг + анимированные отдельно) */
   say('Собираю объекты…', 0.7);
+  const placed = [];      // размещённые экземпляры: id, позиция, размер, индекс в InstancedMesh
   const batches = new Map(), animated = [], vessels = [], solidBoxes = [], subSolids = [];      // subSolids — подводные «юбки» скал: твёрдые только для плывущего (ходьба их не видит: верх ниже воды)
   const ROCK_RE = /^(rock_(large|medium|sharp|mossy|flat)|cliff|sea_stack|stone_cairn|hill_rocky)/;
   const SKIP_RE = /^(grass|flowerbed|bush|fern|clover|moss|reef|shell|beach|pebbles|starfish|waterlily|reed|torii|gate_|bridge|sea_arch|cave|mount|hill_round|hill_twin|volcano|torch|buoy|rope|net_|boarding|x_mark|boat|raft|canoe)/;
@@ -627,10 +628,11 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     const v = variant(p.id, p.seedV); if (!v || p.dead) continue;
     let y = p.y !== undefined ? p.y : p.vessel || p.pier ? 0 : Math.max(heightAt(p.x, p.z), 0) - (/^(palm|fir|oak|birch|willow|bush|fern|rock|cliff)/.test(p.id) ? 0.15 : 0);
     if (v.door && BUILD_RE.test(p.id) && !p.vessel) { const q_ = doorOut(p.x, p.z, p.rot, p.s, v), ty = heightAt(q_.x, q_.z), dd_ = v.door.bodies.find(b => b.hasDoor), want = ty - dd_.y0 * p.s + 0.1; if (Math.abs(want - y) > 1.0) y = Math.min(y + 7, Math.max(y - 9, want)); if (Math.abs(ty - (y + dd_.y0 * p.s)) > 1.8) continue; }      // дверь на обрыве или в скале (перепад > 3 ед. даже после подгонки) — такой дом не ставим: войти в него нельзя      // склон выше порога: дом приподнимаем (до 4 ед.), чтобы дверь не оказалась «в горе».
+    let rbox = null, rfo = null;      // для реестра placed: box и flam-запись этого экземпляра
     {
       const hgt = v.bb.max.y * p.s;
-      let box = null;
-      if (!NOFLAM_RE.test(p.id)) flam.push({ x: p.x, z: p.z, y, h: Math.max(hgt, 0.8), r: Math.max(0.6, Math.max(v.size.x, v.size.z) * p.s * 0.5), k: TREE_RE.test(p.id) || /^(mannequin|dummy)/.test(p.id) ? 'tree' : p.vessel || SOLID_RE.test(p.id) ? 'house' : 'plant', burn: 0 });
+      let box = null, fo = null;
+      if (!NOFLAM_RE.test(p.id)) flam.push(fo = { x: p.x, z: p.z, y, h: Math.max(hgt, 0.8), r: Math.max(0.6, Math.max(v.size.x, v.size.z) * p.s * 0.5), k: TREE_RE.test(p.id) || /^(mannequin|dummy)/.test(p.id) ? 'tree' : p.vessel || SOLID_RE.test(p.id) ? 'house' : 'plant', burn: 0 });
       if (TREE_RE.test(p.id)) {                                  // ствол: радиус считаем по вершинам у основания модели
         const r = Math.min(2.0, Math.max(0.6, trunkRadius(v) * p.s));
         box = { x0: p.x - r, x1: p.x + r, z0: p.z - r, z1: p.z + r, y0: y - 30, y1: y + hgt, grab: false, kind: 'tree' };
@@ -705,6 +707,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
         }
       }
       if (box) solidBoxes.push(box);
+      rbox = box; rfo = fo;
     }
     if (!p.vessel && !p.pier && BUILD_RE.test(p.id) && v.size) {      // фундамент: на склоне дом не «висит» над землёй — под ним каменный цоколь до самой низкой точки рельефа под постройкой
       const hx = v.size.x * p.s * 0.45, hz = v.size.z * p.s * 0.45, cs = Math.cos(p.rot), sn = Math.sin(p.rot); let lo = y;
@@ -715,6 +718,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     if (v.parts) {
       let b = batches.get(p.id + ':' + p.seedV); if (!b) batches.set(p.id + ':' + p.seedV, b = { v, mats: [] });
       Q.setFromAxisAngle(UP, p.rot); M4.compose(V3.set(p.x, y, p.z), Q, S3.setScalar(p.s)); b.mats.push(M4.clone());
+      placed.push({ id: p.id, x: p.x, y, z: p.z, rot: p.rot, s: p.s, v, bkey: p.id + ':' + p.seedV, idx: b.mats.length - 1, box: rbox, fo: rfo });      // реестр для магии: любой такой объект можно «оторвать» от мира и сделать телом
     } else {
       const g = catalog.get(p.id).make(THREE, p.seedV, { doorOpen: false });
       g.position.set(p.x, y, p.z); g.rotation.y = p.rot; g.scale.setScalar(p.s);
@@ -766,7 +770,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
     mergedCache.set(key, out); return out;
   }
   for (const b of batches.values()) for (const part of mergedParts(b.v)) {
-    const im = new THREE.InstancedMesh(part.g, part.m, b.mats.length);
+    const im = new THREE.InstancedMesh(part.g, part.m, b.mats.length); (b.ims || (b.ims = [])).push(im);
     b.mats.forEach((m, i) => im.setMatrixAt(i, m.clone().multiply(part.mat)));
     im.instanceMatrix.needsUpdate = true; im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); im.name = b.v.id;
     scene.add(im); meshCount++;
@@ -854,6 +858,16 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   for (const b of finalSolids) { if (b.kind === 'ship' || b.kind === 'pier' || b.kind === 'boat') continue; for (let cx = Math.floor(b.x0 / BCS); cx <= Math.floor(b.x1 / BCS); cx++) for (let cz = Math.floor(b.z0 / BCS); cz <= Math.floor(b.z1 / BCS); cz++) { const k = cx + ',' + cz; (BG.get(k) || BG.set(k, []).get(k)).push(b); } }
   const FCS = 16, FGm = new Map(); for (const o of flam) { const k = Math.floor(o.x / FCS) + ',' + Math.floor(o.z / FCS); (FGm.get(k) || FGm.set(k, []).get(k)).push(o); }
   /** добавить горючий объект позже (чучела и мишени тренировочной площадки): {x, z, y, h, r, k} */
+  const PCS = 24, PG = new Map(); for (const r of placed) { const k = Math.floor(r.x / PCS) + ',' + Math.floor(r.z / PCS); (PG.get(k) || PG.set(k, []).get(k)).push(r); }
+  const placedNear = (x, z, r, cb) => { for (let i = Math.floor((x - r) / PCS); i <= Math.floor((x + r) / PCS); i++) for (let j = Math.floor((z - r) / PCS); j <= Math.floor((z + r) / PCS); j++) { const a_ = PG.get(i + ',' + j); if (a_) for (const o of a_) if (!o.gone && (o.x - x) ** 2 + (o.z - z) ** 2 < r * r) cb(o); } };
+  const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+  const detachPlaced = rec => {      // убрать экземпляр из мира (скрыть, снять коллизию и горение): дальше он живёт как предмет магии
+    if (rec.gone) return false; rec.gone = true; const b = batches.get(rec.bkey);
+    if (b && b.ims) for (const im of b.ims) { im.setMatrixAt(rec.idx, ZERO_M); im.instanceMatrix.needsUpdate = true; }
+    if (rec.box) { rec.box.removed = true; rec.box.y1 = rec.box.y0 - 1; const i = finalSolids.indexOf(rec.box); if (i >= 0) finalSolids.splice(i, 1); }
+    if (rec.fo) { rec.fo.burn = 0; rec.fo.ash = Infinity; rec.fo.h = 0.01; rec.fo.r = 0.01; }
+    return true;
+  };
   const addFlam = o => { o.burn = 0; flam.push(o); const k = Math.floor(o.x / FCS) + ',' + Math.floor(o.z / FCS); (FGm.get(k) || FGm.set(k, []).get(k)).push(o); };
   /** перебор горючих объектов, у которых центр ближе r + их радиус к точке (x, z) */
   const flamNear = (x, z, r, cb) => { const R = r + 40, c0 = Math.floor((x - R) / FCS), c1 = Math.floor((x + R) / FCS), d0 = Math.floor((z - R) / FCS), d1 = Math.floor((z + R) / FCS); for (let i = c0; i <= c1; i++) for (let j = d0; j <= d1; j++) { const a_ = FGm.get(i + ',' + j); if (a_) for (const o of a_) { const m = r + o.r; if ((o.x - x) ** 2 + (o.z - z) ** 2 < m * m) cb(o); } } };
@@ -863,7 +877,7 @@ export async function buildMap({ THREE, mergeGeometries, scene, base = './', onP
   const blockedAt = (x, z, pad = 0) => { const cx = Math.floor(x / BCS), cz = Math.floor(z / BCS); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a_ = BG.get((cx + i) + ',' + (cz + j)); if (a_) for (const b of a_) if (x > b.x0 - pad && x < b.x1 + pad && z > b.z0 - pad && z < b.z1 + pad) return true; } return false; };
   say('Готово', 1);
   return {
-    heightAt, blockedAt, treeTopAt, flamNear, addFlam, vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
+    heightAt, blockedAt, treeTopAt, flamNear, addFlam, placedNear, detachPlaced, partsOf: rec => mergedParts(rec.v), vessels, subSolids, fields, houses: finalSolids.flatMap(b => (b.houses || []).filter(h => h.hasDoor)), colliders, spots, solidBoxes: finalSolids, passInfo, startSpot, places: objs.map(o => ({ t: o.t, x: (o.x - W / 2) * S, z: (o.y - H / 2) * S })), S, collisions: colInfo, region: (wx, wz) => region(wx / S + W / 2, wz / S + H / 2),
     ops: { lines: ops.line, labels: ops.label }, findSpot, lakeAt: (wx, wz) => !!lakeM[Math.round((wz / S + H / 2) / CELL) * GW + Math.round((wx / S + W / 2) / CELL)], bounds: { x0: -W * S / 2 + 6, x1: W * S / 2 - 6, z0: -H * S / 2 + 6, z1: H * S / 2 - 6 }, size: { W: W * S, H: H * S },
     stats: { scale: S, collisions: colInfo, placements: placements.length, drawMeshes: meshCount, animated: animated.length, models: variantCache.size },
     update(t) {
