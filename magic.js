@@ -190,8 +190,8 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   let wardJ = 0, flyOn = false, flyT = 0, flyY = 0, rooted = null, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
   const selfUp = () => PMASS * G0 * 0.05 * U * 6;      // Дж/с, чтобы держать себя в воздухе
   const itemUp = it => it.m * G0 * 0.35 * U * 6;      // Дж/с, чтобы держать предмет против тяжести
-  function procCount(scope) { let n = 0; if (scope !== 'items') { if (rooted) n++; if (flyOn) n++; } if (scope === 'all') { if (wardJ > 0) n++; if (orbT > 0) n++; if (rainT > 0) n++; } if (scope !== 'self') for (const it of items.items) if (it.held || it.hover || it.pin > 0) n++; return n; }
-  function stopProcs(scope) { const n = procCount(scope); if (scope !== 'items') { rooted = null; flyOn = false; } if (scope === 'all') { wardJ = 0; orbT = 0; rainT = 0; } if (scope !== 'self') for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } return n; }
+  function procCount(scope) { let n = 0; if (scope !== 'items') { if (rooted) n++; if (flyOn) n++; } if (scope === 'all') { if (wardJ > 0) n++; if (orbT > 0) n++; if (rainT > 0) n++; } if (scope !== 'self') for (const it of items.items) if (it.held || it.hover || it.pin > 0) n++; for (const d of procs) if (scope === 'all' || d.tag === scope) n++; return n; }
+  function stopProcs(scope) { const n = procCount(scope); if (scope !== 'items') { rooted = null; flyOn = false; } if (scope === 'all') { wardJ = 0; orbT = 0; rainT = 0; } if (scope !== 'self') for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } for (const d of procs.slice()) if (scope === 'all' || d.tag === scope) endProc(d, 'stopped'); return n; }
   function boost(vy) { if (P.state === 'ground') { window.__g && window.__g.press('Space'); boostV = vy; boostW = 0.08; } else P.vel.y = Math.max(P.vel.y, vy); }
   function selfVis(main, spec, o, own, id) {      // видимая часть самонаправленных заклинаний (у чужих — только картинка)
     const c = COL[main] || COL.mind, body = own ? P.pos : (net.bodies().find(b => b.id === id) || { x: o.x, y: o.y - 6, z: o.z }), at = new V(body.x, body.y + 5, body.z);
@@ -237,124 +237,174 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   const sizeM = p => p.mods.size * p.mods.pow;
   const IGN = { wood: 700, organic: 220, leaf: 90, feather: 60, cloth: 320 };
 
+  /* ───── процессы: любое заклинание — поток энергии, а не щелчок ─────
+     У мага есть мощность (Дж/с): столько энергии он способен пропустить через заклинание. Процесс берёт её каждый кадр, платит из запаса (с учётом КПД)
+     и совершает работу в мире: поднимает, разгоняет, греет, ломает, лечит. Цель достигнута (набралась нужная работа) — процесс кончается; не достигнута —
+     идёт, пока хватает сил. Тяжёлое двигается медленно — мощность та же. Прервать: losna / клавиша U. Не хватает энергии — процесс гаснет (если не «вопреки смерти»). */
+  const procs = []; let pid = 0, deadlyNext = false;
+  const POW = () => 240 + 160 * (1 - Math.exp(-xp / 20));      // мощность мага, Дж/с (растёт с опытом)
+  const SPEC_HEAT = { stone: 800, wood: 1700, metal: 450, silver: 235, gold: 129, organic: 3500, leaf: 1500, feather: 1500, cloth: 1400, ice: 2100 };
+  function addProc(d) { d.got = 0; d.t = 0; d.id = ++pid; if (d.J === undefined) d.J = Infinity; if (d.P === undefined) d.P = POW(); d.deadly = deadlyNext; procs.push(d); return d; }
+  function endProc(d, why) { const i = procs.indexOf(d); if (i < 0) return; procs.splice(i, 1); try { d.end && d.end(why, d); } catch (e) { console.error('магия:', e); } }
+  function die() { P.hp = 0; richard.hurt(9999, P.pos.x, P.pos.y, P.pos.z); }
+  function procTick(dt) {
+    const e = eta();
+    for (let i = procs.length - 1; i >= 0; i--) {
+      const d = procs[i]; if (!procs.includes(d)) continue; d.t += dt;
+      let want = Math.min(d.P * dt, d.J - d.got); if (want <= 1e-6) { endProc(d, 'done'); continue; }
+      let pay = want / e;
+      if (E < pay) {
+        if (d.deadly && P.hp > 0 && P.hp < 15) { E = 0; endProc(d, 'drain'); show('…', 'Инстинкт самосохранения: заклинание прервано, здоровья почти не осталось'); continue; }
+        if (d.deadly && P.hp > 0) { const miss = pay - E; P.hp -= miss / 40; E = 0; flash([1, .2, .2], 4); if (P.hp <= 0) { die(); endProc(d, 'dead'); continue; } pay = 0; }
+        else { want = Math.max(0, E * e); pay = E; if (want <= 0.01) { E = 0; endProc(d, 'drain'); show('…', 'Сил не хватило: ' + d.name); continue; } }
+      }
+      E = Math.max(0, E - pay); xp += pay / 300; d.got += want;
+      let fin = false; try { fin = d.step ? d.step(want, dt, d) : false; } catch (er) { console.error('магия:', er); fin = true; }
+      if (fin || d.got >= d.J - 1e-6) endProc(d, 'done');
+    }
+  }
+  function streamStep(elem, spec, P0) {      // непрерывный поток стихии: огонь, вода, лёд, ветер — по живому прицелу, пока идёт энергия
+    return (raw, dt, d) => {
+      const a = aimRay(), hit = rayHit(a.o, a.d, 75), pt = hit ? hit.p : a.o.clone().addScaledVector(a.d, 75), sz = spec.size, pw = spec.pow || 1;
+      d.k = (d.k || 0) + dt; d.n = (d.n || 0) + dt;
+      if (elem === 'fire') for (let k = 0; k < 10; k++) { const s = rnd(2, 9); spawn(a.o.x + a.d.x * s, a.o.y + a.d.y * s, a.o.z + a.d.z * s, a.d.x * rnd(40, 70) + rnd(-5, 5), a.d.y * rnd(40, 70) + rnd(-3, 5), a.d.z * rnd(40, 70) + rnd(-5, 5), k % 3 ? COL.fire : [1, .85, .4], 1.6 * sz, 4 * sz, rnd(0.35, 0.6), 0.75, -2, 1); }
+      else if (elem === 'water') for (let k = 0; k < 10; k++) { const s = rnd(2, 6); spawn(a.o.x + a.d.x * s, a.o.y + a.d.y * s, a.o.z + a.d.z * s, a.d.x * rnd(60, 90), a.d.y * rnd(60, 90) + 3, a.d.z * rnd(60, 90), COL.water, 1.3 * sz, 1.8, rnd(0.4, 0.7), 0.7, 14, 0.3); }
+      else if (elem === 'ice') for (let k = 0; k < 8; k++) { const s = rnd(2, 8); spawn(a.o.x + a.d.x * s, a.o.y + a.d.y * s, a.o.z + a.d.z * s, a.d.x * rnd(50, 80), a.d.y * rnd(50, 80), a.d.z * rnd(50, 80), COL.ice, 1.3 * sz, 0.6, rnd(0.4, 0.7), 0.75, 4, 0.8); }
+      if (d.k > 0.2) {
+        d.k = 0; const R = (elem === 'fire' ? 5 : elem === 'water' ? 8 : 5) * sz;
+        if (elem === 'fire') { dragons && dragons.ignite(pt.x, pt.y, pt.z, R); puff(pt, COL.fire, 6, { spd: 7, s0: 1.4, s1: 3, life: 0.5, up: 5, grav: -3 }); flash(COL.fire, 5); areaHurt(pt, R, 6 * pw, 'spell'); npcs && npcs.hitAt && npcs.hitAt(pt.x, pt.z, R, false); for (const it of items.items) if (it.p.distanceTo(pt) < R + it.r && !it.wet) it.T += raw * 7 / Math.max(0.05, it.m * (SPEC_HEAT[it.mat] || 1000) * HS); }
+        else if (elem === 'water') { const n = dragons ? dragons.wet(pt.x, pt.z, R, 25) : 0; if (n) steam(pt, 6); puff(pt, COL.water, 6, { spd: 8, s0: 1.2, s1: 2.5, life: 0.6, up: 6, grav: 18 }); for (const it of items.items) if (it.p.distanceTo(pt) < R + it.r) { it.wet = 1; it.T = Math.min(it.T, 30); it.v.addScaledVector(a.d, 22 / Math.max(0.5, it.m ** 0.5)); } areaHurt(pt, R, 2 * pw, 'spell'); }
+        else if (elem === 'ice') { if (d.n > 0.8) { d.n = 0; frost(pt, 4 * sz, sz); } dragons && dragons.extinguish(pt.x, pt.y, pt.z, R); puff(pt, COL.ice, 5, { spd: 6, s0: 1, s1: 2, life: 0.6 }); for (const it of items.items) if (it.p.distanceTo(pt) < R) it.T = Math.min(it.T, -10); areaHurt(pt, R, 5 * pw, 'spell_ice'); npcs && npcs.hitAt && npcs.hitAt(pt.x, pt.z, R, false); }
+        net.send({ t: 'spell', fx: [elem], x: +a.o.x.toFixed(1), y: +a.o.y.toFixed(1), z: +a.o.z.toFixed(1), vx: +a.d.x.toFixed(3), vy: +a.d.y.toFixed(3), vz: +a.d.z.toFixed(3), size: spec.size, count: 1, bright: 0 });
+      }
+      if (elem === 'wind') { if (d.k > 0.35) { d.k = 0; gust({ ...spec, size: sz * 0.7 }, a.o, a.d, true); } }
+      return false;
+    };
+  }
+  const afflictProc = (label, bs, kind, sec, perSec, tag) => { const n = Math.min(3, bs.length); addProc({ name: label, J: perSec * n * sec, P: perSec * n, tag: tag || 'other', step(raw, dt, d) { d.k2 = (d.k2 || 0) + dt; if (d.k2 > 0.5) { d.k2 = 0; for (const b of bs.slice(0, 3)) npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, kind, kind === 'sleep' ? 1.8 : 1.0); puff(new V(bs[0].x, bs[0].y + 5, bs[0].z), COL.mind, 3, { spd: 3, s0: 1, s1: 2, life: 0.7, up: 4, a: 0.5 }); } } }); };
+
   function planClause(cl, p, aim) {
     const info = npInfo(cl.np), act = cl.verb ? VERB[cl.verb] : null, M = p.mods, sz = sizeM(p), L = [], n = Math.max(1, info.num || (p.count > 1 && p.count !== info.num ? p.count : 1));
-    const A = (label, J, run, vis) => L.push({ label, J, run, vis });
+    const A = (label, J, run, vis, inst) => L.push({ label, J, run, vis, inst });
     const elem = info.elems[0], objectsNamed = info.kinds.length || info.mats.length || info.pron.length;
     const selfT = info.pron.includes('self'), heldItems = items.items.filter(i => i.held);
     const bareHeld = !objectsNamed && !elem && !info.flora.length && !info.structs.length && !info.creatures.length && !info.parts.length;
     const targetItems = () => (bareHeld && heldItems.length) ? heldItems.slice(0, n) : pickItems(info, aim, n, true);
-    if (p.neg && cl.verb) { const e = elem; A(`запрет «${cl.verb}»` + (e ? ' — ' + e : ''), 350 * sz, () => { if (e === 'fire' && dragons) { dragons.wet(aim.tgt.x, aim.tgt.z, 22 * sz, 40); puff(aim.tgt, COL.water, 20, { spd: 8, up: 5, grav: 8 }); } else { npcs && npcs.afflict && npcs.afflict(aim.tgt.x, aim.tgt.z, 12, 'bind', 3); } }, 'mind'); return { acts: L }; }
-    if (p.neg && elem === 'fire') { A('запрет огня: земля становится сырой', 350 * sz, () => dragons && dragons.wet(aim.tgt.x, aim.tgt.z, 22 * sz, 40), 'mind'); return { acts: L }; }
-    // ───── голые существительные и стихия без глагола: проявление стихии, или стихия, действующая на названную вещь
+    const T = (J, P_) => `~${Math.max(0.1, J / (P_ || POW())).toFixed(1)} с`;
+    if (p.neg && cl.verb) { const e = elem; A(`запрет «${cl.verb}»` + (e ? ' — ' + e : ''), 350 * sz, () => { if (e === 'fire' && dragons) { dragons.wet(aim.tgt.x, aim.tgt.z, 22 * sz, 40); puff(aim.tgt, COL.water, 20, { spd: 8, up: 5, grav: 8 }); } else { npcs && npcs.afflict && npcs.afflict(aim.tgt.x, aim.tgt.z, 12, 'bind', 3); } }, 'mind', true); return { acts: L }; }
+    if (p.neg && elem === 'fire') { A('запрет огня: земля становится сырой', 350 * sz, () => dragons && dragons.wet(aim.tgt.x, aim.tgt.z, 22 * sz, 40), 'mind', true); return { acts: L }; }
     if (!act) {
       if (elem && (objectsNamed || info.flora.length || info.creatures.length) && !info.pron.includes('self')) return { acts: applyElem(elem, info, aim, p, n, sz) };
       if (elem) return { acts: manifest(elem, p, aim, sz, n) };
-      A('осмотреть: ' + cl.np.filter(t => t.e).map(t => t.e.ru.split(/[;,(]/)[0]).join(', '), 20, () => inspect(aim, info), 'mind'); return { acts: L };
+      A('осмотреть: ' + cl.np.filter(t => t.e).map(t => t.e.ru.split(/[;,(]/)[0]).join(', '), 20, () => inspect(aim, info), 'mind', true); return { acts: L };
     }
     switch (act) {
       case 'manifest': case 'create': {
         if (act === 'create' && !elem) {
           const kind = info.kinds[0] || ({ stone: 'stone', wood: 'stick', metal: 'knife', gold: 'goldbar', silver: 'silverbar', cloth: 'cloth', ice: 'icechunk' })[info.mats[0]]; if (!kind) return { err: 'Творить нечего: назови вещь (stenr, sverd, hald…)' };
-          const K = KIND[kind], J = 250 * K.m * sz; A(`сотворить: ${K.name} (${K.m} кг) из ничего`, J, () => { const at = new V(aim.o.x + aim.d.x * 6, Math.max(hAt(aim.o.x + aim.d.x * 6, aim.o.z + aim.d.z * 6) + 3, aim.o.y), aim.o.z + aim.d.z * 6); const it = items.spawn(kind, at.x, at.y, at.z, { mscale: sz }); if (it) puff(at, COL.mind, 22, { spd: 6, s0: 1.4, s1: 3, life: 0.8 }); }, 'mind'); return { acts: L };
+          const K = KIND[kind], J = 250 * K.m * sz;
+          A(`сотворить ${K.name} (${K.m} кг) из ничего — ПРОЦЕСС: материя нарастает ${T(J)}`, J, () => { const at = new V(aim.o.x + aim.d.x * 6, Math.max(hAt(aim.o.x + aim.d.x * 6, aim.o.z + aim.d.z * 6) + 3, aim.o.y), aim.o.z + aim.d.z * 6); const it = items.spawn(kind, at.x, at.y, at.z, { mscale: sz }); if (!it) return; it.held = 1; it.scale = 0.1; it.v.set(0, 0, 0);
+            addProc({ name: 'сотворить ' + K.name, J, tag: 'items', step(raw, dt, d) { it.scale = Math.max(0.1, d.got / d.J); puff(it.p, COL.mind, 2, { spd: 3, s0: 1, s1: 2, life: 0.6, a: 0.6 }); }, end(why) { it.held = 0; if (why !== 'done') { it.scale = Math.max(0.3, it.scale); } else it.scale = 1; } }); }, 'mind'); return { acts: L };
         }
         if (elem) return { acts: manifest(elem, p, aim, sz, n) };
         return { err: 'Что являть? Назови стихию (brisingr, adurna, vindr…)' };
       }
       case 'lift': case 'fly': {
         if (selfT || (!objectsNamed && !heldItems.length && !elem && !info.flora.length)) {
-          const hu = 3 * sz, J = Jlift(PMASS, hu); A(`оторваться от земли — ПРОЦЕСС: подъём силой. Каждый метр высоты — работа ~mgh (${fmtJ(Jlift(PMASS, 1 / U) * 0.12)}/м), удержание ${fmtJ(selfUp())}/с. Space — выше, Shift — ниже; losna eka или U — прекратить`, J, () => { flyOn = true; flyT = 0; rooted = null; flyY = P.pos.y + (P.state === 'ground' ? hu + 3 : 0.5); if (P.state === 'ground') boost(24); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); }, 'lev'); return { acts: L };
+          const hu = 6 * sz, J = PMASS * 0.12 * G0 * hu * U;
+          A(`оторваться от земли — ПРОЦЕСС: подъём силой на ${(hu * U).toFixed(1)} м (${T(J)}), дальше Space — выше (${fmtJ(PMASS * 0.12 * G0)}/м), Shift — ниже; удержание ${fmtJ(selfUp())}/с. losna eka или U — прекратить`, J, () => { flyOn = true; flyT = 0; rooted = null; flyY = P.pos.y + 0.5; if (P.state === 'ground') boost(18); selfVis('lev', { size: 1, bright: 0 }, aim.o, true); addProc({ name: 'подъём', J, tag: 'self', step(raw) { flyY += raw / (PMASS * 0.12 * G0) / U; } }); }, 'lev'); return { acts: L };
         }
         if (elem === 'water') return { acts: manifest('water', p, { ...aim, d: new V(0, 1, 0).add(aim.d).normalize() }, sz, n) };
         const its = targetItems(); if (!its.length) return { err: 'Нечего поднимать: ' + (info.kinds[0] ? 'такой вещи рядом нет' : 'вещей рядом нет') };
-        for (const it of its) { const hu = (act === 'fly' ? 9 : 7) * sz; A(`поднять ${it.name} (${kg(it).toFixed(1)} кг) на ${(hu * U).toFixed(1)} м и держать — ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, Jlift(it.m, hu) * (1 + M.dur * 0.4), () => { it.hover = { y: it.p.y + hu, t: Infinity }; it.held = 0; }, 'mind'); }
+        for (const it of its) { const hu = (act === 'fly' ? 9 : 7) * sz, J = Jlift(it.m, hu); A(`поднять ${it.name} (${kg(it).toFixed(1)} кг) на ${(hu * U).toFixed(1)} м — ПРОЦЕСС ${T(J)} (тяжёлое поднимается медленнее), дальше держать ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, J, () => { it.held = 0; it.hover = it.hover || { y: it.p.y, t: Infinity }; addProc({ name: 'поднять ' + it.name, J, tag: 'items', step(raw) { it.hover.y += raw / (it.m * G0) / U; it.pin = 0; } }); }, 'mind'); }
         return { acts: L };
       }
       case 'push': case 'throw': {
-        if (elem === 'stone' || info.mats.includes('soil')) { A('толкнуть землю: ударная волна', 600 * sz, () => shockwave(aim.tgt, 18 * sz), 'mind'); return { acts: L }; }
+        if (elem === 'stone' || info.mats.includes('soil')) { const J = 600 * sz; A(`толкнуть землю: накопить удар — ПРОЦЕСС ${T(J)}`, J, () => { const pt = aim.tgt.clone(); addProc({ name: 'удар по земле', J, step() { puff(pt, COL.stone, 2, { spd: 5, s0: 1.5, s1: 3, life: 0.6, up: 3, a: 0.5 }); }, end(why) { if (why === 'done') shockwave(pt, 18 * sz); } }); }, 'mind'); return { acts: L }; }
         if (elem) return { acts: manifest(elem, p, aim, sz, n) };
         const its = targetItems();
-        if (its.length) for (const it of its) { const v = (act === 'throw' ? 32 : 22) * M.pow * (M.slow ? 0.6 : 1), J = 0.5 * it.m * (v * U) ** 2; A(`${act === 'throw' ? 'бросить' : 'толкнуть'} ${it.name} (${kg(it).toFixed(1)} кг) со скоростью ${(v * U).toFixed(1)} м/с`, J, () => { it.held = 0; it.hover = null; const dir = aim.d.clone(); if (M.homing) { const bs = bodies().sort((a, b) => Math.hypot(a.x - aim.tgt.x, a.z - aim.tgt.z) - Math.hypot(b.x - aim.tgt.x, b.z - aim.tgt.z))[0]; if (bs) dir.set(bs.x - it.p.x, bs.y + 4 - it.p.y, bs.z - it.p.z).normalize(); } it.v.copy(dir).multiplyScalar(v); it.rest = 0; }, 'mind'); }
-        else { const bs = pickBodies(aim, 12); if (!bs.length) return { err: 'Нечего толкать: цели не видно' }; A('толкнуть существо', 300 * sz, () => { for (const b of bs.slice(0, 3)) { npcs && npcs.hitAt && npcs.hitAt(b.x, b.z, 3, true); if (b.kind === 'player') net.send({ t: 'hit', to: b.id, dmg: 3, st: 'spell' }); } }, 'wind'); }
+        if (its.length) { for (const it of its) { const v = (act === 'throw' ? 32 : 22) * M.pow * (M.slow ? 0.6 : 1), J = 0.5 * it.m * (v * U) ** 2; A(`${act === 'throw' ? 'бросить' : 'толкнуть'} ${it.name} (${kg(it).toFixed(1)} кг): разгон до ${(v * U).toFixed(1)} м/с — ПРОЦЕСС ${T(J)}`, J, () => { it.held = 0; it.hover = null; const dir = aim.d.clone(); if (M.homing) { const bs = bodies().sort((a, b) => Math.hypot(a.x - aim.tgt.x, a.z - aim.tgt.z) - Math.hypot(b.x - aim.tgt.x, b.z - aim.tgt.z))[0]; if (bs) dir.set(bs.x - it.p.x, bs.y + 4 - it.p.y, bs.z - it.p.z).normalize(); } let ke = 0; addProc({ name: (act === 'throw' ? 'бросок ' : 'толчок ') + it.name, J, tag: 'items', step(raw) { ke += raw; it.v.copy(dir).multiplyScalar(Math.sqrt(2 * ke / it.m) / U); it.pin = 0; it.rest = 0; } }); }, 'mind'); } }
+        else { const bs = pickBodies(aim, 12); if (!bs.length) return { err: 'Нечего толкать: цели не видно' }; A('толкнуть существо', 300 * sz, () => { for (const b of bs.slice(0, 3)) { npcs && npcs.hitAt && npcs.hitAt(b.x, b.z, 3, true); if (b.kind === 'player') net.send({ t: 'hit', to: b.id, dmg: 3, st: 'spell' }); } }, 'mind', true); }
         return { acts: L };
       }
       case 'hold': {
         const its = targetItems(); if (!its.length) return { err: 'Нечего хватать: такой вещи у цели нет' };
-        for (const it of its) A(`схватить ${it.name} (${kg(it).toFixed(1)} кг) — ПРОЦЕСС: держать ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, Jlift(it.m, 2) , () => { it.held = 1; it.hover = null; it.hd = Math.max(8, Math.min(26, it.p.distanceTo(P.pos))); }, 'mind');
+        for (const it of its) A(`схватить ${it.name} (${kg(it).toFixed(1)} кг) — ПРОЦЕСС: держать ${fmtJ(itemUp(it))}/с (losna или U — отпустить)`, Jlift(it.m, 2), () => { it.held = 1; it.hover = null; it.hd = Math.max(8, Math.min(26, it.p.distanceTo(P.pos))); }, 'mind', true);
         return { acts: L };
       }
-      case 'release': case 'unbind': { const scope = selfT ? 'self' : (info.kinds.length || info.mats.length) ? 'items' : 'all'; if (!procCount(scope)) return { err: 'Нечего отпускать: ни одно заклинание-процесс не действует' }; A(`отпустить (${scope === 'self' ? 'себя' : scope === 'items' ? 'предметы' : 'всё'})`, 0, () => { stopProcs(scope); }, 'mind'); return { acts: L }; }
+      case 'release': case 'unbind': { const scope = selfT ? 'self' : (info.kinds.length || info.mats.length) ? 'items' : 'all'; if (!procCount(scope)) return { err: 'Нечего отпускать: ни одно заклинание-процесс не действует' }; A(`отпустить (${scope === 'self' ? 'себя' : scope === 'items' ? 'предметы' : 'всё'})`, 0, () => { stopProcs(scope); }, 'mind', true); return { acts: L }; }
       case 'stop': {
-        if (selfT) {      // Letta eka — остановить себя: гасит скорость (в падении — зависнуть в воздухе)
+        if (selfT) {
           const vm = Math.hypot(P.vel.x, P.vel.y, P.vel.z) * U, J = 0.5 * PMASS * vm * vm + 30;
-          A(`остановить себя: погасить ${vm.toFixed(1)} м/с и ПРОДОЛЖАТЬ удерживать на месте — ${fmtJ(P.state === 'ground' ? 25 : selfUp())}/с (losna eka или U — отпустить)`, J, () => { P.vel.set(0, 0, 0); rooted = P.pos.clone(); flyOn = false; puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 20, { spd: 5, s0: 1.4, s1: 3, life: 0.7, a: 0.6 }); ring(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 7, 0.4); }, 'mind'); return { acts: L };
+          A(`остановить себя: погасить ${vm.toFixed(1)} м/с (${T(J)}), потом удерживать на месте ${fmtJ(P.state === 'ground' ? 25 : selfUp())}/с — ПРОЦЕСС (losna eka или U — отпустить)`, J, () => { addProc({ name: 'остановить себя', J, tag: 'self', step(raw) { const sp = Math.hypot(P.vel.x, P.vel.y, P.vel.z) * U; if (sp > 0.02) { const ke = 0.5 * PMASS * sp * sp, nk = Math.max(0, ke - raw), f = Math.sqrt(nk / ke); P.vel.multiplyScalar(f); } puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 2, { spd: 4, s0: 1.4, s1: 3, life: 0.6, a: 0.6 }); }, end(why) { if (why === 'done') { P.vel.set(0, 0, 0); rooted = P.pos.clone(); flyOn = false; ring(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mind, 7, 0.4); } } }); }, 'mind'); return { acts: L };
         }
-        if (elem === 'fire') { A('остановить огонь: потушить', 150 * sz, () => { const n2 = dragons ? dragons.extinguish(aim.tgt.x, aim.tgt.y, aim.tgt.z, 16 * sz) : 0; if (n2) steam(aim.tgt, 8); ring(aim.tgt, COL.steam, 14 * sz, 0.5); }, 'mind'); return { acts: L }; }
+        if (elem === 'fire') { A('остановить огонь: потушить', 150 * sz, () => { const n2 = dragons ? dragons.extinguish(aim.tgt.x, aim.tgt.y, aim.tgt.z, 16 * sz) : 0; if (n2) steam(aim.tgt, 8); ring(aim.tgt, COL.steam, 14 * sz, 0.5); }, 'mind', true); return { acts: L }; }
         if (elem === 'water') return { acts: freezeIce(aim, sz) };
         const its = (objectsNamed || heldItems.length) ? targetItems() : items.items.filter(i => i.v.length() > 3 && i.p.distanceTo(aim.tgt) < 30);
-        if (its.length) { for (const it of its) A(`остановить ${it.name}: поглотить ${fmtJ(items.energyJ(it))}`, items.energyJ(it) + 15, () => { it.v.set(0, 0, 0); it.pin = 4 * M.dur; it.hover = null; }, 'mind'); return { acts: L }; }
-        const bs = pickBodies(aim, 10); if (bs.length) { A('остановить существо на 3 с', 250, () => { for (const b of bs.slice(0, 2)) npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, 'bind', 3 * M.dur); }, 'mind'); return { acts: L }; }
-        A('остановить — всё и так неподвижно', 10, () => {}, 'mind'); return { acts: L };
+        if (its.length) { for (const it of its) { const J = items.energyJ(it) + 15; A(`остановить ${it.name}: поглотить ${fmtJ(J)} — ПРОЦЕСС ${T(J)}`, J, () => { addProc({ name: 'остановить ' + it.name, J, tag: 'items', step(raw) { const ke = items.energyJ(it); if (ke > 0) it.v.multiplyScalar(Math.sqrt(Math.max(0, ke - raw) / ke)); it.hover = null; }, end(why) { if (why === 'done') { it.v.set(0, 0, 0); it.pin = 4 * M.dur; } } }); }, 'mind'); } return { acts: L }; }
+        const bs = pickBodies(aim, 10); if (bs.length) { A(`остановить существо — ПРОЦЕСС: держать ${fmtJ(50)}/с`, 150 * M.dur, () => afflictProc('остановить существо', bs, 'bind', 3 * M.dur, 50, 'other'), 'mind'); return { acts: L }; }
+        A('остановить — всё и так неподвижно', 10, () => {}, 'mind', true); return { acts: L };
       }
       case 'gather': case 'pull': case 'banish': case 'scatter': {
-        const toMe = act === 'pull', out = act === 'banish' || act === 'scatter', ctr = toMe ? P.pos : aim.tgt;
+        const toMe = act === 'pull', out = act === 'banish' || act === 'scatter', ctr = toMe ? P.pos.clone() : aim.tgt.clone();
         const its = (act === 'pull' ? targetItems() : items.items.filter(it => it.p.distanceTo(aim.tgt) < 26 * sz && ((!info.kinds.length && !info.mats.length) || info.kinds.includes(it.kind) || info.mats.some(m => matchesMat(it, m))))).slice(0, 12);
         if (!its.length && !(out && pickBodies(aim, 14).length)) return { err: 'Нечего ' + (out ? 'отбрасывать' : 'притягивать') };
-        let J = 0; const v = 26 * M.pow; for (const it of its) J += 0.5 * it.m * (v * U) ** 2;
-        A(`${out ? 'отбросить' : toMe ? 'притянуть к себе' : 'стянуть в точку'}: ${its.length} предм.`, J + (out ? 200 : 0), () => { for (const it of its) { _a.set(it.p.x - ctr.x, it.p.y - ctr.y, it.p.z - ctr.z); const d2 = _a.length() || 1; _a.normalize(); const s2 = out ? 1 : -1; it.v.addScaledVector(_a, s2 * v * (toMe ? 1.1 : 1)); it.v.y += 8; it.held = 0; it.hover = null; } if (out) { for (const b of pickBodies(aim, 14).slice(0, 4)) npcs && npcs.hitAt && npcs.hitAt(b.x, b.z, 3, true); ring(aim.tgt, COL.wind, 14, 0.5); } }, 'mind'); return { acts: L };
+        let J = 0; const v = 26 * M.pow; for (const it of its) J += 0.5 * it.m * (v * U) ** 2; J += out ? 200 : 20;
+        A(`${out ? 'отбросить' : toMe ? 'притянуть к себе' : 'стянуть в точку'}: ${its.length} предм. — ПРОЦЕСС ${T(J)}`, J, () => { addProc({ name: out ? 'отбросить' : 'притянуть', J, P: J / 1.2, tag: 'items', step(raw, dt) { for (const it of its) { _a.set(it.p.x - ctr.x, it.p.y - ctr.y, it.p.z - ctr.z); _a.normalize(); const s2 = out ? 1 : -1; it.v.addScaledVector(_a, s2 * v / 1.2 * dt * (toMe ? 1.1 : 1)); it.v.y += 8 * dt; it.held = 0; it.hover = null; } }, end(why) { if (out && why === 'done') { for (const b of pickBodies(aim, 14).slice(0, 4)) npcs && npcs.hitAt && npcs.hitAt(b.x, b.z, 3, true); ring(aim.tgt, COL.wind, 14, 0.5); } } }); }, 'mind'); return { acts: L };
       }
       case 'break': {
-        const its = targetItems(); if (its.length) { for (const it of its) { const mat = MAT[it.mat], area = Math.PI * (it.r * U) ** 2, J = mat.tough * area * 2 * (it.hard || 1); A(`разбить ${it.name} (${it.mat}, ${kg(it).toFixed(1)} кг): работа разрушения`, J, () => shatter(it), 'mind'); } return { acts: L }; }
-        const ws = things.filter(t => t.obj.userData && t.obj.userData.dispellable && t.obj.position.distanceTo(aim.tgt) < 20); if (ws.length) { A('разрушить каменную/ледяную постройку мага', 300, () => { for (const t of ws) t.life = Math.min(t.life, t.t + 0.2); puff(aim.tgt, COL.stone, 30, { spd: 12, s0: 2, s1: 5, life: 1, grav: 14 }); }, 'mind'); return { acts: L }; }
+        const its = targetItems(); if (its.length) { for (const it of its) { const mat = MAT[it.mat], area = Math.PI * (it.r * U) ** 2, J = mat.tough * area * 2 * (it.hard || 1); A(`разбить ${it.name} (${it.mat}, ${kg(it).toFixed(1)} кг): накопить работу разрушения — ПРОЦЕСС ${T(J)}`, J, () => { addProc({ name: 'разбить ' + it.name, J, tag: 'items', step(raw, dt, d) { it.p.x += rnd(-.12, .12) * (d.got / d.J); it.p.z += rnd(-.12, .12) * (d.got / d.J); if (Math.random() < 0.3) puff(it.p, [.7, .65, .55], 1, { spd: 3, s0: 0.8, s1: 0.2, life: 0.4 }); }, end(why) { if (why === 'done' && items.items.includes(it)) shatter(it); } }); }, 'mind'); } return { acts: L }; }
+        const ws = things.filter(t => t.obj.userData && t.obj.userData.dispellable && t.obj.position.distanceTo(aim.tgt) < 20); if (ws.length) { A('разрушить каменную/ледяную постройку мага', 300, () => { for (const t of ws) t.life = Math.min(t.life, t.t + 0.2); puff(aim.tgt, COL.stone, 30, { spd: 12, s0: 2, s1: 5, life: 1, grav: 14 }); }, 'mind', true); return { acts: L }; }
         return { err: 'Ломать нечего: смотри на предмет' };
       }
       case 'cut': {
         const its = targetItems(); const bs = pickBodies(aim, 10).filter(b => Math.hypot(b.x - P.pos.x, b.z - P.pos.z) < 40);
-        if (its.length) { for (const it of its) A(`рассечь ${it.name} на две части`, 140 * M.pow, () => splitItem(it), 'mind'); return { acts: L }; }
-        A('рассечь воздух перед собой (клинок силы)', 180 * sz * M.pow, () => { for (let k = 0; k < 26; k++) { const a = rnd(-.7, .7); spawn(aim.o.x + aim.d.x * 3 + Math.cos(a) * -aim.d.z * 6 * a, aim.o.y + rnd(-1, 1), aim.o.z + aim.d.z * 3 + a * aim.d.x * 6, aim.d.x * 70, 0, aim.d.z * 70, [.9, .95, 1], 1.4, 0.4, 0.3, 0.8, 0, 1); } for (const b of bs.slice(0, 3)) { hurtBody(b, 12 * M.pow, 150, 'spell'); } }, 'wind'); return { acts: L };
+        if (its.length) { for (const it of its) { const J = 140 * M.pow; A(`рассечь ${it.name} на две части — ПРОЦЕСС ${T(J)}`, J, () => { addProc({ name: 'рассечь ' + it.name, J, tag: 'items', step() { puff(it.p, [.9, .95, 1], 1, { spd: 4, s0: 1, s1: 0.2, life: 0.3 }); }, end(why) { if (why === 'done' && items.items.includes(it)) splitItem(it); } }); }, 'mind'); } return { acts: L }; }
+        const J = 180 * sz * M.pow; A(`рассечь воздух (клинок силы) — ПРОЦЕСС ${T(J)}`, J, () => { addProc({ name: 'клинок силы', J, step() { puff(new V(aim.o.x + aim.d.x * 4, aim.o.y, aim.o.z + aim.d.z * 4), [.9, .95, 1], 2, { spd: 6, s0: 1, s1: 0.3, life: 0.3 }); }, end(why) { if (why !== 'done') return; const a = aimRay(); for (let k = 0; k < 26; k++) { const q2 = rnd(-.7, .7); spawn(a.o.x + a.d.x * 3 + Math.cos(q2) * -a.d.z * 6 * q2, a.o.y + rnd(-1, 1), a.o.z + a.d.z * 3 + q2 * a.d.x * 6, a.d.x * 70, 0, a.d.z * 70, [.9, .95, 1], 1.4, 0.4, 0.3, 0.8, 0, 1); } for (const b of bs.slice(0, 3)) hurtBody(b, 12 * M.pow, 150, 'spell'); } }); }, 'mind'); return { acts: L };
       }
       case 'crush': {
-        const its = targetItems(); if (its.length) { for (const it of its) A(`раздавить ${it.name}`, MAT[it.mat].tough * Math.PI * (it.r * U) ** 2 * 3, () => { puff(it.p, [.7, .65, .55], 14, { spd: 6, s0: 1, s1: 3, life: 0.8, grav: 8 }); items.remove(it); }, 'mind'); return { acts: L }; }
-        const bs = pickBodies(aim, 8); if (!bs.length) return { err: 'Нечего сжимать' }; A('сжать существо (оглушение)', 500, () => { for (const b of bs.slice(0, 2)) { npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, 'bind', 3); if (b.kind === 'player') net.send({ t: 'hit', to: b.id, dmg: 8, st: 'spell' }); } }, 'mind'); return { acts: L };
+        const its = targetItems(); if (its.length) { for (const it of its) { const J = MAT[it.mat].tough * Math.PI * (it.r * U) ** 2 * 3; A(`раздавить ${it.name} — ПРОЦЕСС ${T(J)}`, J, () => { addProc({ name: 'раздавить ' + it.name, J, tag: 'items', step() { it.scale = Math.max(0.3, it.scale * 0.99); }, end(why) { if (why === 'done') { puff(it.p, [.7, .65, .55], 14, { spd: 6, s0: 1, s1: 3, life: 0.8, grav: 8 }); items.remove(it); } else it.scale = 1; } }); }, 'mind'); } return { acts: L }; }
+        const bs = pickBodies(aim, 8); if (!bs.length) return { err: 'Нечего сжимать' }; A('сжать существо — ПРОЦЕСС', 500, () => addProc({ name: 'сжать', J: 500, step(raw, dt, d) { d.k3 = (d.k3 || 0) + dt; if (d.k3 > 0.5) { d.k3 = 0; for (const b of bs.slice(0, 2)) { npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, 'bind', 1); if (b.kind === 'player') net.send({ t: 'hit', to: b.id, dmg: 4, st: 'spell' }); } } } }), 'mind'); return { acts: L };
       }
       case 'ignite': return { acts: applyElem('fire', info, aim, p, n, sz) };
       case 'dry': {
-        if (elem === 'water' || (!objectsNamed && !info.creatures.length)) { A('высушить: испарить воду вокруг', 400 * sz, () => { steam(aim.tgt, 6 * sz); for (const it of items.items) if (it.p.distanceTo(aim.tgt) < 18 * sz) it.wet = 0; }, 'mind'); return { acts: L }; }
-        const its = targetItems(); A('высушить ' + (its[0] ? its[0].name : 'вещь'), 60, () => { for (const it of its) { it.wet = 0; it.T += 30; } }, 'mind'); return { acts: L };
+        if (elem === 'water' || (!objectsNamed && !info.creatures.length)) { A('высушить: испарить воду вокруг', 400 * sz, () => { steam(aim.tgt, 6 * sz); for (const it of items.items) if (it.p.distanceTo(aim.tgt) < 18 * sz) it.wet = 0; }, 'mind', true); return { acts: L }; }
+        const its = targetItems(); A('высушить ' + (its[0] ? its[0].name : 'вещь'), 60, () => { for (const it of its) { it.wet = 0; it.T += 30; } }, 'mind', true); return { acts: L };
       }
       case 'harden': {
         if (elem === 'water') return { acts: freezeIce(aim, sz) };
-        const its = targetItems(); if (!its.length) return { err: 'Нечего закалять' }; for (const it of its) A(`закалить ${it.name}`, 90 * it.m ** 0.5, () => { it.hard = (it.hard || 1) * 1.5; it.T = 15; puff(it.p, [.8, .9, 1], 10, { spd: 4, s0: 1, s1: 2, life: 0.6 }); }, 'mind'); return { acts: L };
+        const its = targetItems(); if (!its.length) return { err: 'Нечего закалять' }; for (const it of its) { const J = 90 * it.m ** 0.5; A(`закалить ${it.name} — ПРОЦЕСС ${T(J)}`, J, () => addProc({ name: 'закалить ' + it.name, J, tag: 'items', step() { puff(it.p, [.8, .9, 1], 1, { spd: 3, s0: 1, s1: 2, life: 0.5 }); }, end(why) { if (why === 'done') { it.hard = (it.hard || 1) * 1.5; it.T = 15; } } }), 'mind'); } return { acts: L };
       }
       case 'heal': {
-        if (selfT || !info.creatures.length) { const hpMax = P.hpMax || 100, need = Math.max(0, hpMax - (P.hp || 0)), amt = Math.min(need, 32 * M.pow * sz); if (need < 1) return { err: 'Ты и так здоров' }; A(`исцелить раны: +${Math.round(amt)} здоровья (клетки растут за счёт твоей энергии)`, amt * 40, () => { P.hp = Math.min(hpMax, (P.hp || 0) + amt); selfVis('heal', { size: 1, bright: 0 }, aim.o, true); }, 'heal'); return { acts: L }; }
-        const bs = pickBodies(aim, 10); A('исцелить существо', 600, () => { for (const b of bs.slice(0, 2)) if (b.kind === 'npc') npcs && npcs.shout && npcs.shout(b.x, b.z, 4, 'Спасибо!'); puff(new V(aim.tgt.x, aim.tgt.y + 4, aim.tgt.z), COL.heal, 24, { spd: 5, s0: 1.4, s1: 3, life: 1 }); }, 'heal'); return { acts: L };
+        if (selfT || !info.creatures.length) { const hpMax = P.hpMax || 100, need = Math.max(0, hpMax - (P.hp || 0)), amt = Math.min(need, 32 * M.pow * sz); if (need < 1) return { err: 'Ты и так здоров' }; const J = amt * 40; A(`исцелить раны: +${Math.round(amt)} здоровья — ПРОЦЕСС ${T(J)}, 1 здоровья = 40 Дж`, J, () => { selfVis('heal', { size: 1, bright: 0 }, aim.o, true); addProc({ name: 'исцеление', J, tag: 'self', step(raw) { P.hp = Math.min(hpMax, (P.hp || 0) + raw / 40); if (Math.random() < 0.4) spawn(P.pos.x + rnd(-2, 2), P.pos.y + rnd(0, 3), P.pos.z + rnd(-2, 2), 0, rnd(6, 12), 0, COL.heal, 1.4, 0.3, 0.9, 0.7, -1, 0.5); } }); }, 'heal'); return { acts: L }; }
+        const bs = pickBodies(aim, 10); A('исцелить существо', 600, () => { for (const b of bs.slice(0, 2)) if (b.kind === 'npc') npcs && npcs.shout && npcs.shout(b.x, b.z, 4, 'Спасибо!'); puff(new V(aim.tgt.x, aim.tgt.y + 4, aim.tgt.z), COL.heal, 24, { spd: 5, s0: 1.4, s1: 3, life: 1 }); }, 'heal', true); return { acts: L };
       }
       case 'ward': {
-        const W = 800 * sz * (M.pow > 1 ? 1 : 1) * M.dur; A(`оберег: вложить ${fmtJ(W)} — гасит удары по 40 Дж за 1 урона`, W, () => { wardJ += W; selfVis('shield', { size: 1, bright: 0 }, aim.o, true); }, 'shield'); return { acts: L };
+        const W = 800 * sz * M.dur; A(`оберег: вложить ${fmtJ(W)} — ПРОЦЕСС ${T(W)}; потом гасит удары по 40 Дж за 1 урона`, W, () => { selfVis('shield', { size: 1, bright: 0 }, aim.o, true); addProc({ name: 'оберег', J: W, tag: 'self', step(raw) { wardJ += raw; } }); }, 'shield'); return { acts: L };
       }
       case 'light': {
-        if (info.kinds.length) { const its = targetItems(); if (its.length) { A(`заставить сиять: ${its[0].name}`, 60, () => { orbBind = its[0]; orbT = 1e9; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light'); return { acts: L }; } }
-        A('зажечь светлячок (не пламя — свет) — ПРОЦЕСС: горит, пока хватает сил (~6 Дж/с)', 60 * (1 + M.bright), () => { orbT = 1e9; orbBind = null; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light'); return { acts: L };
+        if (info.kinds.length) { const its = targetItems(); if (its.length) { A(`заставить сиять: ${its[0].name} — ПРОЦЕСС: ~6 Дж/с`, 60, () => { orbBind = its[0]; orbT = 1e9; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light', true); return { acts: L }; } }
+        A('зажечь светлячок (не пламя — свет) — ПРОЦЕСС: горит, пока хватает сил (~6 Дж/с)', 60 * (1 + M.bright), () => { orbT = 1e9; orbBind = null; selfVis('light', { size: 1, bright: M.bright }, aim.o, true); }, 'light', true); return { acts: L };
       }
       case 'sleep': case 'bind': case 'slow': case 'wake': {
         const bs = pickBodies(aim, 12).filter(b => b.kind === 'npc'); if (!bs.length) return { err: act === 'wake' ? 'Некого будить' : 'Нет живой цели в поле зрения (усыпить можно только жителей)' };
-        const sec = act === 'sleep' ? 14 * M.dur : act === 'bind' ? 9 * M.dur : act === 'slow' ? 4 * M.dur : 0, J = act === 'wake' ? 80 : 450 * Math.min(3, bs.length) * sz;
-        A(`${({ sleep: 'усыпить', bind: 'связать', slow: 'замедлить', wake: 'разбудить' })[act]}: ${Math.min(3, bs.length)} чел.`, J, () => { for (const b of bs.slice(0, 3)) npcs.afflict(b.x, b.z, 2.5, act === 'wake' ? 'wake' : act === 'sleep' ? 'sleep' : 'bind', sec); puff(new V(aim.tgt.x, aim.tgt.y + 4, aim.tgt.z), COL.mind, 18, { spd: 5, s0: 1.4, s1: 3, life: 1 }); }, 'mind'); return { acts: L };
+        if (act === 'wake') { A('разбудить', 80, () => { for (const b of bs.slice(0, 3)) npcs.afflict(b.x, b.z, 2.5, 'wake', 0); }, 'mind', true); return { acts: L }; }
+        const sec = act === 'sleep' ? 14 * M.dur : act === 'bind' ? 9 * M.dur : 4 * M.dur, pj = act === 'sleep' ? 32 : act === 'bind' ? 50 : 75, nn = Math.min(3, bs.length);
+        A(`${({ sleep: 'усыпить', bind: 'связать', slow: 'замедлить' })[act]}: ${nn} чел. — ПРОЦЕСС: держать ${fmtJ(pj * nn)}/с, до ${sec.toFixed(0)} с (losna или U — отпустить)`, pj * nn * sec, () => afflictProc(({ sleep: 'усыпить', bind: 'связать', slow: 'замедлить' })[act], bs, act === 'sleep' ? 'sleep' : 'bind', sec, pj), 'mind'); return { acts: L };
       }
       case 'kill': {
-        const bs = pickBodies(aim, 10); if (!bs.length) return { err: 'Некого — цели не видно' };
-        A('остановить жизнь: ' + (bs[0].kind === 'player' ? 'игрок' : 'существо'), 1800 * M.pow, () => { for (const b of bs.slice(0, 1)) { if (b.kind === 'player') net.send({ t: 'hit', to: b.id, dmg: 40, st: 'spell' }); else npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, 'sleep', 20); } flash(COL.shadow, 12); puff(new V(bs[0].x, bs[0].y + 5, bs[0].z), COL.shadow, 30, { spd: 8, s0: 2, s1: 4, life: 1.2, a: 0.6 }); }, 'mind'); return { acts: L };
+        const bs = pickBodies(aim, 10); if (!bs.length) return { err: 'Некого — цели не видно' }; const J = 1800 * M.pow;
+        A('остановить жизнь: ' + (bs[0].kind === 'player' ? 'игрок' : 'существо') + ` — ПРОЦЕСС ${T(J)}`, J, () => addProc({ name: 'остановить жизнь', J, step() { puff(new V(bs[0].x, bs[0].y + 5, bs[0].z), COL.shadow, 2, { spd: 3, s0: 2, s1: 4, life: 0.8, a: 0.5 }); }, end(why) { if (why !== 'done') return; const b = bs[0]; if (b.kind === 'player') net.send({ t: 'hit', to: b.id, dmg: 40, st: 'spell' }); else npcs && npcs.afflict && npcs.afflict(b.x, b.z, 2.5, 'sleep', 20); flash(COL.shadow, 12); puff(new V(b.x, b.y + 5, b.z), COL.shadow, 30, { spd: 8, s0: 2, s1: 4, life: 1.2, a: 0.6 }); } }), 'mind'); return { acts: L };
       }
       case 'change': {
         const its = targetItems(), toMat = info.mats[1] || info.mats.find(m => !its[0] || m !== its[0].mat); const nm = toMat || (cl.np.filter(t => NOUN[t.a] && NOUN[t.a][0] === 'mat').map(t => NOUN[t.a][1]).pop());
         if (!its.length || !nm || !MAT[nm]) return { err: 'Превращать нечего: moi <вещь> <материал>, например moi sverd kuldr' };
-        for (const it of its) A(`превратить ${it.name} из ${MAT[it.mat].n} в ${MAT[nm].n}`, 120 * it.m, () => { const ratio = MAT[nm].rho / MAT[it.mat].rho; it.m *= ratio; items.setMat(it, nm); puff(it.p, COL.mind, 16, { spd: 5, s0: 1.2, s1: 3, life: 0.8 }); }, 'mind'); return { acts: L };
+        for (const it of its) { const J = 120 * it.m; A(`превратить ${it.name} из ${MAT[it.mat].n} в ${MAT[nm].n} — ПРОЦЕСС ${T(J)}`, J, () => addProc({ name: 'превратить ' + it.name, J, tag: 'items', step(raw, dt, d) { it.M.color.lerp(new THREE.Color(MAT[nm].col), 0.05); if (Math.random() < 0.3) puff(it.p, COL.mind, 1, { spd: 3, s0: 1, s1: 2, life: 0.6 }); }, end(why) { if (why === 'done' && items.items.includes(it)) { it.m *= MAT[nm].rho / MAT[it.mat].rho; items.setMat(it, nm); puff(it.p, COL.mind, 16, { spd: 5, s0: 1.2, s1: 3, life: 0.8 }); } } }), 'mind'); } return { acts: L };
       }
-      case 'inspect': A('осмотреть', 20, () => inspect(aim, info), 'mind'); return { acts: L };
-      case 'sprint': { const v = 7 * sz; A(`рывок вперёд (${(v * U * 5).toFixed(1)} м/с, масса мага ${PMASS} кг)`, 0.5 * PMASS * (v * U * 5) ** 2 * 0.2, () => { const yaw = P.yawVis ?? P.yaw; boost(14); P.vel.x += Math.sin(yaw) * v * 5; P.vel.z += Math.cos(yaw) * v * 5; puff(P.pos, COL.wind, 20, { spd: 8, s0: 1.5, s1: 3, life: 0.5, a: 0.5 }); }, 'wind'); return { acts: L }; }
-      case 'conceal': A('скрыть: клубы тумана', 150, () => { puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mist, 40, { spd: 6, s0: 4, s1: 10, life: 3, a: 0.35, drag: 1 }); }, 'mind'); return { acts: L };
-      default: { A(`«${cl.verb}» — слово есть, но мир не знает, что менять`, 15, () => puff(new V(aim.tgt.x, aim.tgt.y + 2, aim.tgt.z), COL.mind, 8, { spd: 3, s0: 1, s1: 2, life: 0.6, a: 0.5 }), 'mind'); return { acts: L }; }
+      case 'inspect': A('осмотреть', 20, () => inspect(aim, info), 'mind', true); return { acts: L };
+      case 'sprint': { const v = 7 * sz; A(`рывок вперёд (${(v * U * 5).toFixed(1)} м/с, масса мага ${PMASS} кг)`, 0.5 * PMASS * (v * U * 5) ** 2 * 0.2, () => { const yaw = P.yawVis ?? P.yaw; boost(14); P.vel.x += Math.sin(yaw) * v * 5; P.vel.z += Math.cos(yaw) * v * 5; puff(P.pos, COL.wind, 20, { spd: 8, s0: 1.5, s1: 3, life: 0.5, a: 0.5 }); }, 'mind', true); return { acts: L }; }
+      case 'conceal': A('скрыть: клубы тумана', 150, () => { puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mist, 40, { spd: 6, s0: 4, s1: 10, life: 3, a: 0.35, drag: 1 }); }, 'mind', true); return { acts: L };
+      default: { A(`«${cl.verb}» — слово есть, но мир не знает, что менять`, 15, () => puff(new V(aim.tgt.x, aim.tgt.y + 2, aim.tgt.z), COL.mind, 8, { spd: 3, s0: 1, s1: 2, life: 0.6, a: 0.5 }), 'mind', true); return { acts: L }; }
     }
   }
     let orbBind = null;
@@ -362,29 +412,36 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   function shatter(it) { const frag = it.kind === 'stone' || it.kind === 'boulder' ? 'stone' : it.mat === 'wood' ? 'stick' : null; puff(it.p, [.7, .65, .55], 18, { spd: 9, s0: 1, s1: 3, life: 0.8, grav: 14 }); const n = Math.min(5, Math.max(2, Math.round(it.m ** 0.4 + 1))); if (frag) for (let k = 0; k < n; k++) { const f = items.spawn(frag, it.p.x, it.p.y + 0.5, it.p.z, { mscale: it.m / (KIND[frag].m * n) }); if (f) { f.scale = Math.max(0.4, Math.min(1, (it.m / n / KIND[frag].m) ** 0.33)); f.v.set(rnd(-14, 14), rnd(6, 16), rnd(-14, 14)); } } items.remove(it); }
   function splitItem(it) { puff(it.p, [.9, .92, 1], 8, { spd: 5, s0: 1, s1: 0.3, life: 0.4 }); const h = items.spawn(it.kind, it.p.x, it.p.y + 0.4, it.p.z, { mscale: it.m / KIND[it.kind].m / 2 }); if (h) { h.scale = it.scale * 0.85; h.v.set(rnd(-6, 6), 8, rnd(-6, 6)); items.setMat(h, it.mat); h.T = it.T; } it.m /= 2; it.scale *= 0.85; it.v.set(rnd(-6, 6), 8, rnd(-6, 6)); }
   function freezeIce(aim, sz) { return [{ label: 'заморозить воду: лёд', J: 700 * sz, run: () => { const R = 8 * sz; ring(aim.tgt, COL.ice, R, 0.5); frost(aim.tgt, R, sz); }, vis: 'ice' }]; }
-  function manifest(elem, p, aim, sz, n) {      // стихия «из ничего»: цена — энергия, нагревающая/разгоняющая нужное количество вещества
-    const spec = { fx: [elem], size: p.mods.size, count: Math.min(4, n), bright: p.mods.bright, pow: p.mods.pow }; const baseJ = { fire: 400, water: 250, ice: 500, bolt: 1500, wind: 200, light: 60, shadow: 150, mist: 100, rain: 700, heal: 0 }[elem];
-    if (baseJ === undefined) return [{ label: 'стихия «' + elem + '» не проявляется', J: 20, run: () => {}, vis: 'mind' }];
-    const names = { fire: 'огненный шар', water: 'струя воды', ice: 'ледяной удар', bolt: 'молния', wind: 'порыв ветра', light: 'светлячок', shadow: 'облако тьмы', mist: 'туман', rain: 'ливень' };
-    const J = baseJ * Math.pow(sz, 1.3) * Math.pow(spec.count, 0.85) * (elem === 'fire' ? p.mods.heat : 1);
-    return [{ label: `${names[elem]}${spec.count > 1 ? ' ×' + spec.count : ''}: ${elem === 'fire' ? 'нагрев' : elem === 'bolt' ? 'разряд' : 'разгон массы'}`, J, man: true, run: () => { if (elem === 'shadow' || elem === 'mist') puff(new V(aim.tgt.x, aim.tgt.y + 3, aim.tgt.z), elem === 'shadow' ? COL.shadow : COL.mist, 50, { spd: 7, s0: 4, s1: 11, life: 3, a: 0.4, drag: 1 }); else if (elem === 'light') { orbT = 1e9; orbBind = null; selfVis('light', spec, aim.o, true); } else if (elem === 'rain') startRain(true); else perform(spec, aim.o, aim.d, true, null); }, vis: elem }];
+  function manifest(elem, p, aim, sz, n) {      // стихия «из ничего»: поток энергии — огонь, вода, лёд, ветер льются, пока идёт сила; молния копит заряд и бьёт
+    const spec = { fx: [elem], size: p.mods.size, count: Math.min(4, n), bright: p.mods.bright, pow: p.mods.pow };
+    const names = { fire: 'поток огня', water: 'струя воды', ice: 'ледяной поток', wind: 'ветер', bolt: 'молния', light: 'светлячок', shadow: 'облако тьмы', mist: 'туман', rain: 'ливень' };
+    const PW = { fire: 400, water: 250, ice: 300, wind: 150 }[elem];
+    if (PW) { const Pw = PW * Math.pow(sz, 1.3) * (elem === 'fire' ? p.mods.heat : 1); return [{ label: `${names[elem]} — ПРОЦЕСС-поток: ${fmtJ(Pw)}/с по живому прицелу, пока хватает сил (до 10 с; losna или U — прекратить)`, J: Pw * 3, man: true, vis: elem, run: () => { addProc({ name: names[elem], J: Pw * 10, P: Pw, tag: 'other', step: streamStep(elem, spec) }); } }]; }
+    if (elem === 'bolt') { const J = 1500 * Math.pow(sz, 1.3) * p.mods.pow; return [{ label: `молния — ПРОЦЕСС: заряд ~1.2 с (${fmtJ(J)}), потом разряд туда, куда смотришь`, J, man: true, vis: 'bolt', run: () => { addProc({ name: 'заряд молнии', J, P: J / 1.2, tag: 'other', step() { spawn(P.pos.x + rnd(-3, 3), P.pos.y + rnd(2, 9), P.pos.z + rnd(-3, 3), rnd(-8, 8), rnd(-8, 8), rnd(-8, 8), COL.bolt, 1.2, 0.3, 0.3, 0.9, 0, 2); }, end(why) { if (why !== 'done') return; const a = aimRay(); perform(spec, a.o, a.d, true, null); net.send({ t: 'spell', fx: ['bolt'], x: +a.o.x.toFixed(1), y: +a.o.y.toFixed(1), z: +a.o.z.toFixed(1), vx: +a.d.x.toFixed(3), vy: +a.d.y.toFixed(3), vz: +a.d.z.toFixed(3), size: spec.size, count: 1, bright: 0 }); } }); } }]; }
+    const baseJ = { light: 60, shadow: 150, mist: 100, rain: 700 }[elem];
+    if (baseJ === undefined) return [{ label: 'стихия «' + elem + '» не проявляется', J: 20, run: () => {}, vis: 'mind', inst: true }];
+    return [{ label: `${names[elem]}${elem === 'light' ? ' — ПРОЦЕСС: горит, пока хватает сил (~6 Дж/с)' : elem === 'rain' ? ' — на 45 с' : ''}`, J: baseJ * Math.pow(sz, 1.3), inst: true, vis: elem, man: elem === 'rain', run: () => { if (elem === 'shadow' || elem === 'mist') puff(new V(aim.tgt.x, aim.tgt.y + 3, aim.tgt.z), elem === 'shadow' ? COL.shadow : COL.mist, 50, { spd: 7, s0: 4, s1: 11, life: 3, a: 0.4, drag: 1 }); else if (elem === 'light') { orbT = 1e9; orbBind = null; selfVis('light', spec, aim.o, true); } else if (elem === 'rain') startRain(true); } }];
   }
-  function applyElem(elem, info, aim, p, n, sz) {      // стихия действует на названную вещь (brisingr traevam, eldrvarí stenr, vindr sverd …)
+  const HS = 0.002;      // игровой масштаб теплоёмкости (без него разогреть меч стоило бы сотни кДж)
+  function applyElem(elem, info, aim, p, n, sz) {      // стихия действует на названную вещь (brisingr traevam, brisingr hald, kveykva sverd …)
     const L = [], M = p.mods, its = (info.kinds.length || info.mats.length || info.pron.length) ? pickItems(info, aim, n, true) : [];
-    const A = (label, J, run, vis) => L.push({ label, J, run, vis });
+    const A = (label, J, run, vis, inst) => L.push({ label, J, run, vis, inst });
     for (const it of its) {
-      if (elem === 'fire') { const mat = MAT[it.mat], ign = IGN[it.mat] || (mat.cond ? 150 * it.m * 0.4 : 40); A(`нагреть ${it.name} (${it.m.toFixed(1)} кг, ${mat.n})${mat.flam ? ': займётся' : mat.cond ? ': раскалится' : ''}`, ign * M.heat * (mat.cond ? Math.max(1, it.m / 2) : 1), () => { it.T = Math.max(it.T, mat.flam ? mat.flam + 40 : 700 * M.heat); flash(COL.fire, 4); puff(it.p, COL.fire, 10, { spd: 3, s0: 1.2, s1: 3, life: 0.5, up: 4 }); }, 'fire'); }
-      else if (elem === 'water') A(`намочить ${it.name}`, 40, () => { it.wet = 1; it.T = Math.min(it.T, 20); if (it.burn) { it.burn = 0; steam(it.p, 4); } puff(it.p, COL.water, 12, { spd: 5, up: 4, grav: 14 }); }, 'water');
-      else if (elem === 'ice') A(`заморозить ${it.name}`, 120 * it.m ** 0.5, () => { it.T = -30; puff(it.p, COL.ice, 14, { spd: 4, s0: 1, s1: 2, life: 0.8 }); }, 'ice');
-      else if (elem === 'wind') A(`обдуть ${it.name}`, 60, () => { it.v.x += aim.d.x * 40 / Math.max(0.5, it.m ** 0.5); it.v.z += aim.d.z * 40 / Math.max(0.5, it.m ** 0.5); it.v.y += 6; }, 'wind');
-      else if (elem === 'bolt') A(`ударить молнией по ${it.name}`, 1800 * M.pow, () => { perform({ fx: ['bolt'], size: 0.5, count: 1, bright: 0, pow: M.pow }, new V(it.p.x, it.p.y + 3, it.p.z), new V(0, -1, 0), true, null); if (MAT[it.mat].cond) { it.T += 600; arc(it.p); } else if (MAT[it.mat].flam) it.T += 400; }, 'bolt');
-      else A(`воздействовать на ${it.name}`, 30, () => puff(it.p, COL[elem] || COL.mind, 8, { spd: 3, s0: 1, s1: 2, life: 0.6 }), 'mind');
+      if (elem === 'fire') {
+        const mat = MAT[it.mat], c = SPEC_HEAT[it.mat] || 1000, target = mat.flam ? mat.flam + 40 : 700 * M.heat, J = Math.max(20, it.m * c * HS * Math.max(0, target - it.T) * M.heat);
+        A(`нагреть ${it.name} (${it.m.toFixed(1)} кг, ${mat.n}) до ${Math.round(target)}°C — ПРОЦЕСС ${(J / POW()).toFixed(1)} с${mat.flam ? ': займётся' : mat.cond ? ': раскалится' : ''}`, J, () => addProc({ name: 'нагреть ' + it.name, J, tag: 'items', step(raw) { it.T += raw / (it.m * c * HS); if (Math.random() < 0.5) puff(it.p, COL.fire, 1, { spd: 3, s0: 1.2, s1: 3, life: 0.5, up: 4 }); } }), 'fire');
+      }
+      else if (elem === 'water') A(`намочить ${it.name}`, 40, () => { it.wet = 1; it.T = Math.min(it.T, 20); if (it.burn) { it.burn = 0; steam(it.p, 4); } puff(it.p, COL.water, 12, { spd: 5, up: 4, grav: 14 }); }, 'water', true);
+      else if (elem === 'ice') { const J = 120 * it.m ** 0.5; A(`заморозить ${it.name} — ПРОЦЕСС ${(J / POW()).toFixed(1)} с`, J, () => addProc({ name: 'заморозить ' + it.name, J, tag: 'items', step(raw) { it.T -= raw / (it.m * (SPEC_HEAT[it.mat] || 1000) * HS); puff(it.p, COL.ice, 1, { spd: 3, s0: 1, s1: 2, life: 0.6 }); } }), 'ice'); }
+      else if (elem === 'wind') A(`обдуть ${it.name}`, 60, () => { it.v.x += aim.d.x * 40 / Math.max(0.5, it.m ** 0.5); it.v.z += aim.d.z * 40 / Math.max(0.5, it.m ** 0.5); it.v.y += 6; }, 'wind', true);
+      else if (elem === 'bolt') { const J = 1800 * M.pow; A(`ударить молнией по ${it.name} — ПРОЦЕСС: заряд ${(J / POW()).toFixed(1)} с`, J, () => addProc({ name: 'заряд молнии', J, tag: 'other', step() { spawn(it.p.x + rnd(-2, 2), it.p.y + rnd(0, 4), it.p.z + rnd(-2, 2), 0, rnd(2, 8), 0, COL.bolt, 1, 0.3, 0.3, 0.9, 0, 1); }, end(why) { if (why !== 'done' || !items.items.includes(it)) return; perform({ fx: ['bolt'], size: 0.5, count: 1, bright: 0, pow: M.pow }, new V(it.p.x, it.p.y + 3, it.p.z), new V(0, -1, 0), true, null); if (MAT[it.mat].cond) { it.T += 600; arc(it.p); } else if (MAT[it.mat].flam) it.T += 400; } }), 'bolt'); }
+      else A(`воздействовать на ${it.name}`, 30, () => puff(it.p, COL[elem] || COL.mind, 8, { spd: 3, s0: 1, s1: 2, life: 0.6 }), 'mind', true);
     }
     if (!its.length) {
       if (elem === 'fire') {
         const fl = pickFlora(aim, 9, info.structs.length ? ['house', 'structs'] : info.flora.length ? ['tree', 'plant'] : null);
-        if (fl.length) { const o = fl[0], J = (o.k === 'house' ? 900 : o.k === 'tree' ? 800 : 120) * M.heat; A(`поджечь ${o.k === 'house' ? 'постройку' : o.k === 'tree' ? 'дерево' : 'растение'} (${fmtJ(J)} на розжиг; дальше огонь пойдёт сам)`, J, () => { dragons && dragons.ignite(o.x, o.y + o.h * 0.4, o.z, 3 + o.r); flash(COL.fire, 8); puff(new V(o.x, o.y + 2, o.z), COL.fire, 18, { spd: 5, s0: 1.4, s1: 3.5, life: 0.7, up: 6, grav: -3 }); }, 'fire'); return L; }
-        const bs = info.creatures.length ? pickBodies(aim, 10) : []; if (bs.length) { A('обжечь существо', 500, () => { for (const b of bs.slice(0, 2)) hurtBody(b, 14 * M.pow, 120, 'spell'); puff(new V(bs[0].x, bs[0].y + 4, bs[0].z), COL.fire, 20, { spd: 6, s0: 1.5, s1: 3, life: 0.6, up: 5 }); }, 'fire'); return L; }
+        if (fl.length) { const o = fl[0], J = (o.k === 'house' ? 900 : o.k === 'tree' ? 800 : 120) * M.heat; A(`поджечь ${o.k === 'house' ? 'постройку' : o.k === 'tree' ? 'дерево' : 'растение'} — ПРОЦЕСС: нагрев ${fmtJ(J)} (${(J / POW()).toFixed(1)} с); дальше огонь пойдёт сам`, J, () => addProc({ name: 'поджечь', J, step() { puff(new V(o.x, o.y + o.h * 0.3, o.z), COL.fire, 2, { spd: 3, s0: 1.2, s1: 3, life: 0.6, up: 5, grav: -3 }); }, end(why) { if (why === 'done') { dragons && dragons.ignite(o.x, o.y + o.h * 0.4, o.z, 3 + o.r); flash(COL.fire, 8); puff(new V(o.x, o.y + 2, o.z), COL.fire, 18, { spd: 5, s0: 1.4, s1: 3.5, life: 0.7, up: 6, grav: -3 }); } } }), 'fire'); return L; }
+        const bs = info.creatures.length ? pickBodies(aim, 10) : []; if (bs.length) { A('обжечь существо — ПРОЦЕСС', 500, () => addProc({ name: 'обжечь', J: 500, step(raw, dt, d) { d.k3 = (d.k3 || 0) + dt; if (d.k3 > 0.4) { d.k3 = 0; for (const b of bs.slice(0, 2)) hurtBody(b, 5 * M.pow, 60, 'spell'); puff(new V(bs[0].x, bs[0].y + 4, bs[0].z), COL.fire, 6, { spd: 6, s0: 1.5, s1: 3, life: 0.6, up: 5 }); } } }), 'fire'); return L; }
       }
       return manifest(elem, p, aim, sizeM(p), n);
     }
@@ -415,12 +472,16 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     if (pl.err) { show(r.ancient, pl.err); keep = true; return false; }
     const total = Math.round(pl.total), deficit = Math.max(0, total - E), hpLoss = deficit / 40, lethal = hpLoss >= (P.hp || 0);
     if (lethal && lethalAsk !== t) { lethalAsk = t; show('⚠ ' + r.ancient, `Не хватает ${fmtJ(deficit)} — магия возьмёт жизнь (−${Math.round(hpLoss)} здоровья). Ты умрёшь. Ещё раз Enter — если уверен`); return false; } lethalAsk = null;
-    E = Math.max(0, E - total); cd = 0.5; if (hist[hist.length - 1] !== t) hist.push(t); hi = hist.length;
-    if (deficit > 0) { P.hp -= hpLoss; flash([1, .2, .2], 6); if (P.hp <= 0) { P.hp = 0; richard.hurt(9999, P.pos.x, P.pos.y, P.pos.z); } else show(r.ancient, `Сил не хватило: −${Math.round(hpLoss)} здоровья`); }
-    xp += total / 300; try { localStorage.setItem('ninja.magic.xp', String(xp)); } catch (e) {}
-    if (p.trap) { traps.push({ x: aim.tgt.x, y: aim.tgt.y, z: aim.tgt.z, p, t: 90 }); puff(aim.tgt, COL.mind, 20, { spd: 4, s0: 1.4, s1: 2.5, life: 1.2, a: 0.6 }); show(r.ancient, 'Ловушка поставлена (' + fmtJ(total) + ' вложено): сработает, когда рядом окажется кто-то'); return true; }
-    runActs(pl.acts); sendVis(pl.acts, aim); if (total > 500) npcs && npcs.shout && npcs.shout(P.pos.x, P.pos.z, 45, ['Колдун!', 'Магия!', 'Ой, что это?!', 'Берегись!'][Math.floor(Math.random() * 4)]);
-    if (!(deficit > 0)) show(r.ancient, r.gloss + ' · ' + fmtJ(total));
+    cd = 0.5; if (hist[hist.length - 1] !== t) hist.push(t); hi = hist.length;
+    if (p.trap) { E = Math.max(0, E - total); xp += total / 300; traps.push({ x: aim.tgt.x, y: aim.tgt.y, z: aim.tgt.z, p, t: 90 }); puff(aim.tgt, COL.mind, 20, { spd: 4, s0: 1.4, s1: 2.5, life: 1.2, a: 0.6 }); show(r.ancient, 'Ловушка поставлена (' + fmtJ(total) + ' вложено): сработает, когда рядом окажется кто-то'); try { localStorage.setItem('ninja.magic.xp', String(xp)); } catch (e) {} return true; }
+    // мгновенные действия платят сразу, процессы — потоком по ходу работы (procTick)
+    const inst = pl.acts.filter(a => a.inst).reduce((s, a) => s + a.J, 0) * (p.marks.some(m => m === 3) ? 1.3 : 1) / pl.eta, pay = Math.min(E, inst), miss = inst - pay;
+    E -= pay; xp += pay / 300; if (miss > 0) { P.hp -= miss / 40; flash([1, .2, .2], 6); if (P.hp <= 0) { die(); return true; } }
+    deadlyNext = lethalAsk === null && deficit > 0 && total > E;      // «вопреки смерти»: процессы продолжают за счёт здоровья
+    runActs(pl.acts); deadlyNext = false; sendVis(pl.acts, aim);
+    if (total > 500) npcs && npcs.shout && npcs.shout(P.pos.x, P.pos.z, 45, ['Колдун!', 'Магия!', 'Ой, что это?!', 'Берегись!'][Math.floor(Math.random() * 4)]);
+    show(r.ancient, r.gloss + (procs.length ? ' · процесс идёт' : ' · ' + fmtJ(total)));
+    try { localStorage.setItem('ninja.magic.xp', String(xp)); } catch (e) {}
     return true;
   }
   function runActs(acts) { for (const a of acts) { try { a.run(); } catch (e) { console.error('магия:', e); } } }
@@ -500,6 +561,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
         for (const it of items.items) { if (it.held) { const d = itemUp(it) / e; drain += d; L.push(`🤲 ${it.name} −${Math.round(d)}`); } else if (it.hover) { const d = itemUp(it) / e; drain += d; L.push(`⇧ ${it.name} парит −${Math.round(d)}`); } }
         if (flyOn) { const d = selfUp() / e; drain += d; L.push(`🕊 полёт −${Math.round(d)} (Space выше · Shift ниже)`); } if (rooted) { const d = (P.state === 'ground' ? 25 : selfUp()) / e; drain += d; L.push(`✋ остановлен −${Math.round(d)}`); }
         if (wardJ > 0) L.push(`🛡 оберег ${Math.floor(wardJ)} Дж`); if (orbT > 0) { drain += 6 / e; L.push('✨ светлячок −' + Math.round(6 / e)); } if (rainT > 0) L.push('🌧 ливень');
+        for (const d of procs) { const pw = d.P / e; drain += d.J === Infinity ? pw : Math.min(pw, (d.J - d.got) / Math.max(dt, 0.016) / e); L.push(`⟳ ${d.name}${d.J !== Infinity && d.J > 0 ? ' ' + Math.round(100 * d.got / d.J) + '%' : ''} −${Math.round(pw)}`); }
         procB.style.display = L.length ? 'block' : 'none'; if (L.length) procB.textContent = 'Процессы (Дж/с): ' + L.join(' · ') + (drain ? ` · всего −${Math.round(drain)}/с` : '') + ' · U — прервать всё'; }
       if (!scatterDone) { scatter(P.pos.x, P.pos.z, 14, 20, 90); scatter(P.pos.x, P.pos.z, 10, 90, 220); scatterDone = true; }
       scT += dt; if (scT > 8) { scT = 0; let near = 0; for (const it of items.items) if (it.p.distanceTo(P.pos) < 180) near++; if (near < 12) scatter(P.pos.x, P.pos.z, 5, 40, 130); }
@@ -509,6 +571,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     partTick(dt); if (flashT > 0) { flashT = Math.max(0, flashT - dt * 4); flashL.intensity = flashI * flashT; if (flashT <= 0) flashL.intensity = 0; }
     for (let i = things.length - 1; i >= 0; i--) { const t = things[i]; t.t += dt; const k = t.t / t.life; if (k >= 1) { scene.remove(t.obj); t.obj.traverse(o => { if (o.isMesh && o.material) o.material.dispose(); }); t.end && t.end(); things.splice(i, 1); continue; } t.upd && t.upd(t, k); }
     // хватка: предмет следует за прицелом, удержание стоит энергии каждую секунду; повисшие предметы парят
+    procTick(dt);
     camera.getWorldDirection(_a);
     for (const it of items.items) {
       if (it.held) { const hd = it.hd || 14; _b.set(P.pos.x + _a.x * hd, P.pos.y + 6.5 + _a.y * hd, P.pos.z + _a.z * hd); it.v.set((_b.x - it.p.x) * 10, (_b.y - it.p.y) * 10, (_b.z - it.p.z) * 10); E -= itemUp(it) / eta() * dt; if (E <= 0 || P.dead || window.__dragonOn) { E = Math.max(0, E); it.held = 0; show('…', 'Сил не хватило держать ' + it.name); } }
