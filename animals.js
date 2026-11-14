@@ -79,6 +79,7 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
     ctrls.push(c);
   };
   const walkers = (sp, n, cx, cz, r, opt = {}) => {
+    if (sp === 'cat') return;      // кошки убраны из игры (издали выглядели как червь)
     r *= S; if (opt.street) opt = { ...opt, street: opt.street * S };
     for (let i = 0; i < n; i++) {
       const hx = cx + (rnd() - 0.5) * r * 0.7, hz = cz + (rnd() - 0.5) * r * 0.7;
