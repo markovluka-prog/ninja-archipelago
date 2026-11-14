@@ -187,11 +187,19 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     npcs && npcs.hitAt && npcs.hitAt(x, z, 9, false);
   }
   /* ───── состояния мага: щит-оберег, полёт, свет, хватка, ловушки ───── */
-  let wardJ = 0, flyOn = false, flyT = 0, flyY = 0, rooted = null, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
+  let cloakOn = false, wardJ = 0, flyOn = false, flyT = 0, flyY = 0, rooted = null, orbT = 0, boostV = 0, boostW = 0, bubble = null, orb = null, lastHp = P.hp, sprintT = 0; const traps = [];
+  let cloakShade = 1; const cloakUp = () => 40;      // Дж/с на поддержание невидимости (без КПД)
+  const cloakOrig = new Map();
+  function setCloak(on, shade) {      // невидимость: у других игроков фигура скрыта (сообщение 'spell'), у себя — полупрозрачная
+    if (on === cloakOn) return; cloakOn = on; if (shade) cloakShade = shade;
+    const fig = richard.figure; if (fig) fig.traverse(o => { if (!o.isMesh || !o.material) return; for (const m of Array.isArray(o.material) ? o.material : [o.material]) { if (on) { if (!cloakOrig.has(m)) cloakOrig.set(m, { t: m.transparent, o: m.opacity, d: m.depthWrite }); m.transparent = true; m.opacity = 0.22; m.depthWrite = false; } else { const q0 = cloakOrig.get(m); if (q0) { m.transparent = q0.t; m.opacity = q0.o; m.depthWrite = q0.d; cloakOrig.delete(m); } } m.needsUpdate = true; } });
+    net.send({ t: 'spell', fx: [on ? 'cloak' : 'uncloak'], x: 0, y: 0, z: 0, vx: 0, vy: 1, vz: 0, size: 1, count: 1, bright: 0 });
+    if (on) puff(new V(P.pos.x, P.pos.y + 5, P.pos.z), COL.shadow, 30, { spd: 6, s0: 2, s1: 5, life: 1, a: 0.5 });
+  }
   const selfUp = () => PMASS * G0 * 0.05 * U * 6;      // Дж/с, чтобы держать себя в воздухе
   const itemUp = it => it.m * G0 * 0.35 * U * 6;      // Дж/с, чтобы держать предмет против тяжести
-  function procCount(scope) { let n = 0; if (scope !== 'items') { if (rooted) n++; if (flyOn) n++; } if (scope === 'all') { if (wardJ > 0) n++; if (orbT > 0) n++; if (rainT > 0) n++; } if (scope !== 'self') for (const it of items.items) if (it.held || it.hover || it.pin > 0) n++; for (const d of procs) if (scope === 'all' || d.tag === scope) n++; return n; }
-  function stopProcs(scope) { const n = procCount(scope); if (scope !== 'items') { rooted = null; flyOn = false; } if (scope === 'all') { wardJ = 0; orbT = 0; rainT = 0; } if (scope !== 'self') for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } for (const d of procs.slice()) if (scope === 'all' || d.tag === scope) endProc(d, 'stopped'); return n; }
+  function procCount(scope) { let n = 0; if (scope !== 'items') { if (rooted) n++; if (flyOn) n++; if (cloakOn) n++; } if (scope === 'all') { if (wardJ > 0) n++; if (orbT > 0) n++; if (rainT > 0) n++; } if (scope !== 'self') for (const it of items.items) if (it.held || it.hover || it.pin > 0) n++; for (const d of procs) if (scope === 'all' || d.tag === scope) n++; return n; }
+  function stopProcs(scope) { const n = procCount(scope); if (scope !== 'items') { rooted = null; flyOn = false; setCloak(false); } if (scope === 'all') { wardJ = 0; orbT = 0; rainT = 0; } if (scope !== 'self') for (const it of items.items) { it.held = 0; it.hover = null; it.pin = 0; } for (const d of procs.slice()) if (scope === 'all' || d.tag === scope) endProc(d, 'stopped'); return n; }
   function boost(vy) { if (P.state === 'ground') { window.__g && window.__g.press('Space'); boostV = vy; boostW = 0.08; } else P.vel.y = Math.max(P.vel.y, vy); }
   function selfVis(main, spec, o, own, id) {      // видимая часть самонаправленных заклинаний (у чужих — только картинка)
     const c = COL[main] || COL.mind, body = own ? P.pos : (net.bodies().find(b => b.id === id) || { x: o.x, y: o.y - 6, z: o.z }), at = new V(body.x, body.y + 5, body.z);
@@ -433,7 +441,13 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       }
       case 'inspect': A('осмотреть', 20, () => inspect(aim, info), 'mind', true); return { acts: L };
       case 'sprint': { const v = 7 * sz; A(`рывок вперёд (${(v * U * 5).toFixed(1)} м/с, масса мага ${PMASS} кг)`, 0.5 * PMASS * (v * U * 5) ** 2 * 0.2, () => { const yaw = P.yawVis ?? P.yaw; boost(14); P.vel.x += Math.sin(yaw) * v * 5; P.vel.z += Math.cos(yaw) * v * 5; puff(P.pos, COL.wind, 20, { spd: 8, s0: 1.5, s1: 3, life: 0.5, a: 0.5 }); }, 'mind', true); return { acts: L }; }
-      case 'conceal': A('скрыть: клубы тумана', 150, () => { puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mist, 40, { spd: 6, s0: 4, s1: 10, life: 3, a: 0.35, drag: 1 }); }, 'mind', true); return { acts: L };
+      case 'conceal': {
+        if (selfT || (!info.creatures.length && !objectsNamed)) {
+          const shade = info.elems.includes('shadow') || p.mods.dark ? 0.7 : 1, dr = cloakUp() * shade;
+          A(`скрыть себя: невидимость — ПРОЦЕСС: ${fmtJ(dr)}/с, пока хватает сил; удар раскроет; losna eka или U — снять${shade < 1 ? ' (тень помогает: −30%)' : ''}`, 120 * shade, () => { setCloak(true, shade); }, 'mind', true); return { acts: L };
+        }
+        A('скрыть: клубы тумана', 150, () => { puff(new V(P.pos.x, P.pos.y + 4, P.pos.z), COL.mist, 40, { spd: 6, s0: 4, s1: 10, life: 3, a: 0.35, drag: 1 }); }, 'mind', true); return { acts: L };
+      }
       default: { A(`«${cl.verb}» — слово есть, но мир не знает, что менять`, 15, () => puff(new V(aim.tgt.x, aim.tgt.y + 2, aim.tgt.z), COL.mind, 8, { spd: 3, s0: 1, s1: 2, life: 0.6, a: 0.5 }), 'mind', true); return { acts: L }; }
     }
   }
@@ -509,7 +523,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     E -= pay; xp += pay / 300; if (miss > 0) { P.hp -= miss / 40; flash([1, .2, .2], 6); if (P.hp <= 0) { die(); return true; } }
     deadlyNext = lethalAsk === null && deficit > 0 && total > E;      // «вопреки смерти»: процессы продолжают за счёт здоровья
     runActs(pl.acts); deadlyNext = false; sendVis(pl.acts, aim);
-    if (total > 500) npcs && npcs.shout && npcs.shout(P.pos.x, P.pos.z, 45, ['Колдун!', 'Магия!', 'Ой, что это?!', 'Берегись!'][Math.floor(Math.random() * 4)]);
+    if (total > 500 && !cloakOn) npcs && npcs.shout && npcs.shout(P.pos.x, P.pos.z, 45, ['Колдун!', 'Магия!', 'Ой, что это?!', 'Берегись!'][Math.floor(Math.random() * 4)]);
     show(r.ancient, r.gloss + (procs.length ? ' · процесс идёт' : ' · ' + fmtJ(total)));
     try { localStorage.setItem('ninja.magic.xp', String(xp)); } catch (e) {}
     return true;
@@ -575,6 +589,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
   addEventListener('keydown', e => { if (e.code === 'KeyY' && !e.repeat && !box.classList.contains('on') && !/^(INPUT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName)) { e.preventDefault(); open(); } });
   addEventListener('keydown', e => { if (e.code === 'KeyU' && !e.repeat && !/^(INPUT|TEXTAREA)$/.test(document.activeElement && document.activeElement.tagName) && richard.active) { const n = stopProcs('all'); if (n) show('✦', 'Заклинания-процессы прекращены (' + n + ')'); } });
   net.on('spell', m => {
+    if (Array.isArray(m.fx) && (m.fx[0] === 'cloak' || m.fx[0] === 'uncloak')) { net.cloak && net.cloak(m.id, m.fx[0] === 'cloak'); return; }
     if (!Array.isArray(m.fx) || ![m.x, m.y, m.z, m.vx, m.vy, m.vz].every(Number.isFinite)) return; if (Math.hypot(m.x - camera.position.x, m.z - camera.position.z) > 500) return;
     perform({ fx: m.fx, size: m.size || 1, count: m.count || 1, bright: m.bright || 0, pow: 1 }, new V(m.x, m.y, m.z), new V(m.vx, m.vy, m.vz).normalize(), false, m.id);
   });
@@ -589,6 +604,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
       if (box.classList.contains('on') && Math.random() < 0.04) refresh();
       { const L = [], e = eta(); let drain = 0;
         for (const it of items.items) { if (it.held) { const d = itemUp(it) / e; drain += d; L.push(`🤲 ${it.name} −${Math.round(d)}`); } else if (it.hover) { const d = itemUp(it) / e; drain += d; L.push(`⇧ ${it.name} парит −${Math.round(d)}`); } }
+        if (cloakOn) { const d = cloakUp() * cloakShade / e; drain += d; L.push(`🫥 невидим −${Math.round(d)}`); }
         if (flyOn) { const d = selfUp() / e; drain += d; L.push(`🕊 полёт −${Math.round(d)} (Space выше · Shift ниже)`); } if (rooted) { const d = (P.state === 'ground' ? 25 : selfUp()) / e; drain += d; L.push(`✋ остановлен −${Math.round(d)}`); }
         if (wardJ > 0) L.push(`🛡 оберег ${Math.floor(wardJ)} Дж`); if (orbT > 0) { drain += 6 / e; L.push('✨ светлячок −' + Math.round(6 / e)); } if (rainT > 0) L.push('🌧 ливень');
         for (const d of procs) { const pw = d.P / e; drain += d.J === Infinity ? pw : Math.min(pw, (d.J - d.got) / Math.max(dt, 0.016) / e); L.push(`⟳ ${d.name}${d.J !== Infinity && d.J > 0 ? ' ' + Math.round(100 * d.got / d.J) + '%' : ''} −${Math.round(pw)}`); }
@@ -632,6 +648,7 @@ export function createMagic({ THREE, scene, world, richard, net, camera, rendere
     }
     // оберег: удары по магу съедают его энергию (1 здоровья = 40 Дж), пока она не кончится
     if (P.hp < lastHp - 0.01 && wardJ > 0 && !P.dead) { const dmg = lastHp - P.hp, ab = Math.min(dmg, wardJ / 40); P.hp += ab; wardJ -= ab * 40; puff(new V(P.pos.x, P.pos.y + 5, P.pos.z), COL.shield, 12, { spd: 8, s0: 1.2, s1: 2.5, life: 0.4 }); flash(COL.shield, 6); }
+    if (cloakOn) { E -= cloakUp() * cloakShade / eta() * dt; if (E <= 0) { E = 0; setCloak(false); show('…', 'Сил не хватило держать невидимость'); } else if (P.hp < lastHp - 0.01) { setCloak(false); show('…', 'Удар раскрыл тебя'); } else if (Math.random() < 0.15) spawn(P.pos.x + rnd(-2, 2), P.pos.y + rnd(1, 9), P.pos.z + rnd(-2, 2), 0, 2, 0, COL.shadow, 1.4, 0.3, 0.8, 0.35, 0, 0.5); }
     lastHp = P.hp;
     if (wardJ > 0) { if (bubble) { bubble.position.set(P.pos.x, P.pos.y + 5, P.pos.z); bubble.material.opacity = Math.min(0.3, 0.1 + wardJ / 4000) + 0.05 * Math.sin(performance.now() / 120); } } else if (bubble) { scene.remove(bubble); bubble.material.dispose(); bubble = null; }
     if (orbT > 0) { orbT -= dt; E -= 6 / eta() * dt; if (E <= 0) { E = 0; orbT = 0; } const tm = performance.now() / 1000; if (!orb) { orb = new THREE.Mesh(gSph, mkMat([1, .95, .7], 0.95)); orb.scale.setScalar(0.8); orb.renderOrder = 32; scene.add(orb); } if (orbBind && items.items.includes(orbBind)) orb.position.set(orbBind.p.x, orbBind.p.y + 2, orbBind.p.z); else orb.position.set(P.pos.x + Math.cos(tm * 1.3) * 4, P.pos.y + 11 + Math.sin(tm * 2) * 0.8, P.pos.z + Math.sin(tm * 1.3) * 4); orbL.position.copy(orb.position); orbL.intensity = 3.4; if (Math.random() < 0.4) spawn(orb.position.x, orb.position.y, orb.position.z, rnd(-1, 1), rnd(-1, 1), rnd(-1, 1), COL.light, 1.6, 0.2, 0.7, 0.5, 0, 0.5); if (orbT <= 0) { orbL.intensity = 0; scene.remove(orb); orb.material.dispose(); orb = null; } }

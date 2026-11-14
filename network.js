@@ -121,6 +121,7 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
     bodies() { const out = []; for (const [id, r] of remotes) if (!r.dying && r.init) out.push({ id, x: r.x, y: r.y, z: r.z, r: 1.2 }); return out; },
     /** драконы других игроков (дракон = всадник + dg{тангаж, крен, огонь, окраска}) */
     dragonRiders() { const out = []; for (const [id, r] of remotes) if (r.dg && !r.dying) out.push({ id, dg: r.dg }); return out; },
+    cloak(id, on) { const r = remotes.get(id); if (r) r.cloak = !!on; },      // невидимость другого игрока (сообщение 'spell' с fx cloak/uncloak)
     game: null, hideLabels: false,
     on(type, f) { (handlers.get(type) || handlers.set(type, new Set()).get(type)).add(f); },
     send(obj) { if (online && ws.readyState === 1) ws.send(JSON.stringify(obj)); },
@@ -146,7 +147,7 @@ export function startNetwork({ richard, scene, THREE, onStatus = () => {} }) {
       for (const [id, r] of [...remotes]) {
         if (r.dying) { r.dying -= dt; r.av.update(dt); if (r.dying <= 0) removeRemote(id); continue; }
         r.x += (r.tx - r.x) * k; r.y += (r.ty - r.y) * k; r.z += (r.tz - r.z) * k; r.yaw += angDiff(r.yaw, r.tyaw) * k;
-        r.av.setPose(r.x, r.y, r.z, r.yaw); r.av.update(dt); if (richard.applyWeapon) richard.applyWeapon(r.av.group, !!r.wOn, dt); if (r.lb) r.lb.visible = !api.hideLabels;
+        r.av.setPose(r.x, r.y, r.z, r.yaw); r.av.update(dt); if (richard.applyWeapon) richard.applyWeapon(r.av.group, !!r.wOn, dt); if (r.lb) r.lb.visible = !api.hideLabels; r.av.group.visible = !r.cloak;      // заклинание невидимости (magic.js): фигура и табличка скрыты
       }
     },
     close() { closedByUs = true; ws && ws.close(); },

@@ -57,7 +57,7 @@ export const ADJ = {
   bjartr: { bright: 1 }, bleikr: { bright: 1 }, hvitr: { bright: 1 }, raudhr: { heat: 1.3 }, svartr: { dark: 1 }, akr: { wet: 1 }, rakr: { wet: 1 }, vrangr: { homing: 1 }, 'edoc\'sil': { pow: 1.6 }, 'sköliro': { pow: 1.3 }, lunaea: {}, 'dauthleikr': { lethal: 1 },
 };
 export const PREP = { audr: 'up', undir: 'down', fram: 'fwd', aptr: 'back', 'arúnd': 'over', eom: 'to', fra: 'from', medh: 'with', oth: 'with', laust: 'without', vel: 'upon', unin: 'in', 'äthr': 'on', abr: 'of', 'framvír': 'before' };
-export const PRON = { thornessa: 'this', 'thäet': 'it', thorna: 'those', eka: 'self', ietdar: 'self', ono: 'you', therr: 'they', vae: 'we', thar: 'there', allr: 'all' };
+export const PRON = { edtha: 'self', thornessa: 'this', 'thäet': 'it', thorna: 'those', eka: 'self', ietdar: 'self', ono: 'you', therr: 'they', vae: 'we', thar: 'there', allr: 'all' };
 // числа (○ — придуманы курсом: в каноне чисел нет)
 const NUMS = { ein: 1, tvei: 2, 'thrír': 3, 'fjórr': 4, fimr: 5, ses: 6, sjau: 7, 'átta': 8, 'níu': 9, 'tíu': 10 };
 const RU_NUMS = { один: 1, одна: 1, два: 2, две: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8, девять: 9, десять: 10 };
