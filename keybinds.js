@@ -5,7 +5,7 @@
   const ACTIONS = [
     ['fwd', 'Вперёд', 'KeyW'], ['back', 'Назад', 'KeyS'], ['left', 'Влево', 'KeyA'], ['right', 'Вправо', 'KeyD'],
     ['jump', 'Прыжок / планировать', 'Space'], ['run', 'Шагом (идти медленнее) / ускорение дракона', 'ShiftLeft'],
-    ['kick', 'Пинок / бочка-уворот на драконе', 'KeyF'],      // удар — ЛКМ, блок — ПКМ; J, K, L, C отключены
+    ['kick', 'Пинок / бочка-уворот на драконе', 'KeyF'], ['attack', 'Удар (как ЛКМ)', 'KeyJ'], ['block', 'Блок / парад / ульта дракона (как ПКМ)', 'KeyK'],
     ['use', 'Действие (дверь, лошадь, штурвал, пушка, дракон)', 'KeyE'], ['dragon', 'Позвать дракона', 'KeyV'], ['bail', 'Паруса / спрыгнуть с дракона', 'KeyQ'],
     ['sword', 'Меч и щит', 'Digit1'], ['bow', 'Лук', 'Digit2'], ['draw', 'Достать/убрать оружие · огонь из пушки · дракон вниз', 'KeyX'], ['up', 'Дракон вверх', 'KeyZ'],
     ['respawn', 'Возродиться (с Shift)', 'KeyR'], ['help', 'Панель управления', 'KeyH'], ['tp', 'Телепорт (карта)', 'KeyT'], ['lobby', 'Лобби / игроки', 'KeyM'], ['orbit', 'Облёт / ходьба', 'KeyG'],
@@ -15,7 +15,7 @@
   try { map = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
   const def = Object.fromEntries(ACTIONS.map(a => [a[0], a[2]]));
   const cur = a => map[a] || def[a];
-  const OFF = ['KeyJ', 'KeyK', 'KeyL', 'KeyC'];      // отключённые клавиши боя (остались мышь и F)
+  const OFF = ['KeyL', 'KeyC'];      // отключённые клавиши боя (J — удар и K — блок/ульта дублируют мышь для тачпада)
   let rev = {}, defs = new Set([...ACTIONS.map(a => a[2]), ...OFF]);      // реальная клавиша → стандартный код действия
   const rebuild = () => { rev = {}; for (const [a, , d] of ACTIONS) rev[cur(a)] = d; };
   rebuild();

@@ -361,7 +361,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     if (mine.st === 'ride' && (e.code === 'Space' || e.code.startsWith('Arrow'))) e.preventDefault();
     if (e.repeat) return; if (e.code === 'KeyV') onV(); else if (e.code === 'KeyE') onE(); else if (e.code === 'KeyQ') bail(); else if (e.code === 'KeyF' && mine.st === 'ride' && (oh.rollCd || 0) <= 0) { oh.rollT = 0.65; oh.rollDir = mine.turn < 0 ? -1 : 1; oh.rollCd = 2; if (inDragonMode()) net.send({ t: 'inv' }); }
   });
-  addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
+  addEventListener('keydown', e => { if (e.code === 'KeyK' && !e.repeat && mine.st === 'ride' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)) launchUlt(); }); addEventListener('keyup', e => K.delete(e.code)); addEventListener('blur', () => { K.clear(); mouseDown = false; });
   addEventListener('mousemove', e => { if ((mine.st === 'ride' || mine.st === 'land') && document.pointerLockElement) { mine.camYaw -= e.movementX * 0.0035; cam_.p = clamp(cam_.p + e.movementY * 0.003, -0.5, 1.2); } });      // как при ходьбе: мышь крутит камеру
   addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) mouseDown = true; if (e.button === 2 && document.pointerLockElement && mine.st === 'ride') launchUlt(); }); addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
 
@@ -638,7 +638,7 @@ export function createDragons({ THREE, scene, world, richard, net, camera, rende
     prompt_.style.display = window.__dragonNear ? 'block' : 'none'; if (window.__dragonNear) prompt_.textContent = '🐉 E — забраться на дракона';
     if (mine.st === 'ride') {
       hud.style.display = 'block';
-      hud.textContent = `🐉 ${PALETTES[mine.pal].name} дракон · W/S — вперёд/назад · A/D — поворот · Z/X — вверх/вниз · Shift — ускорение · Пробел/ЛКМ — огонь · E — приземлиться · Q — спрыгнуть · высота ${Math.round(mine.y - hAt(mine.x, mine.z))} · F — бочка · ПКМ — ☄ ${oh.ult >= 1 ? 'УЛЬТА ГОТОВА' : 'ульта ' + Math.round(oh.ult * 100) + '%'}${oh.lock > 0 ? ' · 🔥 ПЕРЕГРЕВ' : oh.heat > 0.3 ? ' · жар ' + Math.round(oh.heat / 4 * 100) + '%' : ''}${nearestArrow()}`;
+      hud.textContent = `🐉 ${PALETTES[mine.pal].name} дракон · W/S — вперёд/назад · A/D — поворот · Z/X — вверх/вниз · Shift — ускорение · Пробел/ЛКМ — огонь · E — приземлиться · Q — спрыгнуть · высота ${Math.round(mine.y - hAt(mine.x, mine.z))} · F — бочка · ПКМ или K — ☄ ${oh.ult >= 1 ? 'УЛЬТА ГОТОВА' : 'ульта ' + Math.round(oh.ult * 100) + '%'}${oh.lock > 0 ? ' · 🔥 ПЕРЕГРЕВ' : oh.heat > 0.3 ? ' · жар ' + Math.round(oh.heat / 4 * 100) + '%' : ''}${nearestArrow()}`;
     } else if (mine.st === 'land') { hud.style.display = 'block'; hud.textContent = '🐉 Приземляемся…'; }
     updateOthers(dt); ringsStep(dt);
     if (window.__sndLoop) window.__sndLoop('fire', true, Math.max(mine.st === 'ride' && mine.fire ? 1 : 0, remoteFire));
