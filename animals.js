@@ -79,7 +79,6 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
     ctrls.push(c);
   };
   const walkers = (sp, n, cx, cz, r, opt = {}) => {
-    if (sp === 'cat') return;      // кошки убраны из игры (издали выглядели как червь)
     r *= S; if (opt.street) opt = { ...opt, street: opt.street * S };
     for (let i = 0; i < n; i++) {
       const hx = cx + (rnd() - 0.5) * r * 0.7, hz = cz + (rnd() - 0.5) * r * 0.7;
@@ -93,7 +92,7 @@ export function createAnimals({ THREE, scene, world, base = './' }) {
       add(sp, mode, { route, acts: route.map(() => rnd() < 0.7 ? (opt.rest || 'graze') : 'idle'), x: start[0], z: start[1], wi: 0, restRole: opt.rest || 'graze', restMin: opt.restMin ?? 2, restMax: opt.restMax ?? 8 });
     }
   };
-  const fliers = (sp, n, cx, cz, r, alt, o = {}) => { r *= S; for (let i = 0; i < n; i++) add(sp, 'orbit', { cx: cx + (rnd() - 0.5) * 20, cz: cz + (rnd() - 0.5) * 20, r: r * (0.7 + rnd() * 0.6), a: rnd() * 6.28, alt: alt + (rnd() - 0.5) * 14, dir: rnd() < 0.5 ? 1 : -1, ph: rnd() * 6, ...o }); };
+  const fliers = (sp, n, cx, cz, r, alt, o = {}) => { if (sp === 'raven') return; r *= S; for (let i = 0; i < n; i++) add(sp, 'orbit', { cx: cx + (rnd() - 0.5) * 20, cz: cz + (rnd() - 0.5) * 20, r: r * (0.7 + rnd() * 0.6), a: rnd() * 6.28, alt: alt + (rnd() - 0.5) * 14, dir: rnd() < 0.5 ? 1 : -1, ph: rnd() * 6, ...o }); };
   const swimmers = (sp, n, cx, cz, rx, rz) => { rx *= S; rz *= S; for (let i = 0; i < n; i++) { const route = lakeRoute(cx, cz, rx, rz); if (!route) continue; add(sp, 'swim', { route, x: route[0][0], z: route[0][1], restRole: 'graze', restMin: 1, restMax: 4, v: 2.4 }); } };
   const P = (x, y) => P2W(x, y);
 
