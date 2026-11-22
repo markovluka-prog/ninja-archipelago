@@ -1,0 +1,44 @@
+name: Ninjai
+options:
+  bundleIdPrefix: com.markov
+  deploymentTarget: { iOS: "16.0" }
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: HHYKJYGQMV
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Ninjai:
+    type: application
+    platform: iOS
+    sources:
+      - path: NinjaiApp
+        excludes: ["Vendor/**"]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.markov.ninjai
+        TARGETED_DEVICE_FAMILY: "2"           # только iPad
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Ниндзи
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UIStatusBarHidden: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.games
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    preBuildScripts:
+      - name: Copy web game
+        basedOnDependencyAnalysis: false
+        script: |
+          # копирует игру (из корня репозитория) в бандл; сервер, карты-редакторы, HEIC и секреты не попадают
+          rsync -a --delete \
+            --include='/index.html' --include='/*.js' --include='/animals/***' --include='/assets/***' \
+            --include='/chars/***' --include='/npc/***' --include='/karta-data/***' --include='/Бэн/***' \
+            --include='/Зантио/***' --include='/Ричард/***' --include='/Соколин/***' --include='/Чжен Ши/***' \
+            --exclude='server.js' --exclude='bot.js' --exclude='stream.js' --exclude='*.HEIC' --exclude='*.heic' --exclude='*' \
+            "${SRCROOT}/../" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/web/"
+          rsync -a --delete "${SRCROOT}/NinjaiApp/Vendor/" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/vendor/"
